@@ -1,1 +1,20 @@
+K: 10  # number of nodes
+Mk: 6  # number of sensors per node
+D: 1  # number of target signal channels
+# Scenario 1: full 
+# Qdglob: 2  # number of global desired sources
+# Qnglob: 2  # number of global noise sources
+# Qdloc: 5  # number of local desired sources
+# Qnloc: 5  # number of local noise sources
+# Scenario 2: specific for TI-iDANSE 
+Qdglob: 1  # number of global desired sources
+Qnglob: 0  # number of global noise sources
+Qdloc: 0  # number of local desired sources
+Qnloc: 0  # number of local noise sources
+
+algos:  # list of algorithms to run
+- centralized
+- idanse
+- tiidanse
+
 seed: 42  # random number generator seed
