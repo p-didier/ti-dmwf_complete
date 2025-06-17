@@ -7,15 +7,27 @@ D: 1  # number of target signal channels
 # Qdloc: 5  # number of local desired sources
 # Qnloc: 5  # number of local noise sources
 # Scenario 2: specific for TI-iDANSE 
-Qdglob: 2  # number of global desired sources
-Qnglob: 0  # number of global noise sources
-Qdloc: 5  # number of local desired sources
-Qnloc: 5  # number of local noise sources
+# Qdglob: 2  # number of global desired sources
+# Qnglob: 3  # number of global noise sources
+# Qdloc: 5  # number of local desired sources
+# Qnloc: 5  # number of local noise sources
+# Scenario 3: for POSS 
+Qdglob: 3  # number of global desired sources
+Qnglob: 3  # number of global noise sources
+Qdloc: 0  # number of local desired sources
+Qnloc: 0  # number of local noise sources
+
 
 algos:  # list of algorithms to run
 - centralized
 - idanse
 - tiidanse
 - tidmwf
+observability: poss  # "foss" for fully overlapping subspaces,
+# observability: foss  # "foss" for fully overlapping subspaces,
+    # "poss" for partially overlapping subspaces
+possDiffuse: True  # if True and observability is 'foss', the
+# possDiffuse: False  # if True and observability is 'foss', the
+    # noise sources are assumed only local, i.e., uncorrelated across nodes
 
 seed: 42  # random number generator seed

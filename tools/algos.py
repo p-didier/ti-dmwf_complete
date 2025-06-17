@@ -14,23 +14,69 @@ from dataclasses import dataclass
 class Run:
     cfg: Parameters
 
+    def setup_scms(self):
+        c = self.cfg
+        if c.observability == 'foss':
+            Aglob = self.randmat((c.M, c.Qdglob))
+            Bglob = self.randmat((c.M, c.Qnglob))
+            Aloc = sla.block_diag(*[self.randmat((c.Mk, c.Qdloc)) for _ in range(c.K)])
+            Bloc = sla.block_diag(*[self.randmat((c.Mk, c.Qnloc)) for _ in range(c.K)])
+
+            Rdgg = Aglob @ Aglob.T
+            Rngg = Bglob @ Bglob.T
+            Rdll = Aloc @ Aloc.T
+            Rnll = Bloc @ Bloc.T
+            Rss = Rdgg + Rdll
+            Rnn = Rngg + Rnll
+            Ryy = Rss + Rnn + np.eye(c.M) * 1e-6  # Add small self-noise to avoid singularity
+            Rgg = Rdgg + Rngg
+        elif c.observability == 'poss':
+            # Do not differentiate between global and local sources, 
+            # randomly generate observability pattern
+            self.obsMat = np.zeros((c.K, c.Q))
+            def inadequacy_criterion(om):
+                return np.any(np.sum(om, axis=1) == 0) | np.any(np.sum(om, axis=0) == 0)
+            while inadequacy_criterion(self.obsMat):
+                self.obsMat = np.random.randint(0, 2, (c.K, c.Q))
+            if c.possDiffuse:
+                # Make sure each noise source is only observed by one node at most
+                for n in range(c.Qn):
+                    idx = np.where(self.obsMat[:, c.Qd + n] == 1)[0]
+                    if len(idx) > 1:
+                        idx = np.random.choice(idx, 1, replace=False)
+                        self.obsMat[:, c.Qd + n] = 0
+                        self.obsMat[idx, c.Qd + n] = 1
+            Amat = self.randmat((c.M, c.Qd))
+            Bmat = self.randmat((c.M, c.Qn))
+            for k in range(c.K):
+                for s in range(c.Qd):
+                    if self.obsMat[k, s] == 0:
+                        Amat[c.Mk * k:c.Mk * (k + 1), s] = 0
+                for n in range(c.Qn):
+                    if self.obsMat[k, c.Qd + n] == 0:
+                        Bmat[c.Mk * k:c.Mk * (k + 1), n] = 0
+            Rss = Amat @ Amat.T
+            Rnn = Bmat @ Bmat.T
+            Ryy = Rss + Rnn + np.eye(c.M) * 1e-6  # Add small self-noise to avoid singularity
+            Rgg = [[None for _ in range(c.K)] for _ in range(c.K)]
+            for k in range(c.K):
+                for q in range(c.K):
+                    if k == q:
+                        continue
+                    idxD = np.where(
+                        np.logical_and(self.obsMat[k, :c.Qd] == 1, self.obsMat[q, :c.Qd] == 1)
+                    )[0]
+                    idxN = np.where(
+                        np.logical_and(self.obsMat[k, c.Qd:] == 1, self.obsMat[q, c.Qd:] == 1)
+                    )[0]
+                    Rgg[k][q] = Amat[:, idxD] @ Amat[:, idxD].T +\
+                        Bmat[:, idxN] @ Bmat[:, idxN].T
+        return Ryy, Rss, Rgg
+
     def launch(self):
         # Generate scenario
         c = self.cfg
-        Aglob = self.randmat((c.M, c.Qdglob))
-        Bglob = self.randmat((c.M, c.Qnglob))
-        Aloc = sla.block_diag(*[self.randmat((c.Mk, c.Qdloc)) for _ in range(c.K)])
-        Bloc = sla.block_diag(*[self.randmat((c.Mk, c.Qnloc)) for _ in range(c.K)])
-
-        Rdgg = Aglob @ Aglob.T
-        Rngg = Bglob @ Bglob.T
-        Rdll = Aloc @ Aloc.T
-        Rnll = Bloc @ Bloc.T
-        Rss = Rdgg + Rdll
-        Rnn = Rngg + Rnll
-        Ryy = Rss + Rnn + np.eye(c.M) * 1e-6  # Add small self-noise to avoid singularity
-        Rgg = Rdgg + Rngg
-        print("Generated covariance matrices.")
+        Ryy, Rss, Rgg = self.setup_scms()
 
         # Generate tree
         G = nx.complete_graph(c.K)
@@ -54,23 +100,23 @@ class Run:
                 for k in range(c.K):
                     Rykyk = Ryy[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
                     Rgkgk = Rgg[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
-                    Pk[k] = np.linalg.inv(Rykyk) @ Rgkgk[:, :c.Qe]
+                    Pk[k] = np.linalg.inv(Rykyk) @ Rgkgk[:, :c.Qg]
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
                     if alg == "idanse":
-                        Ck = np.zeros((c.M, c.Mk + c.Qe * (c.K - 1)))
+                        Ck = np.zeros((c.M, c.Mk + c.Qg * (c.K - 1)))
                         Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                         idxNei = 0
                         for q in range(c.K):
                             if q != k:
                                 Ck[
                                     c.Mk * q:c.Mk * (q + 1),
-                                    c.Mk + idxNei * c.Qe: c.Mk + (idxNei + 1) * c.Qe
+                                    c.Mk + idxNei * c.Qg: c.Mk + (idxNei + 1) * c.Qg
                                 ] = Pk[q]
                                 idxNei += 1
                     elif alg == "tiidanse":
-                        Ck = np.zeros((c.M, c.Mk + c.Qe))
+                        Ck = np.zeros((c.M, c.Mk + c.Qg))
                         Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                         for q in range(c.K):
                             if q != k:
@@ -81,26 +127,58 @@ class Run:
                     Wfilt[alg][k] = Ck @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
             elif alg == "tidmwf":
                 for k in range(c.K):
-                    _, upstreamNeighs = get_upstream_nodes(G, k)
-                    Cqk = [
-                        np.zeros((c.M, c.Mk + c.Qe * len(upstreamNeighs[q])))
-                        for q in range(c.K)
-                    ]
-                    for q in flatten_list(tree_levels(G, k)):
+                    upstreamNodes, upstreamNeighs = get_upstream_nodes(G, k)
+                    Cqk = [None for _ in range(c.K)]
+                    if c.observability == 'poss':
+                        hQkq = [[None for _ in range(c.K)] for _ in range(c.K)]
+                        for q in range(c.K):
+                            if q == k:
+                                continue
+                            obss = np.sum(
+                                self.obsMat[np.array(list(upstreamNodes[q]) + [q]), :],
+                                axis=0
+                            ) > 0   # boolean vector indicating which sources are
+                                    # observed by node q or any node upstream of q 
+                            hQkq[k][q] = int(np.sum(self.obsMat[k, :] + obss == 2))
+                            # ^^^ number of channels exchanged downstream by node q
+                                # when node k is the root
+                    for q in range(c.K):
+                        if c.observability == 'foss':
+                            dim = c.Mk + c.Qg * len(upstreamNeighs[q])
+                        elif c.observability == 'poss':
+                            dim = c.Mk + int(
+                                np.sum([hQkq[k][u] for u in upstreamNeighs[q]])
+                            )
+                        Cqk[q] = np.zeros((c.M, dim))
                         Cqk[q][c.Mk * q:c.Mk * (q + 1), :c.Mk] = np.eye(c.Mk)
+                    # Compute fusion matrices
+                    Pk = [None for _ in range(c.K)]
+                    for q in flatten_list(tree_levels(G, k)):
                         for ii, n in enumerate(upstreamNeighs[q]):
-                            Cqk[q][
-                                :, c.Mk + ii * c.Qe: c.Mk + (ii + 1) * c.Qe
-                            ] = Cqk[n] @ Pk[n]
+                            if c.observability == 'foss':
+                                idxBeg = c.Mk + ii * c.Qg
+                                idxEnd = idxBeg + c.Qg
+                            else:
+                                idxBeg = c.Mk + int(
+                                    np.sum([hQkq[k][u] for u in upstreamNeighs[q][:ii]])
+                                )
+                                idxEnd = idxBeg + hQkq[k][n]
+                            Cqk[q][:, idxBeg:idxEnd] = Cqk[n] @ Pk[n]
                         if q != k:
                             # Compute Pk
-                            Rhyhy = Cqk[q].T @ Ryy @ Cqk[q]
-                            Rhghg = Cqk[q].T @ Rgg @ Cqk[q]
-                            Pk[q] = np.linalg.inv(Rhyhy) @ Rhghg[:, :c.Qe]
+                            Rhyqhyq = Cqk[q].T @ Ryy @ Cqk[q]
+                            if c.observability == 'foss':
+                                dim = c.Qg
+                            elif c.observability == 'poss':
+                                dim = hQkq[k][q]
+                            hEq = np.zeros((c.M, dim))
+                            hEq[c.Mk * k:c.Mk * k + dim, :dim] = np.eye(dim)
+                            Rhyqyktq = Cqk[q].T @ Ryy @ hEq
+                            Pk[q] = np.linalg.inv(Rhyqhyq) @ Rhyqyktq
                     # Compute estimation filter
                     tRyy = Cqk[k].T @ Ryy @ Cqk[k]
                     tRss = Cqk[k].T @ Rss @ Cqk[k]
-                    Wfilt[alg][k] = Cqk[k] @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
+                    Wfilt[alg][k] = Cqk[k] @ np.linalg.pinv(tRyy) @ tRss[:, :c.D]
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
         

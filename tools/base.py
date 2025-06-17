@@ -22,6 +22,10 @@ class Parameters:
     algos: list[str] = field(default_factory=lambda: [
         "centralized", "idanse", "tiidanse"
     ])  # list of algorithms to run
+    observability: str = 'foss'  # "foss" for fully overlapping subspaces,
+        # "poss" for partially overlapping subspaces
+    possDiffuse: bool = False  # if True and observability is 'foss', the
+        # noise sources are assumed only local, i.e., uncorrelated across nodes
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
@@ -32,7 +36,23 @@ class Parameters:
         if self.Qdglob + self.Qnglob > self.Mk:
             raise ValueError("The sum of global desired and noise sources must not exceed the number of sensors per node.")
         self.M = self.K * self.Mk  # total number of sensors
-        self.Qe = self.Qdglob + self.Qnglob  # effective number of channels exchanged between nodes
+        self.Qg = self.Qdglob + self.Qnglob  # effective number of channels exchanged between nodes
+        self.Qd = self.Qdglob + self.Qdloc  # total number of desired sources
+        self.Qn = self.Qnglob + self.Qnloc  # total number of noise sources
+        self.Q = self.Qd + self.Qn  # total number of sources
+        if self.observability == 'foss' and self.Qg > self.Mk:
+            raise ValueError("For fully overlapping subspaces, the number of global sources must not exceed the number of sensors per node.")
+        if self.observability == 'poss':
+            if self.Qd + self.Qn > self.Mk:
+                raise ValueError("For partially overlapping subspaces, the total number of desired and noise sources must not exceed the number of sensors per node.")
+                # ^^^ this is too strict, but we keep it for now
+            algs_to_remove = []
+            for alg in self.algos:
+                if 'idanse' in alg:
+                    print(f'{alg} not implemented for partially overlapping subspaces.')
+                    algs_to_remove.append(alg)
+            for alg in algs_to_remove:
+                self.algos.remove(alg)
 
     def load_from_yaml(self, path: str):
         """Load parameters from a YAML file."""
