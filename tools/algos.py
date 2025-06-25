@@ -18,17 +18,10 @@ class Run:
     def setup_scms(self):
         c = self.cfg
         if c.observability == 'foss':
-            Aglob = randmat((c.M, c.Qdglob))
-            Bglob = randmat((c.M, c.Qnglob))
-            Aloc = sla.block_diag(*[randmat((c.Mk, c.Qdloc)) for _ in range(c.K)])
-            Bloc = sla.block_diag(*[randmat((c.Mk, c.Qnloc)) for _ in range(c.K)])
-
-            Rdgg = Aglob @ Aglob.T
-            Rngg = Bglob @ Bglob.T
-            Rdll = Aloc @ Aloc.T
-            Rnll = Bloc @ Bloc.T
-            Rss = Rdgg + Rdll
-            Rnn = Rngg + Rnll
+            Aglob = randmat((c.M, c.Qd))
+            Bglob = randmat((c.M, c.Qn))
+            Rss = Aglob @ Aglob.T
+            Rnn = Bglob @ Bglob.T
             Ryy = Rss + Rnn + np.eye(c.M) * 1e-6  # Add small self-noise to avoid singularity
         elif c.observability == 'poss':
             # Do not differentiate between global and local sources, 
@@ -92,19 +85,19 @@ class Run:
                     for k in range(c.K):
                         if k == q:
                             continue
-                        Ryqyktq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * k:c.Mk * k + c.Qglob]
+                        Ryqyktq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * k:c.Mk * k + c.Q]
                         Pk[q][k] = np.linalg.inv(Ryqyq) @ Ryqyktq
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
-                    Ck = np.zeros((c.M, c.Mk + c.Qglob * (c.K - 1)))
+                    Ck = np.zeros((c.M, c.Mk + c.Q * (c.K - 1)))
                     Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
                     for q in range(c.K):
                         if q != k:
                             Ck[
                                 c.Mk * q:c.Mk * (q + 1),
-                                c.Mk + idxNei * c.Qglob: c.Mk + (idxNei + 1) * c.Qglob
+                                c.Mk + idxNei * c.Q: c.Mk + (idxNei + 1) * c.Q
                             ] = Pk[q][k]
                             idxNei += 1
                     # Compute the filters
@@ -131,7 +124,7 @@ class Run:
                                 # when node k is the root                    
                     for q in range(c.K):
                         if c.observability == 'foss':
-                            dim = c.Mk + c.Qglob * len(upstreamNeighs[q])
+                            dim = c.Mk + c.Q * len(upstreamNeighs[q])
                         elif c.observability == 'poss':
                             dim = c.Mk + int(
                                 np.sum([hQkq[k][u] for u in upstreamNeighs[q]])
@@ -143,8 +136,8 @@ class Run:
                     for q in flatten_list(tree_levels(G, k)):
                         for ii, n in enumerate(upstreamNeighs[q]):
                             if c.observability == 'foss':
-                                idxBeg = c.Mk + ii * c.Qglob
-                                idxEnd = idxBeg + c.Qglob
+                                idxBeg = c.Mk + ii * c.Q
+                                idxEnd = idxBeg + c.Q
                             else:
                                 idxBeg = c.Mk + int(
                                     np.sum([hQkq[k][u] for u in upstreamNeighs[q][:ii]])
@@ -155,7 +148,7 @@ class Run:
                             # Compute Pk
                             Rhyqhyq = Cqk[q].T @ Ryy @ Cqk[q]
                             if c.observability == 'foss':
-                                dim = c.Qglob
+                                dim = c.Q
                             elif c.observability == 'poss':
                                 dim = hQkq[k][q]
                             hEq = np.zeros((c.M, dim))

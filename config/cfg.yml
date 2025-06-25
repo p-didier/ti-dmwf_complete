@@ -4,8 +4,8 @@ Mk: 6  # number of sensors per node
 graphDiameter: null  # diameter of the graph corresponding to the network
 
 # Acoustic scenario parameters
-Qdglob: 2  # number of global desired sources
-Qnglob: 2  # number of global noise sources
+Qd: 2  # number of desired sources
+Qn: 2  # number of noise sources
 D: 1  # number of target signal channels
 # observability: poss  # "foss" for fully overlapping subspaces,
 observability: foss  # "foss" for fully overlapping subspaces,

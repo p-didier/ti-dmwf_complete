@@ -17,10 +17,8 @@ class Parameters:
     graphDiameter: int = None  # diameter of the graph corresponding to the network
 
     # Acoustic scenario parameters
-    Qdglob: int = 1  # number of global desired sources
-    Qnglob: int = 1  # number of global noise sources
-    Qdloc: int = 0  # number of local desired sources
-    Qnloc: int = 0  # number of local noise sources
+    Qd: int = 1  # number of desired sources
+    Qn: int = 1  # number of noise sources
     D: int = 1  # number of target signal channels
     observability: str = 'foss'  # "foss" for fully overlapping subspaces,
         # "poss" for partially overlapping subspaces
@@ -42,14 +40,11 @@ class Parameters:
     def __post_init__(self):
         np.random.seed(self.seed)
         # Validate parameters
-        if self.Qdglob + self.Qnglob > self.Mk:
+        if self.Qd + self.Qn > self.Mk:
             raise ValueError("The sum of global desired and noise sources must not exceed the number of sensors per node.")
         self.M = self.K * self.Mk  # total number of sensors
-        self.Qglob = self.Qdglob + self.Qnglob  # effective number of channels exchanged between nodes
-        self.Qd = self.Qdglob + self.Qdloc  # total number of desired sources
-        self.Qn = self.Qnglob + self.Qnloc  # total number of noise sources
         self.Q = self.Qd + self.Qn  # total number of sources
-        if self.observability == 'foss' and self.Qglob > self.Mk:
+        if self.observability == 'foss' and self.Q > self.Mk:
             raise ValueError("For fully overlapping subspaces, the number of global sources must not exceed the number of sensors per node.")
         if self.observability == 'poss':
             if self.Qd + self.Qn > self.Mk:
