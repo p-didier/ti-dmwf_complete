@@ -3,7 +3,7 @@
 # defined in [1]
 #
 # Context:
-# Writing of dMWF paper.
+# Writing of (TI-)dMWF paper.
 #
 # References:
 # [1] Pourya Behmandpoor PhD thesis, section 6.4.3.
