@@ -130,6 +130,34 @@ class Run:
                     tRyy = Ck.T @ Ryy @ Ck
                     tRss = Ck.T @ Rss @ Ck
                     Wfilt[alg][k] = Ck @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
+            elif alg == "dmwf":
+                # Neighbor-specific fusion matrices
+                Pk = [[None for _ in range(c.K)] for _ in range(c.K)]
+                for q in range(c.K):
+                    Ryqyq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
+                    for k in range(c.K):
+                        if k == q:
+                            continue
+                        Ryqyktq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * k:c.Mk * k + c.Qglob]
+                        # Rykyqtk = Rgg[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * k + c.Qglob]
+                        Pk[q][k] = np.linalg.inv(Ryqyq) @ Ryqyktq
+                # Estimation filters
+                for k in range(c.K):
+                    # ty = C^H.y
+                    Ck = np.zeros((c.M, c.Mk + c.Qglob * (c.K - 1)))
+                    Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
+                    idxNei = 0
+                    for q in range(c.K):
+                        if q != k:
+                            Ck[
+                                c.Mk * q:c.Mk * (q + 1),
+                                c.Mk + idxNei * c.Qglob: c.Mk + (idxNei + 1) * c.Qglob
+                            ] = Pk[q][k]
+                            idxNei += 1
+                    # Compute the filters
+                    tRyy = Ck.T @ Ryy @ Ck
+                    tRss = Ck.T @ Rss @ Ck
+                    Wfilt[alg][k] = Ck @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
             elif alg == "tidmwf":
                 for k in range(c.K):
                     upstreamNodes, upstreamNeighs = get_upstream_nodes(G, k)

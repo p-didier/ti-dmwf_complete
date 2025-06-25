@@ -1,12 +1,8 @@
 # Purpose of script:
-# This script is the main entry point for testing the TI-iDANSE algorithm as
-# defined in [1]
+# This script is the main entry point for testing the TI-dMWF algorithm.
 #
 # Context:
 # Writing of (TI-)dMWF paper.
-#
-# References:
-# [1] Pourya Behmandpoor PhD thesis, section 6.4.3.
 #
 # Created on: 16/06/2025
 #
