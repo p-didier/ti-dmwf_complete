@@ -18,10 +18,10 @@ class Run:
     def setup_scms(self):
         c = self.cfg
         if c.observability == 'foss':
-            Aglob = self.randmat((c.M, c.Qdglob))
-            Bglob = self.randmat((c.M, c.Qnglob))
-            Aloc = sla.block_diag(*[self.randmat((c.Mk, c.Qdloc)) for _ in range(c.K)])
-            Bloc = sla.block_diag(*[self.randmat((c.Mk, c.Qnloc)) for _ in range(c.K)])
+            Aglob = randmat((c.M, c.Qdglob))
+            Bglob = randmat((c.M, c.Qnglob))
+            Aloc = sla.block_diag(*[randmat((c.Mk, c.Qdloc)) for _ in range(c.K)])
+            Bloc = sla.block_diag(*[randmat((c.Mk, c.Qnloc)) for _ in range(c.K)])
 
             Rdgg = Aglob @ Aglob.T
             Rngg = Bglob @ Bglob.T
@@ -30,7 +30,6 @@ class Run:
             Rss = Rdgg + Rdll
             Rnn = Rngg + Rnll
             Ryy = Rss + Rnn + np.eye(c.M) * 1e-6  # Add small self-noise to avoid singularity
-            Rgg = Rdgg + Rngg
         elif c.observability == 'poss':
             # Do not differentiate between global and local sources, 
             # randomly generate observability pattern
@@ -47,8 +46,8 @@ class Run:
                         idx = np.random.choice(idx, 1, replace=False)
                         self.obsMat[:, c.Qd + n] = 0
                         self.obsMat[idx, c.Qd + n] = 1
-            Amat = self.randmat((c.M, c.Qd))
-            Bmat = self.randmat((c.M, c.Qn))
+            Amat = randmat((c.M, c.Qd))
+            Bmat = randmat((c.M, c.Qn))
             for k in range(c.K):
                 for s in range(c.Qd):
                     if self.obsMat[k, s] == 0:
@@ -59,25 +58,12 @@ class Run:
             Rss = Amat @ Amat.T
             Rnn = Bmat @ Bmat.T
             Ryy = Rss + Rnn + np.eye(c.M) * 1e-6  # Add small self-noise to avoid singularity
-            Rgg = [[None for _ in range(c.K)] for _ in range(c.K)]
-            for k in range(c.K):
-                for q in range(c.K):
-                    if k == q:
-                        continue
-                    idxD = np.where(
-                        np.logical_and(self.obsMat[k, :c.Qd] == 1, self.obsMat[q, :c.Qd] == 1)
-                    )[0]
-                    idxN = np.where(
-                        np.logical_and(self.obsMat[k, c.Qd:] == 1, self.obsMat[q, c.Qd:] == 1)
-                    )[0]
-                    Rgg[k][q] = Amat[:, idxD] @ Amat[:, idxD].T +\
-                        Bmat[:, idxN] @ Bmat[:, idxN].T
-        return Ryy, Rss, Rgg
+        return Ryy, Rss
 
     def launch(self):
         # Generate scenario
         c = self.cfg
-        Ryy, Rss, Rgg = self.setup_scms()
+        Ryy, Rss = self.setup_scms()
 
         # Generate tree
         if c.graphDiameter is not None:
@@ -87,7 +73,6 @@ class Run:
             for (u, v) in G.edges():
                 G.edges[u, v]['weight'] = np.random.random()
             G = nx.minimum_spanning_tree(G)
-
 
         Wfilt = dict([(alg, [
             None for _ in range(c.K)
@@ -99,37 +84,6 @@ class Run:
                     Wcentr[:, c.Mk * k:c.Mk * k + c.D]
                     for k in range(c.K)
                 ]
-            elif "idanse" in alg:
-                # Fusion matrices
-                Pk = [None for _ in range(c.K)]
-                for k in range(c.K):
-                    Rykyk = Ryy[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
-                    Rgkgk = Rgg[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
-                    Pk[k] = np.linalg.inv(Rykyk) @ Rgkgk[:, :c.Qglob]
-                # Estimation filters
-                for k in range(c.K):
-                    # ty = C^H.y
-                    if alg == "idanse":
-                        Ck = np.zeros((c.M, c.Mk + c.Qglob * (c.K - 1)))
-                        Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
-                        idxNei = 0
-                        for q in range(c.K):
-                            if q != k:
-                                Ck[
-                                    c.Mk * q:c.Mk * (q + 1),
-                                    c.Mk + idxNei * c.Qglob: c.Mk + (idxNei + 1) * c.Qglob
-                                ] = Pk[q]
-                                idxNei += 1
-                    elif alg == "tiidanse":
-                        Ck = np.zeros((c.M, c.Mk + c.Qglob))
-                        Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
-                        for q in range(c.K):
-                            if q != k:
-                                Ck[c.Mk * q:c.Mk * (q + 1), c.Mk:] = Pk[q]
-                    # Compute the filters
-                    tRyy = Ck.T @ Ryy @ Ck
-                    tRss = Ck.T @ Rss @ Ck
-                    Wfilt[alg][k] = Ck @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
                 Pk = [[None for _ in range(c.K)] for _ in range(c.K)]
@@ -139,7 +93,6 @@ class Run:
                         if k == q:
                             continue
                         Ryqyktq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * k:c.Mk * k + c.Qglob]
-                        # Rykyqtk = Rgg[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * k + c.Qglob]
                         Pk[q][k] = np.linalg.inv(Ryqyq) @ Ryqyktq
                 # Estimation filters
                 for k in range(c.K):
@@ -252,9 +205,9 @@ class Run:
                     continue
                 print(f"{alg}: {np.mean(msew[alg]):.10f} ± {np.std(msew[alg]):.10f}")
 
-    def randmat(self, shape):
-        """Generate a random matrix with given shape."""
-        return np.random.rand(*shape)
+def randmat(shape):
+    """Generate a random matrix with given shape."""
+    return np.random.rand(*shape)
     
 
 def tree_levels(G: nx.Graph, root):

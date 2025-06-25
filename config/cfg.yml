@@ -1,21 +1,27 @@
+# WASN parameters
 K: 10  # number of nodes
 Mk: 6  # number of sensors per node
-D: 1  # number of target signal channels
-Qdglob: 2  # number of global desired sources
-Qnglob: 2  # number of global noise sources
-
 graphDiameter: null  # diameter of the graph corresponding to the network
 
-algos:  # list of algorithms to run
-- centralized
-- idanse
-- dmwf
-- tidmwf
+# Acoustic scenario parameters
+Qdglob: 2  # number of global desired sources
+Qnglob: 2  # number of global noise sources
+D: 1  # number of target signal channels
 # observability: poss  # "foss" for fully overlapping subspaces,
 observability: foss  # "foss" for fully overlapping subspaces,
     # "poss" for partially overlapping subspaces
 # possDiffuse: True  # if True and observability is 'foss', the
 possDiffuse: False  # if True and observability is 'foss', the
     # noise sources are assumed only local, i.e., uncorrelated across nodes
+
+# Algorithm(s) parameters
+algos:  # list of algorithms to run
+- centralized
+- dmwf
+- tidmwf
+scmEstimation: oracle  # type of SCM estimation to use
+    # 'oracle' for perfect knowledge,
+    # 'batch' for batch time-averaged,
+    # 'online' for online
 
 seed: 42  # random number generator seed

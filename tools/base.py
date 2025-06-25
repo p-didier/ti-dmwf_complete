@@ -11,23 +11,30 @@ from dataclasses import dataclass, field
 @dataclass
 class Parameters:
     """A dataclass for simulation parameters."""
+    # WASN parameters
     K: int = 10  # number of nodes
+    Mk: int = 3  # number of sensors per node
+    graphDiameter: int = None  # diameter of the graph corresponding to the network
+
+    # Acoustic scenario parameters
     Qdglob: int = 1  # number of global desired sources
     Qnglob: int = 1  # number of global noise sources
     Qdloc: int = 0  # number of local desired sources
     Qnloc: int = 0  # number of local noise sources
-    Mk: int = 3  # number of sensors per node
     D: int = 1  # number of target signal channels
-
-    algos: list[str] = field(default_factory=lambda: [
-        "centralized", "idanse", "tiidanse"
-    ])  # list of algorithms to run
     observability: str = 'foss'  # "foss" for fully overlapping subspaces,
         # "poss" for partially overlapping subspaces
     possDiffuse: bool = False  # if True and observability is 'foss', the
         # noise sources are assumed only local, i.e., uncorrelated across nodes
 
-    graphDiameter: int = None  # diameter of the graph corresponding to the network
+    # Algorithm(s) parameters
+    algos: list[str] = field(default_factory=lambda: [
+        "centralized", "dmwf", "tidmwf"
+    ])  # list of algorithms to run
+    scmEstimation: str = 'oracle'  # type of SCM estimation to use
+        # 'oracle' for perfect knowledge,
+        # 'batch' for batch time-averaged,
+        # 'online' for online
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
