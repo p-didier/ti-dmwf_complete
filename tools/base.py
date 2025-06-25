@@ -27,6 +27,8 @@ class Parameters:
     possDiffuse: bool = False  # if True and observability is 'foss', the
         # noise sources are assumed only local, i.e., uncorrelated across nodes
 
+    graphDiameter: int = None  # diameter of the graph corresponding to the network
+
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
 
@@ -36,11 +38,11 @@ class Parameters:
         if self.Qdglob + self.Qnglob > self.Mk:
             raise ValueError("The sum of global desired and noise sources must not exceed the number of sensors per node.")
         self.M = self.K * self.Mk  # total number of sensors
-        self.Qg = self.Qdglob + self.Qnglob  # effective number of channels exchanged between nodes
+        self.Qglob = self.Qdglob + self.Qnglob  # effective number of channels exchanged between nodes
         self.Qd = self.Qdglob + self.Qdloc  # total number of desired sources
         self.Qn = self.Qnglob + self.Qnloc  # total number of noise sources
         self.Q = self.Qd + self.Qn  # total number of sources
-        if self.observability == 'foss' and self.Qg > self.Mk:
+        if self.observability == 'foss' and self.Qglob > self.Mk:
             raise ValueError("For fully overlapping subspaces, the number of global sources must not exceed the number of sensors per node.")
         if self.observability == 'poss':
             if self.Qd + self.Qn > self.Mk:

@@ -7,6 +7,7 @@ import numpy as np
 import networkx as nx
 import scipy.linalg as sla
 from .base import Parameters
+from collections import deque
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 
@@ -79,10 +80,14 @@ class Run:
         Ryy, Rss, Rgg = self.setup_scms()
 
         # Generate tree
-        G = nx.complete_graph(c.K)
-        for (u, v) in G.edges():
-            G.edges[u, v]['weight'] = np.random.random()
-        G = nx.minimum_spanning_tree(G)
+        if c.graphDiameter is not None:
+            G = generate_tree_with_diameter(c.K, c.graphDiameter)
+        else:
+            G = nx.complete_graph(c.K)
+            for (u, v) in G.edges():
+                G.edges[u, v]['weight'] = np.random.random()
+            G = nx.minimum_spanning_tree(G)
+
 
         Wfilt = dict([(alg, [
             None for _ in range(c.K)
@@ -100,23 +105,23 @@ class Run:
                 for k in range(c.K):
                     Rykyk = Ryy[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
                     Rgkgk = Rgg[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
-                    Pk[k] = np.linalg.inv(Rykyk) @ Rgkgk[:, :c.Qg]
+                    Pk[k] = np.linalg.inv(Rykyk) @ Rgkgk[:, :c.Qglob]
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
                     if alg == "idanse":
-                        Ck = np.zeros((c.M, c.Mk + c.Qg * (c.K - 1)))
+                        Ck = np.zeros((c.M, c.Mk + c.Qglob * (c.K - 1)))
                         Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                         idxNei = 0
                         for q in range(c.K):
                             if q != k:
                                 Ck[
                                     c.Mk * q:c.Mk * (q + 1),
-                                    c.Mk + idxNei * c.Qg: c.Mk + (idxNei + 1) * c.Qg
+                                    c.Mk + idxNei * c.Qglob: c.Mk + (idxNei + 1) * c.Qglob
                                 ] = Pk[q]
                                 idxNei += 1
                     elif alg == "tiidanse":
-                        Ck = np.zeros((c.M, c.Mk + c.Qg))
+                        Ck = np.zeros((c.M, c.Mk + c.Qglob))
                         Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                         for q in range(c.K):
                             if q != k:
@@ -128,6 +133,7 @@ class Run:
             elif alg == "tidmwf":
                 for k in range(c.K):
                     upstreamNodes, upstreamNeighs = get_upstream_nodes(G, k)
+                    downstreamNodes, downstreamNeighs = get_downstream_nodes(G, k)
                     Cqk = [None for _ in range(c.K)]
                     if c.observability == 'poss':
                         hQkq = [[None for _ in range(c.K)] for _ in range(c.K)]
@@ -141,10 +147,10 @@ class Run:
                                     # observed by node q or any node upstream of q 
                             hQkq[k][q] = int(np.sum(self.obsMat[k, :] + obss == 2))
                             # ^^^ number of channels exchanged downstream by node q
-                                # when node k is the root
+                                # when node k is the root                    
                     for q in range(c.K):
                         if c.observability == 'foss':
-                            dim = c.Mk + c.Qg * len(upstreamNeighs[q])
+                            dim = c.Mk + c.Qglob * len(upstreamNeighs[q])
                         elif c.observability == 'poss':
                             dim = c.Mk + int(
                                 np.sum([hQkq[k][u] for u in upstreamNeighs[q]])
@@ -156,8 +162,8 @@ class Run:
                     for q in flatten_list(tree_levels(G, k)):
                         for ii, n in enumerate(upstreamNeighs[q]):
                             if c.observability == 'foss':
-                                idxBeg = c.Mk + ii * c.Qg
-                                idxEnd = idxBeg + c.Qg
+                                idxBeg = c.Mk + ii * c.Qglob
+                                idxEnd = idxBeg + c.Qglob
                             else:
                                 idxBeg = c.Mk + int(
                                     np.sum([hQkq[k][u] for u in upstreamNeighs[q][:ii]])
@@ -168,17 +174,21 @@ class Run:
                             # Compute Pk
                             Rhyqhyq = Cqk[q].T @ Ryy @ Cqk[q]
                             if c.observability == 'foss':
-                                dim = c.Qg
+                                dim = c.Qglob
                             elif c.observability == 'poss':
                                 dim = hQkq[k][q]
                             hEq = np.zeros((c.M, dim))
-                            hEq[c.Mk * k:c.Mk * k + dim, :dim] = np.eye(dim)
+                            # hEq[c.Mk * k:c.Mk * k + dim, :dim] = np.eye(dim)
+                            hEq[
+                                c.Mk * downstreamNeighs[q]:\
+                                c.Mk * downstreamNeighs[q] + dim, :dim
+                            ] = np.eye(dim)
                             Rhyqyktq = Cqk[q].T @ Ryy @ hEq
                             Pk[q] = np.linalg.inv(Rhyqhyq) @ Rhyqyktq
                     # Compute estimation filter
                     tRyy = Cqk[k].T @ Ryy @ Cqk[k]
                     tRss = Cqk[k].T @ Rss @ Cqk[k]
-                    Wfilt[alg][k] = Cqk[k] @ np.linalg.pinv(tRyy) @ tRss[:, :c.D]
+                    Wfilt[alg][k] = Cqk[k] @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
         
@@ -269,3 +279,66 @@ def get_upstream_nodes(G: nx.Graph, root):
         upstreamNeighbors[q] = np.sort([n for n in G.neighbors(q) if n in upstreamNodes[q]])
     
     return upstreamNodes, upstreamNeighbors
+
+
+def get_downstream_nodes(G: nx.Graph, root):
+    nNodes = G.number_of_nodes()
+    downstreamNeighbors = [None] * nNodes  # Initialize all entries to None
+    downstreamNodes = [[] for _ in range(nNodes)]
+
+    visited = set()
+    queue = deque([root])
+    visited.add(root)
+
+    while queue:
+        current = queue.popleft()
+        for neighbor in G.neighbors(current):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                downstreamNeighbors[neighbor] = current  # current is "toward root" for neighbor
+                queue.append(neighbor)
+    
+    # Find downstream nodes for each node
+    for k in G.nodes:
+        currIdx = k
+        while downstreamNeighbors[currIdx] is not None:
+            downstreamNodes[k].append(downstreamNeighbors[currIdx])
+            currIdx = downstreamNeighbors[currIdx]
+
+    return downstreamNodes, downstreamNeighbors
+
+
+def generate_tree_with_diameter(N, E):
+    """
+    Generates a tree with N nodes and exact diameter E.
+    
+    Parameters:
+        N (int): Number of nodes (N > E).
+        E (int): Desired diameter (E >= 1).
+    
+    Returns:
+        T (networkx.Graph): Tree with specified diameter.
+    """
+    assert E >= 1, "Diameter must be at least 1."
+    assert N >= E + 1, "Need at least E+1 nodes for diameter E."
+
+    T = nx.Graph()
+
+    # Step 1: create a path of length E (E+1 nodes)
+    path_nodes = list(range(E + 1))
+    for i in range(E):
+        T.add_edge(path_nodes[i], path_nodes[i+1])
+
+    next_node = E + 1
+
+    # Step 2: attach remaining nodes to internal nodes on the path
+    attachable_nodes = path_nodes[1:-1]  # avoid attaching to endpoints to preserve diameter
+
+    i = 0
+    while next_node < N:
+        attach_to = attachable_nodes[i % len(attachable_nodes)]
+        T.add_edge(attach_to, next_node)
+        next_node += 1
+        i += 1
+
+    return T
