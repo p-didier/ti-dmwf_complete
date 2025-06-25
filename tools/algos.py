@@ -14,15 +14,17 @@ from dataclasses import dataclass
 @dataclass
 class Run:
     cfg: Parameters
+    obsMat: np.ndarray = None  # Observability matrix, initialized later
+    Qkq: np.ndarray = None  # Number of sources in common between nodes
 
     def setup_scms(self):
         c = self.cfg
+
+        # Compute steering matrices
         if c.observability == 'foss':
-            Aglob = randmat((c.M, c.Qd))
-            Bglob = randmat((c.M, c.Qn))
-            Rss = Aglob @ Aglob.T
-            Rnn = Bglob @ Bglob.T
-            Ryy = Rss + Rnn + np.eye(c.M) * 1e-6  # Add small self-noise to avoid singularity
+            self.Qkq = np.full((c.K, c.K), c.Q)
+            Amat = randmat((c.M, c.Qd))
+            Bmat = randmat((c.M, c.Qn))
         elif c.observability == 'poss':
             # Do not differentiate between global and local sources, 
             # randomly generate observability pattern
@@ -48,15 +50,43 @@ class Run:
                 for n in range(c.Qn):
                     if self.obsMat[k, c.Qd + n] == 0:
                         Bmat[c.Mk * k:c.Mk * (k + 1), n] = 0
+            # Number of sources in common between node k and q
+            self.Qkq = np.zeros((c.K, c.K), dtype=int)
+            for k in range(c.K):
+                for q in range(c.K):
+                    if k == q:
+                        continue
+                    self.Qkq[k, q] = np.sum(self.obsMat[k, :] & self.obsMat[q, :])
+            # Qkq should be symmetric
+            assert np.all(self.Qkq == self.Qkq.T), "Qkq should be symmetric"
+        
+        # Compute the SCMs
+        if c.scmEstimation == 'oracle':
+            # For oracle SCM estimation, we assume perfect knowledge of the
+            # source and noise steering matrices
             Rss = Amat @ Amat.T
             Rnn = Bmat @ Bmat.T
-            Ryy = Rss + Rnn + np.eye(c.M) * 1e-6  # Add small self-noise to avoid singularity
-        return Ryy, Rss
+            Rvv = np.eye(c.M) * c.selfNoiseFactor  # small self-noise
+        elif c.scmEstimation == 'batch':
+            # Batch SCM estimation based on actual signals
+            slat = np.random.randn(c.Qd, c.N)
+            nlat = np.random.randn(c.Qn, c.N)
+            s = Amat @ slat
+            n = Bmat @ nlat
+            v = np.random.randn(c.M, c.N) * c.selfNoiseFactor  # small self-noise
+            Rss = s @ s.T / c.N
+            Rnn = n @ n.T / c.N
+            Rvv = v @ v.T / c.N
+        
+        # Complete signa SCM
+        Ryy = Rss + Rnn + Rvv
+
+        return Ryy, Rss, Rnn
 
     def launch(self):
         # Generate scenario
         c = self.cfg
-        Ryy, Rss = self.setup_scms()
+        Ryy, Rss, Rnn = self.setup_scms()
 
         # Generate tree
         if c.graphDiameter is not None:
@@ -85,26 +115,38 @@ class Run:
                     for k in range(c.K):
                         if k == q:
                             continue
-                        Ryqyktq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * k:c.Mk * k + c.Q]
+                        Ryqyktq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * k:c.Mk * k + self.Qkq[q][k]]
                         Pk[q][k] = np.linalg.inv(Ryqyq) @ Ryqyktq
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
-                    Ck = np.zeros((c.M, c.Mk + c.Q * (c.K - 1)))
+                    if c.observability == 'foss':
+                        Ck = np.zeros((c.M, c.Mk + c.Q * (c.K - 1)))
+                    elif c.observability == 'poss':
+                        Ck = np.zeros((c.M, c.Mk + int(np.sum(self.Qkq[k, :]))))
                     Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
+                    QkqNeighs = self.Qkq[k, :]
+                    QkqNeighs = np.delete(QkqNeighs, k)  # Remove self from neighbors
                     for q in range(c.K):
                         if q != k:
-                            Ck[
-                                c.Mk * q:c.Mk * (q + 1),
-                                c.Mk + idxNei * c.Q: c.Mk + (idxNei + 1) * c.Q
-                            ] = Pk[q][k]
+                            if c.observability == 'foss':
+                                idxBeg = c.Mk + idxNei * c.Q
+                                idxEnd = idxBeg + c.Q
+                            elif c.observability == 'poss':
+                                idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
+                                idxEnd = idxBeg + self.Qkq[k][q]
+                            Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q][k]
                             idxNei += 1
                     # Compute the filters
                     tRyy = Ck.T @ Ryy @ Ck
                     tRss = Ck.T @ Rss @ Ck
                     Wfilt[alg][k] = Ck @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
             elif alg == "tidmwf":
+                if c.observability == 'poss':
+                    print("Warning: TI-dMWF is not implemented for partially overlapping subspaces.")
+                    c.algos.remove(alg)
+                    continue
                 for k in range(c.K):
                     upstreamNodes, upstreamNeighs = get_upstream_nodes(G, k)
                     downstreamNodes, downstreamNeighs = get_downstream_nodes(G, k)
@@ -192,11 +234,15 @@ class Run:
                 fig.tight_layout()
                 plt.show()
             
-            print("MSE of filters:")
             for alg in c.algos:
                 if alg == 'centralized':
                     continue
-                print(f"{alg}: {np.mean(msew[alg]):.10f} ± {np.std(msew[alg]):.10f}")
+                string = f"MSE_W {alg}: {np.mean(msew[alg]):.10f} ± {np.std(msew[alg]):.10f}"
+                if np.mean(msew[alg]) < 1e-10:
+                    string += " (PASSED)"
+                else:
+                    string += " (FAILED)"
+                print(string)
 
 def randmat(shape):
     """Generate a random matrix with given shape."""

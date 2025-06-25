@@ -25,6 +25,12 @@ class Parameters:
     possDiffuse: bool = False  # if True and observability is 'foss', the
         # noise sources are assumed only local, i.e., uncorrelated across nodes
 
+    # Signals parameters
+    fs: int = 16000  # sampling frequency
+    T: float = 1.0  # duration of the signals in seconds
+    N: int = field(init=False)  # number of samples, computed from fs and T
+    selfNoiseFactor: float = 1e-6  # self-noise factor, used to scale the noise covariance
+
     # Algorithm(s) parameters
     algos: list[str] = field(default_factory=lambda: [
         "centralized", "dmwf", "tidmwf"
@@ -39,6 +45,7 @@ class Parameters:
 
     def __post_init__(self):
         np.random.seed(self.seed)
+        self.N = int(self.fs * self.T)
         # Validate parameters
         if self.Qd + self.Qn > self.Mk:
             raise ValueError("The sum of global desired and noise sources must not exceed the number of sensors per node.")

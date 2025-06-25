@@ -9,6 +9,7 @@
 # (c) Paul Didier, SOUNDS ETN, KU Leuven ESAT STADIUS
 
 import sys
+import copy
 import numpy as np
 from tools.algos import *
 from tools.base import *
@@ -20,15 +21,45 @@ plt.ion()  # interactive mode on
 
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
+TEST_SET = [
+    {
+        'scmEstimation': 'oracle',
+        'observability': 'foss',
+    },
+    {
+        'scmEstimation': 'oracle',
+        'observability': 'poss',
+    },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'foss',
+    },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'poss',
+    },
+]
+
 def main():
     """Main function (called by default when running script)."""
-    cfg = Parameters()
-    cfg.load_from_yaml(PATH_TO_CFG)
+    cfgBase = Parameters()
+    cfgBase.load_from_yaml(PATH_TO_CFG)
 
-    np.random.seed(cfg.seed)
+    np.random.seed(cfgBase.seed)
+    rngState = np.random.get_state()
 
-    # Launch the simulation
-    Run(cfg).launch()
+    for i, test in enumerate(TEST_SET):
+        print(f"\nTest {i + 1}/{len(TEST_SET)}: {test}")
+        cfg = copy.deepcopy(cfgBase)
+        for key, value in test.items():
+            setattr(cfg, key, value)
+
+        # Reset random state for each test
+        np.random.set_state(rngState)
+
+        # Launch the simulation
+        Run(cfg).launch()
+
     pass
 
 if __name__ == '__main__':
