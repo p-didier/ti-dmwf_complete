@@ -126,15 +126,15 @@ class Run:
                         Ck = np.zeros((c.M, c.Mk + int(np.sum(self.Qkq[k, :]))))
                     Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
-                    QkqNeighs = self.Qkq[k, :]
-                    QkqNeighs = np.delete(QkqNeighs, k)  # Remove self from neighbors
+                    # QkqNeighs = self.Qkq[k, :]
+                    # QkqNeighs = np.delete(QkqNeighs, k)  # Remove k
                     for q in range(c.K):
                         if q != k:
                             if c.observability == 'foss':
                                 idxBeg = c.Mk + idxNei * c.Q
                                 idxEnd = idxBeg + c.Q
                             elif c.observability == 'poss':
-                                idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
+                                idxBeg = c.Mk + int(np.sum(self.Qkq[k, :q]))
                                 idxEnd = idxBeg + self.Qkq[k][q]
                             Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q][k]
                             idxNei += 1
