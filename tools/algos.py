@@ -29,9 +29,12 @@ class Run:
             # Do not differentiate between global and local sources, 
             # randomly generate observability pattern
             self.obsMat = np.zeros((c.K, c.Q))
-            def inadequacy_criterion(om):
+            def inadequate(om):
                 return np.any(np.sum(om, axis=1) == 0) | np.any(np.sum(om, axis=0) == 0)
-            while inadequacy_criterion(self.obsMat):
+            # Criterion for adequacy: at least one desired source and one noise
+            # source must be observed by each node, and each source must be
+            # observed by at least one node.
+            while inadequate(self.obsMat[:, :c.Qd]) or inadequate(self.obsMat[:, c.Qd:]):
                 self.obsMat = np.random.randint(0, 2, (c.K, c.Q))
             if c.possDiffuse:
                 # Make sure each noise source is only observed by one node at most
@@ -97,13 +100,13 @@ class Run:
                 G.edges[u, v]['weight'] = np.random.random()
             G = nx.minimum_spanning_tree(G)
 
-        Wfilt = dict([(alg, [
+        W_netWide = dict([(alg, [
             None for _ in range(c.K)
         ]) for alg in c.algos])  # Initialize node-speciifc filters dictionary
         for alg in c.algos:
             if alg == "centralized":
                 Wcentr = np.linalg.inv(Ryy) @ Rss
-                Wfilt[alg] = [
+                W_netWide[alg] = [
                     Wcentr[:, c.Mk * k:c.Mk * k + c.D]
                     for k in range(c.K)
                 ]
@@ -141,7 +144,7 @@ class Run:
                     # Compute the filters
                     tRyy = Ck.T @ Ryy @ Ck
                     tRss = Ck.T @ Rss @ Ck
-                    Wfilt[alg][k] = Ck @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
+                    W_netWide[alg][k] = Ck @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
             elif alg == "tidmwf":
                 if c.observability == 'poss':
                     print("Warning: TI-dMWF is not implemented for partially overlapping subspaces.")
@@ -204,7 +207,7 @@ class Run:
                     # Compute estimation filter
                     tRyy = Cqk[k].T @ Ryy @ Cqk[k]
                     tRss = Cqk[k].T @ Rss @ Cqk[k]
-                    Wfilt[alg][k] = Cqk[k] @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
+                    W_netWide[alg][k] = Cqk[k] @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
         
@@ -214,7 +217,7 @@ class Run:
             for alg in c.algos:
                 for k in range(c.K):
                     msew[alg][k] = np.mean(
-                        np.abs(Wfilt[alg][k] - Wfilt['centralized'][k]) ** 2
+                        np.abs(W_netWide[alg][k] - W_netWide['centralized'][k]) ** 2
                     )
 
             if 0:
