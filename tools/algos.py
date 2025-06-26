@@ -25,6 +25,10 @@ class Run:
         Bmat = randmat((c.M, c.Qn))
         cAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
         cBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
+        slat = np.random.randn(c.Qd, c.N)
+        nlat = np.random.randn(c.Qn, c.N)
+        pows = np.mean(np.abs(slat) ** 2, axis=1)
+        pown = np.mean(np.abs(nlat) ** 2, axis=1)
         # Compute steering matrices
         if c.observability == 'foss':
             self.oQq = np.full(c.K, c.Q)
@@ -86,30 +90,30 @@ class Run:
         if c.scmEstimation == 'oracle':
             # For oracle SCM estimation, we assume perfect knowledge of the
             # source and noise steering matrices
-            Rss = Amat @ Amat.T
-            Rnn = Bmat @ Bmat.T
+            Gam_s = np.diag(pows)
+            Gam_n = np.diag(pown)
+            Rss = Amat @ Gam_s @ Amat.T
+            Rnn = Bmat @ Gam_n @ Bmat.T
             Rgg = [
-                cAmat[q] @ cAmat[q].T + cBmat[q] @ cBmat[q].T
+                cAmat[q] @ Gam_s @ cAmat[q].T + cBmat[q] @ Gam_n @ cBmat[q].T
                 for q in range(c.K)
             ]
-            Rvv = np.eye(c.M) * c.selfNoiseFactor  # small self-noise
+            Rvv = np.eye(c.M) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         elif c.scmEstimation == 'batch':
             # Batch SCM estimation based on actual signals
-            slat = np.random.randn(c.Qd, c.N)
-            nlat = np.random.randn(c.Qn, c.N)
             s = Amat @ slat
             n = Bmat @ nlat
             g = [
                 cAmat[q] @ slat + cBmat[q] @ nlat
                 for q in range(c.K)
             ]
-            v = np.random.randn(c.M, c.N) * c.selfNoiseFactor  # small self-noise
+            v = np.random.randn(c.M, c.N) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
             Rss = s @ s.T / c.N
             Rnn = n @ n.T / c.N
             Rvv = v @ v.T / c.N
             Rgg = [g[q] @ g[q].T / c.N for q in range(c.K)]
         
-        # Complete signa SCM
+        # Complete signal SCM
         Ryy = Rss + Rnn + Rvv
 
         return Ryy, Rss, Rnn, Rvv, Amat, Bmat, cAmat, cBmat, Rgg
@@ -135,16 +139,16 @@ class Run:
             if alg == "centralized":
                 Wcentr = np.linalg.inv(Ryy) @ Rss
                 W_netWide[alg] = [
-                    Wcentr[:, c.Mk * k:c.Mk * k + c.D]
-                    for k in range(c.K)
+                    Wcentr[:, c.Mk * k:c.Mk * k + c.D] for k in range(c.K)
                 ]
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Rgqgq = Rgg[q][c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Pk[q] = np.linalg.inv(Ryqyq) @ Rgqgq[:, :self.oQq[q]]  # Use Rgg for dMWF
+                    Rgqgqu = Rgg[q][c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * q + self.oQq[q]]
+                    Pk[q] = np.linalg.inv(Ryqyq) @ Rgqgqu
+                pass
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
@@ -164,6 +168,9 @@ class Run:
                     tRss = Ck.T @ Rss @ Ck
                     tW = np.linalg.inv(tRyy) @ tRss[:, :c.D]
                     W_netWide[alg][k] = Ck @ tW
+                    if k == 1:
+                        pass
+                pass
                     
             elif alg == "tidmwf":
                 if c.observability == 'poss':
