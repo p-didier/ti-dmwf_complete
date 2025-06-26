@@ -30,14 +30,14 @@ TEST_SET = [
         'scmEstimation': 'oracle',
         'observability': 'poss',
     },
-    {
-        'scmEstimation': 'batch',
-        'observability': 'foss',
-    },
-    {
-        'scmEstimation': 'batch',
-        'observability': 'poss',
-    },
+    # {
+    #     'scmEstimation': 'batch',
+    #     'observability': 'foss',
+    # },
+    # {
+    #     'scmEstimation': 'batch',
+    #     'observability': 'poss',
+    # },
 ]
 
 def main():

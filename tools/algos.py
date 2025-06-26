@@ -3,6 +3,7 @@
 #
 # (c) Paul Didier, SOUNDS ETN, KU Leuven ESAT STADIUS
 
+import copy
 import numpy as np
 import networkx as nx
 import scipy.linalg as sla
@@ -15,14 +16,14 @@ from dataclasses import dataclass
 class Run:
     cfg: Parameters
     obsMat: np.ndarray = None  # Observability matrix, initialized later
-    Qkq: np.ndarray = None  # Number of sources in common between nodes
+    oQq: np.ndarray = None  # Number of sources in common between nodes
 
     def setup_scms(self):
         c = self.cfg
 
         # Compute steering matrices
         if c.observability == 'foss':
-            self.Qkq = np.full((c.K, c.K), c.Q)
+            self.oQq = np.full((c.K, c.K), c.Q)
             Amat = randmat((c.M, c.Qd))
             Bmat = randmat((c.M, c.Qn))
         elif c.observability == 'poss':
@@ -34,7 +35,8 @@ class Run:
             # Criterion for adequacy: at least one desired source and one noise
             # source must be observed by each node, and each source must be
             # observed by at least one node.
-            while inadequate(self.obsMat[:, :c.Qd]) or inadequate(self.obsMat[:, c.Qd:]):
+            # while inadequate(self.obsMat[:, :c.Qd]) or inadequate(self.obsMat[:, c.Qd:]):
+            while inadequate(self.obsMat):
                 self.obsMat = np.random.randint(0, 2, (c.K, c.Q))
             if c.possDiffuse:
                 # Make sure each noise source is only observed by one node at most
@@ -54,15 +56,37 @@ class Run:
                     if self.obsMat[k, c.Qd + n] == 0:
                         Bmat[c.Mk * k:c.Mk * (k + 1), n] = 0
             # Number of sources in common between node k and q
-            self.Qkq = np.zeros((c.K, c.K), dtype=int)
+            self.oQq = [0 for _ in range(c.K)]
             for k in range(c.K):
-                for q in range(c.K):
-                    if k == q:
-                        continue
-                    # self.Qkq[k, q] = np.sum(self.obsMat[k, :] & self.obsMat[q, :])
-                    self.Qkq[k, q] = np.sum(self.obsMat[k, :])
-            # Qkq should be symmetric
-            # assert np.all(self.Qkq == self.Qkq.T), "Qkq should be symmetric"
+                for s in range(c.Q):
+                    if self.obsMat[k, s] != 0 and np.sum(self.obsMat[:, s]) > 1:
+                        # If node k does observes source s, and it is observed
+                        # by at least one other node, then the number of sources
+                        # in common is increased by one
+                        self.oQq[k] += 1
+            assert np.all(np.array(self.oQq) <= np.sum(self.obsMat, axis=1)), \
+                "Number of sources in common exceeds number of sources observed by node."
+            cAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
+            cBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
+            uAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
+            uBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
+            for k in range(c.K):
+                # "Global" Amat and Bmat matrices
+                # List of sources that are either not observed by node k, or
+                # not observed by any other node
+                idxUncorr_A, idxUncorr_B = [], []
+                for s in range(c.Qd):
+                    if self.obsMat[k, s] == 0 or np.sum(self.obsMat[:, s]) == 1:
+                        idxUncorr_A.append(s)
+                for n in range(c.Qn):
+                    if self.obsMat[k, c.Qd + n] == 0 or np.sum(self.obsMat[:, c.Qd + n]) == 1:
+                        idxUncorr_B.append(n)
+                if len(idxUncorr_A) > 0:
+                    cAmat[k][:, idxUncorr_A] = 0
+                    uAmat[k] = Amat - cAmat[k]
+                if len(idxUncorr_B) > 0:
+                    cBmat[k][:, idxUncorr_B] = 0
+                    uBmat[k] = Bmat - cBmat[k]
         
         # Compute the SCMs
         if c.scmEstimation == 'oracle':
@@ -70,6 +94,10 @@ class Run:
             # source and noise steering matrices
             Rss = Amat @ Amat.T
             Rnn = Bmat @ Bmat.T
+            Rgg = [
+                cAmat[q] @ cAmat[q].T + cBmat[q] @ cBmat[q].T
+                for q in range(c.K)
+            ]
             Rvv = np.eye(c.M) * c.selfNoiseFactor  # small self-noise
         elif c.scmEstimation == 'batch':
             # Batch SCM estimation based on actual signals
@@ -77,20 +105,25 @@ class Run:
             nlat = np.random.randn(c.Qn, c.N)
             s = Amat @ slat
             n = Bmat @ nlat
+            g = [
+                cAmat[q] @ slat + cBmat[q] @ nlat
+                for q in range(c.K)
+            ]
             v = np.random.randn(c.M, c.N) * c.selfNoiseFactor  # small self-noise
             Rss = s @ s.T / c.N
             Rnn = n @ n.T / c.N
             Rvv = v @ v.T / c.N
+            Rgg = [g[q] @ g[q].T / c.N for q in range(c.K)]
         
         # Complete signa SCM
         Ryy = Rss + Rnn + Rvv
 
-        return Ryy, Rss, Rnn, Rvv, Amat, Bmat
+        return Ryy, Rss, Rnn, Rvv, Amat, Bmat, cAmat, cBmat, Rgg
 
     def launch(self):
         # Generate scenario
         c = self.cfg
-        Ryy, Rss, Rnn, Rvv, Amat, Bmat = self.setup_scms()
+        Ryy, Rss, Rnn, Rvv, Amat, Bmat, cAmat, cBmat, Rgg = self.setup_scms()
         
         # Generate tree
         if c.graphDiameter is not None:
@@ -111,78 +144,30 @@ class Run:
                     Wcentr[:, c.Mk * k:c.Mk * k + c.D]
                     for k in range(c.K)
                 ]
-
-                # DEBUG -- testing math from Appendix A in paper (dMWF proof)
-                # /!\ Assuming k = 0
-                Gam = np.linalg.inv(Rvv)
-                Cmat = np.hstack([Amat, Bmat])
-                cRlat = np.eye(c.Q)  # latent signals with unit power
-                Xmat = np.linalg.inv(cRlat) + Cmat.T @ Gam @ Cmat
-                RyyInv = Gam - Gam @ Cmat @ np.linalg.inv(Xmat) @ Cmat.T @ Gam
-                Rlatext = np.diag(np.hstack((np.ones(c.Qd), np.zeros(c.Qn))))
-                Mmat = (np.eye(c.Q) - np.linalg.inv(Xmat) @ Cmat.T @ Gam @ Cmat) @ Rlatext @ Cmat.T
-                Mmat = Mmat[:, :c.Mk]  # Keep only the first c.D columns
-                hW = Gam @ Cmat @ Mmat
-                hW_comp = np.zeros_like(hW)
-                for q in range(c.K):
-                    Cmatq = Cmat[c.Mk * q:c.Mk * (q + 1), :]
-                    # Extract columns of Cmatq corresponding to sources observed
-                    # by both q and k
-                    idx = np.where(self.obsMat[q, :] & self.obsMat[0, :])[0]
-                    Cmatq = Cmatq[:, idx]
-                    Mmatq = Mmat[idx, :]
-                    Gamq = Gam[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    hW_comp[c.Mk * q:c.Mk * (q + 1), :] = Gamq @ Cmatq @ Mmatq
-
-                if 0:  # test plot
-                    fig, axes = plt.subplots(3, 3)
-                    fig.set_size_inches(8.5, 6.5)
-                    axes[0, 0].imshow(np.abs(RyyInv))
-                    axes[0, 0].set_title("Ryy^-1 (MIL)")
-                    axes[0, 1].imshow(np.abs(np.linalg.inv(Ryy)))
-                    axes[0, 1].set_title("Ryy^-1 (Numpy)")
-                    mapp = axes[0, 2].imshow(np.abs(RyyInv - np.linalg.inv(Ryy)))
-                    axes[0, 2].set_title("Difference")
-                    fig.colorbar(mapp, ax=axes[0, 2])
-                    #
-                    axes[1, 0].imshow(hW)
-                    axes[1, 0].set_title("hW (MIL)")
-                    axes[1, 1].imshow(Wcentr)
-                    axes[1, 1].set_title("Wcentr (MIL)")
-                    mapp = axes[1, 2].imshow(np.abs(hW - Wcentr))
-                    axes[1, 2].set_title("Difference")
-                    fig.colorbar(mapp, ax=axes[1, 2])
-                    #
-                    axes[2, 0].imshow(hW_comp)
-                    axes[2, 0].set_title("hW (MIL)")
-                    axes[2, 1].imshow(Wcentr)
-                    axes[2, 1].set_title("Wcentr (MIL)")
-                    mapp = axes[2, 2].imshow(np.abs(hW_comp - Wcentr))
-                    axes[2, 2].set_title("Difference")
-                    fig.colorbar(mapp, ax=axes[2, 2])
-                    fig.tight_layout()
-                    plt.show()
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
-                Pk = [[None for _ in range(c.K)] for _ in range(c.K)]
+                Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    for k in range(c.K):
-                        if k == q:
-                            continue
-                        Ryqyktq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * k:c.Mk * k + self.Qkq[q][k]]
-                        Pk[q][k] = np.linalg.inv(Ryqyq) @ Ryqyktq
+                    Amatq = Amat[c.Mk * q:c.Mk * (q + 1), :]
+                    Bmatq = Bmat[c.Mk * q:c.Mk * (q + 1), :]
+                    cAmatq = cAmat[q][c.Mk * q:c.Mk * (q + 1), :]
+                    cBmatq = cBmat[q][c.Mk * q:c.Mk * (q + 1), :]
+                    Ryqyktq = Amatq @ cAmatq.T + Bmatq @ cBmatq.T
+                    Ryqyktq = Ryqyktq[:, :self.oQq[q]]  # Keep only the sources in common
+                    # Pk[q] = np.linalg.inv(Ryqyq) @ Ryqyktq
+                    Rgqgq = Rgg[q][c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
+                    Pk[q] = np.linalg.inv(Ryqyq) @ Rgqgq[:, :self.oQq[q]]  # Use Rgg for dMWF
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
+                    QkqNeighs = np.delete(self.oQq, k)  # Remove k
                     if c.observability == 'foss':
                         Ck = np.zeros((c.M, c.Mk + c.Q * (c.K - 1)))
                     elif c.observability == 'poss':
-                        Ck = np.zeros((c.M, c.Mk + int(np.sum(self.Qkq[:, k]))))
+                        Ck = np.zeros((c.M, c.Mk + int(np.sum(QkqNeighs))))
                     Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
-                    # QkqNeighs = self.Qkq[k, :]
-                    # QkqNeighs = np.delete(QkqNeighs, k)  # Remove k
                     idxEnd = c.Mk
                     for q in range(c.K):
                         if q != k:
@@ -192,51 +177,17 @@ class Run:
                                     raise ValueError("Indexing error in dMWF fusion matrix.")
                                 idxEnd = idxBeg + c.Q
                             elif c.observability == 'poss':
-                                idxBeg = c.Mk + int(np.sum(self.Qkq[:q, k]))
+                                idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
                                 if idxBeg != idxEnd:
                                     raise ValueError("Indexing error in dMWF fusion matrix.")
-                                idxEnd = idxBeg + self.Qkq[q][k]
-                            Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q][k]
+                                idxEnd = idxBeg + self.oQq[q]
+                            Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
                             idxNei += 1
                     # Compute the filters
                     tRyy = Ck.T @ Ryy @ Ck
                     tRss = Ck.T @ Rss @ Ck
                     tW = np.linalg.inv(tRyy) @ tRss[:, :c.D]
                     W_netWide[alg][k] = Ck @ tW
-
-                    # # DEBUG -- testing math from Appendix A in paper (dMWF proof)
-                    # W_netWide_theo = np.zeros_like(W_netWide[alg][k])
-                    # Pqk = [None for _ in range(c.K)]
-                    # for q in range(c.K):
-                    #     Rlatkq = np.eye(self.Qkq[k, q])  # latent signals with unit power
-                    #     Cmatq = Cmat[c.Mk * q:c.Mk * (q + 1), :]
-                    #     non_zero_idx = np.where(np.any(Cmatq != 0, axis=0))[0]
-                    #     Cmatq = Cmatq[:, non_zero_idx]
-                    #     Gamq = Gam[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    #     Xmatq = np.linalg.inv(Rlatkq) + Cmatq.T @ Gamq @ Cmatq
-                    #     Mqk = (np.eye(self.Qkq[k, q]) - np.linalg.inv(Xmatq) @ Cmatq.T @ Gamq @ Cmatq) @\
-                    #         Rlatkq @ Cmatq.T
-                    #     Pqk[q] = Gamq @ Cmatq @ Mqk[:, :self.Qkq[k, q]]
-                    #     if q != k:
-                    #         # Extract Gkq matrix from tW
-                    #         idxBeg = c.Mk + np.sum(self.Qkq[k, :q])
-                    #         idxEnd = idxBeg + self.Qkq[k][q]
-                    #         Gkq = tW[idxBeg:idxEnd, :]
-                    #         W_netWide_theo[c.Mk * q:c.Mk * (q + 1), :] = Pqk[q] @ Gkq
-                    #     else:
-                    #         W_netWide_theo[c.Mk * k:c.Mk * (k + 1), :] = tW[:c.Mk, :]
-                    
-                    # if 0:  # test plot
-                    #     fig, axes = plt.subplots(1, 3)
-                    #     fig.set_size_inches(8.5, 3.5)
-                    #     axes[0].imshow(W_netWide_theo)
-                    #     axes[0].set_title("Ryy^-1 (MIL)")
-                    #     axes[1].imshow(W_netWide[alg][k])
-                    #     axes[1].set_title("Ryy^-1 (Numpy)")
-                    #     mapp = axes[2].imshow(np.abs(W_netWide[alg][k] - W_netWide_theo))
-                    #     axes[2].set_title("Difference")
-                    #     fig.colorbar(mapp, ax=axes[2])
-                    #     pass
                     
             elif alg == "tidmwf":
                 if c.observability == 'poss':
