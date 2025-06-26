@@ -21,11 +21,13 @@ class Run:
     def setup_scms(self):
         c = self.cfg
 
+        Amat = randmat((c.M, c.Qd))
+        Bmat = randmat((c.M, c.Qn))
+        cAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
+        cBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
         # Compute steering matrices
         if c.observability == 'foss':
-            self.oQq = np.full((c.K, c.K), c.Q)
-            Amat = randmat((c.M, c.Qd))
-            Bmat = randmat((c.M, c.Qn))
+            self.oQq = np.full(c.K, c.Q)
         elif c.observability == 'poss':
             # Do not differentiate between global and local sources, 
             # randomly generate observability pattern
@@ -46,8 +48,6 @@ class Run:
                         idx = np.random.choice(idx, 1, replace=False)
                         self.obsMat[:, c.Qd + n] = 0
                         self.obsMat[idx, c.Qd + n] = 1
-            Amat = randmat((c.M, c.Qd))
-            Bmat = randmat((c.M, c.Qn))
             for k in range(c.K):
                 for s in range(c.Qd):
                     if self.obsMat[k, s] == 0:
@@ -66,10 +66,6 @@ class Run:
                         self.oQq[k] += 1
             assert np.all(np.array(self.oQq) <= np.sum(self.obsMat, axis=1)), \
                 "Number of sources in common exceeds number of sources observed by node."
-            cAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
-            cBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
-            uAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
-            uBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
             for k in range(c.K):
                 # "Global" Amat and Bmat matrices
                 # List of sources that are either not observed by node k, or
@@ -83,10 +79,8 @@ class Run:
                         idxUncorr_B.append(n)
                 if len(idxUncorr_A) > 0:
                     cAmat[k][:, idxUncorr_A] = 0
-                    uAmat[k] = Amat - cAmat[k]
                 if len(idxUncorr_B) > 0:
                     cBmat[k][:, idxUncorr_B] = 0
-                    uBmat[k] = Bmat - cBmat[k]
         
         # Compute the SCMs
         if c.scmEstimation == 'oracle':
@@ -149,38 +143,20 @@ class Run:
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Amatq = Amat[c.Mk * q:c.Mk * (q + 1), :]
-                    Bmatq = Bmat[c.Mk * q:c.Mk * (q + 1), :]
-                    cAmatq = cAmat[q][c.Mk * q:c.Mk * (q + 1), :]
-                    cBmatq = cBmat[q][c.Mk * q:c.Mk * (q + 1), :]
-                    Ryqyktq = Amatq @ cAmatq.T + Bmatq @ cBmatq.T
-                    Ryqyktq = Ryqyktq[:, :self.oQq[q]]  # Keep only the sources in common
-                    # Pk[q] = np.linalg.inv(Ryqyq) @ Ryqyktq
                     Rgqgq = Rgg[q][c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
                     Pk[q] = np.linalg.inv(Ryqyq) @ Rgqgq[:, :self.oQq[q]]  # Use Rgg for dMWF
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
                     QkqNeighs = np.delete(self.oQq, k)  # Remove k
-                    if c.observability == 'foss':
-                        Ck = np.zeros((c.M, c.Mk + c.Q * (c.K - 1)))
-                    elif c.observability == 'poss':
-                        Ck = np.zeros((c.M, c.Mk + int(np.sum(QkqNeighs))))
+                    Ck = np.zeros((c.M, c.Mk + int(np.sum(QkqNeighs))))
                     Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
                     idxEnd = c.Mk
                     for q in range(c.K):
                         if q != k:
-                            if c.observability == 'foss':
-                                idxBeg = c.Mk + idxNei * c.Q
-                                if idxBeg != idxEnd:
-                                    raise ValueError("Indexing error in dMWF fusion matrix.")
-                                idxEnd = idxBeg + c.Q
-                            elif c.observability == 'poss':
-                                idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
-                                if idxBeg != idxEnd:
-                                    raise ValueError("Indexing error in dMWF fusion matrix.")
-                                idxEnd = idxBeg + self.oQq[q]
+                            idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
+                            idxEnd = idxBeg + self.oQq[q]
                             Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
                             idxNei += 1
                     # Compute the filters
@@ -284,7 +260,7 @@ class Run:
             for alg in c.algos:
                 if alg == 'centralized':
                     continue
-                string = f"MSE_W {alg}: {np.mean(msew[alg]):.10f} ± {np.std(msew[alg]):.10f}"
+                string = f"MSE_W {alg}: {np.mean(msew[alg])}"
                 if np.mean(msew[alg]) < 1e-10:
                     string += " (PASSED)"
                 else:
