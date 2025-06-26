@@ -146,7 +146,13 @@ class Run:
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Rgqgqu = Rgg[q][c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * q + self.oQq[q]]
+                    if 0:
+                        Rgqgqu = Rgg[q][c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * q + self.oQq[q]]
+                    else:
+                        Rgqgqu = np.sum([
+                            Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * p + self.oQq[q]]
+                            for p in range(c.K) if p != q
+                        ], axis=0)
                     Pk[q] = np.linalg.inv(Ryqyq) @ Rgqgqu
                 pass
                 # Estimation filters
