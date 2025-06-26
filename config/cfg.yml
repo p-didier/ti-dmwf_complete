@@ -17,9 +17,9 @@ possDiffuse: False  # if True and observability is 'foss', the
 # Signals parameters
 fs: 16000  # sampling frequency
 T: 1.0  # duration of the signals in seconds
-# selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
+selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
-selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
+# selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
 
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
