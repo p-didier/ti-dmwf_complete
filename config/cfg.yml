@@ -26,6 +26,12 @@ algos:  # list of algorithms to run
 - centralized
 - dmwf
 - tidmwf
+- danse_10
+- danse_30
+- danse_50
+- rsdanse_10
+- rsdanse_30
+- rsdanse_50
 scmEstimation: oracle  # type of SCM estimation to use
     # 'oracle' for perfect knowledge,
     # 'batch' for batch time-averaged,

@@ -157,7 +157,6 @@ class Run:
                         Eqps[self.Qkq[q, p]:, self.Qkq[q, p]:] = np.ones((c.Mk- self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
                         Rgqgqu += Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
                     Pk[q] = np.linalg.inv(Ryqyq) @ Rgqgqu
-                pass
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
@@ -165,7 +164,6 @@ class Run:
                     Ck = np.zeros((c.M, c.Mk + int(np.sum(QkqNeighs))))
                     Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
-                    idxEnd = c.Mk
                     for q in range(c.K):
                         if q != k:
                             idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
@@ -177,10 +175,7 @@ class Run:
                     tRss = Ck.T @ Rss @ Ck
                     tW = np.linalg.inv(tRyy) @ tRss[:, :c.D]
                     W_netWide[alg][k] = Ck @ tW
-                    if k == 1:
-                        pass
-                pass
-                    
+
             elif alg == "tidmwf":
                 if c.observability == 'poss':
                     print("Warning: TI-dMWF is not implemented for partially overlapping subspaces.")
@@ -244,6 +239,36 @@ class Run:
                     tRyy = Cqk[k].T @ Ryy @ Cqk[k]
                     tRss = Cqk[k].T @ Rss @ Cqk[k]
                     W_netWide[alg][k] = Cqk[k] @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
+            elif 'danse' in alg:
+                # DANSE algorithm
+                nIter = int(alg.split('_')[-1])
+                # Initialize the fusion matrices
+                Pk = [randmat((c.Mk, c.Qd)) for _ in range(c.K)]
+                WkkPrev = [np.zeros((c.Mk, c.Qd)) for _ in range(c.K)]
+                u = 0  # updating node index
+                for i in range(nIter):
+                    for k in range(c.K):
+                        Ck = np.zeros((c.M, c.Mk + c.Qd * (c.K - 1)))
+                        Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
+                        idxNei = 0
+                        for q in range(c.K):
+                            if q != k:
+                                idxBeg = c.Mk + idxNei * c.Qd
+                                idxEnd = idxBeg + c.Qd
+                                Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
+                                idxNei += 1
+                        # Compute the filters
+                        tRyy = Ck.T @ Ryy @ Ck
+                        tRss = Ck.T @ Rss @ Ck
+                        tW = np.linalg.inv(tRyy) @ tRss
+                        if alg.startswith("rsdanse"):
+                            alpha = 1 / np.log10(nIter + 10)
+                            tW[:c.Mk, :c.Qd] = (1 - alpha) * WkkPrev[k] + alpha * tW[:c.Mk, :c.Qd]
+                            WkkPrev[k] = tW[:c.Mk, :c.Qd]
+                        if k == u:
+                            Pk[u] = tW[:c.Mk, :c.Qd]
+                        W_netWide[alg][k] = Ck @ tW[:, :c.D]
+                    u = (u + 1) % c.K  # Update the node index for next iteration
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
         
@@ -255,23 +280,6 @@ class Run:
                     msew[alg][k] = np.mean(
                         np.abs(W_netWide[alg][k] - W_netWide['centralized'][k]) ** 2
                     )
-
-            if 0:
-                fig, axes = plt.subplots(1, 1)
-                fig.set_size_inches(3.5, 3.5)
-                idx = 0
-                for alg in c.algos:
-                    if alg == 'centralized':
-                        continue
-                    toPlot = np.mean(msew[alg])
-                    axes.bar(idx, toPlot, yerr=np.std(msew[alg]), label=alg)
-                    idx += 1
-                axes.set_xticks(range(len(c.algos) - 1))
-                axes.set_xticklabels([alg for alg in c.algos if alg != 'centralized'])
-                axes.set_ylabel("MSE of filters")
-                axes.grid()
-                fig.tight_layout()
-                plt.show()
             
             for alg in c.algos:
                 if alg == 'centralized':
@@ -286,6 +294,7 @@ class Run:
                 else:
                     string += f" (FAILED [{c.scmEstimation}])"
                 print(string)
+
 
 def randmat(shape):
     """Generate a random matrix with given shape."""

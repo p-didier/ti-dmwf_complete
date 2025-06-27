@@ -39,6 +39,7 @@ class Parameters:
         # 'oracle' for perfect knowledge,
         # 'batch' for batch time-averaged,
         # 'online' for online
+    maxDANSEiter: int = 100  # maximum number of iterations for DANSE
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
