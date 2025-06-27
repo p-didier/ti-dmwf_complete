@@ -24,17 +24,21 @@ selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
 - centralized
+- local
 - dmwf
 - tidmwf
-- danse_10
-- danse_30
-- danse_50
-- rsdanse_10
-- rsdanse_30
-- rsdanse_50
+- danse
+- rsdanse
+- tidanse
 scmEstimation: oracle  # type of SCM estimation to use
     # 'oracle' for perfect knowledge,
     # 'batch' for batch time-averaged,
     # 'online' for online
+maxDANSEiter: 100  # maximum number of iterations for DANSE
+
+# Metrics parameters
+metricsToCompute:
+- msew
+- msed
 
 seed: 42  # random number generator seed

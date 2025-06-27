@@ -41,6 +41,12 @@ class Parameters:
         # 'online' for online
     maxDANSEiter: int = 100  # maximum number of iterations for DANSE
 
+    # Metrics parameters
+    metricsToCompute: list[str] = field(default_factory=lambda: [
+        "msew",  # MSE between centralized and distributed filter coefficients
+        "msed",  # MSE between estimated and true desired signals
+    ])
+
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
 

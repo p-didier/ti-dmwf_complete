@@ -18,7 +18,7 @@ class Run:
     obsMat: np.ndarray = None  # Observability matrix, initialized later
     oQq: np.ndarray = None  # Number of sources in common between nodes
 
-    def setup_scms(self):
+    def setup(self):
         c = self.cfg
 
         Amat = randmat((c.M, c.Qd))
@@ -95,6 +95,11 @@ class Run:
                     cAmat[k][:, idxUncorr_A] = 0
                 if len(idxUncorr_B) > 0:
                     cBmat[k][:, idxUncorr_B] = 0
+
+        # Compute signals
+        s = Amat @ slat
+        n = Bmat @ nlat
+        v = np.random.randn(c.M, c.N) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         
         # Compute the SCMs
         if c.scmEstimation == 'oracle':
@@ -107,9 +112,6 @@ class Run:
             Rvv = np.eye(c.M) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         elif c.scmEstimation == 'batch':
             # Batch SCM estimation based on actual signals
-            s = Amat @ slat
-            n = Bmat @ nlat
-            v = np.random.randn(c.M, c.N) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
             Rss = s @ s.T / c.N
             Rnn = n @ n.T / c.N
             Rvv = v @ v.T / c.N
@@ -117,12 +119,14 @@ class Run:
         # Complete signal SCM
         Ryy = Rss + Rnn + Rvv
 
-        return Ryy, Rss
+        return Ryy, Rss, s, n, v
 
     def launch(self):
         # Generate scenario
         c = self.cfg
-        Ryy, Rss = self.setup_scms()
+        Ryy, Rss, s, n, v = self.setup()
+        y = s + n + v  # Observed signal (centralized)
+        d = np.array([s[c.Mk * k:c.Mk * k + c.D, :] for k in range(c.K)])  # target signals
         
         # Generate tree
         if c.graphDiameter is not None:
@@ -136,12 +140,31 @@ class Run:
         W_netWide = dict([(alg, [
             None for _ in range(c.K)
         ]) for alg in c.algos])  # Initialize node-speciifc filters dictionary
+        metrics = dict([(metric, dict([
+            (alg, np.zeros(c.K)) for alg in c.algos + ['unprocessed']
+        ])) for metric in c.metricsToCompute])
+        metrics['msed']['unprocessed'] = [
+            np.mean(np.abs(d[k, :] - y[c.Mk * k:c.Mk * k + c.D, :]) ** 2)
+            for k in range(c.K)
+        ]
         for alg in c.algos:
             if alg == "centralized":
                 Wcentr = np.linalg.inv(Ryy) @ Rss
                 W_netWide[alg] = [
                     Wcentr[:, c.Mk * k:c.Mk * k + c.D] for k in range(c.K)
                 ]
+                if 'msed' in c.metricsToCompute:
+                    for k in range(c.K):
+                        dhatk = W_netWide[alg][k].T @ y
+                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
+            elif alg == "local":
+                for k in range(c.K):
+                    Rykyk = Ryy[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
+                    Rsksk = Rss[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * k + c.D]
+                    W_netWide[alg][k] = np.linalg.inv(Rykyk) @ Rsksk
+                    if 'msed' in c.metricsToCompute:
+                        dhatk = W_netWide[alg][k].T @ y[c.Mk * k:c.Mk * (k + 1), :]
+                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
@@ -175,6 +198,16 @@ class Run:
                     tRss = Ck.T @ Rss @ Ck
                     tW = np.linalg.inv(tRyy) @ tRss[:, :c.D]
                     W_netWide[alg][k] = Ck @ tW
+
+                    # Compute metrics
+                    if 'msew' in c.metricsToCompute:
+                        metrics['msew'][alg][k] = np.mean(
+                            np.abs(W_netWide[alg][k] - W_netWide['centralized'][k]) ** 2
+                        )
+                    if 'msed' in c.metricsToCompute:
+                        dhatk = W_netWide[alg][k].T @ y
+                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
+                        pass
 
             elif alg == "tidmwf":
                 if c.observability == 'poss':
@@ -239,61 +272,106 @@ class Run:
                     tRyy = Cqk[k].T @ Ryy @ Cqk[k]
                     tRss = Cqk[k].T @ Rss @ Cqk[k]
                     W_netWide[alg][k] = Cqk[k] @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
+                    
+                    # Compute metrics
+                    if 'msew' in c.metricsToCompute:
+                        metrics['msew'][alg][k] = np.mean(
+                            np.abs(W_netWide[alg][k] - W_netWide['centralized'][k]) ** 2
+                        )
+                    if 'msed' in c.metricsToCompute:
+                        dhatk = W_netWide[alg][k].T @ y
+                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
             elif 'danse' in alg:
-                # DANSE algorithm
-                nIter = int(alg.split('_')[-1])
+                # Adapt metrics dimension
+                for m in c.metricsToCompute:
+                    metrics[m][alg] = np.zeros((c.K, c.maxDANSEiter))
                 # Initialize the fusion matrices
                 Pk = [randmat((c.Mk, c.Qd)) for _ in range(c.K)]
                 WkkPrev = [np.zeros((c.Mk, c.Qd)) for _ in range(c.K)]
                 u = 0  # updating node index
-                for i in range(nIter):
+                for i in range(c.maxDANSEiter):
                     for k in range(c.K):
-                        Ck = np.zeros((c.M, c.Mk + c.Qd * (c.K - 1)))
-                        Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
-                        idxNei = 0
-                        for q in range(c.K):
-                            if q != k:
-                                idxBeg = c.Mk + idxNei * c.Qd
-                                idxEnd = idxBeg + c.Qd
-                                Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
-                                idxNei += 1
+                        if alg.startswith("tidanse"):
+                            Ck = np.zeros((c.M, c.Mk + c.Qd))
+                            Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
+                            for q in range(c.K):
+                                if q != k:
+                                    Ck[c.Mk * q:c.Mk * (q + 1), c.Mk:] = Pk[q]
+                        else:
+                            Ck = np.zeros((c.M, c.Mk + c.Qd * (c.K - 1)))
+                            Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
+                            idxNei = 0
+                            for q in range(c.K):
+                                if q != k:
+                                    idxBeg = c.Mk + idxNei * c.Qd
+                                    idxEnd = idxBeg + c.Qd
+                                    Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
+                                    idxNei += 1
                         # Compute the filters
                         tRyy = Ck.T @ Ryy @ Ck
                         tRss = Ck.T @ Rss @ Ck
-                        tW = np.linalg.inv(tRyy) @ tRss
+                        tW = np.linalg.pinv(tRyy) @ tRss
                         if alg.startswith("rsdanse"):
-                            alpha = 1 / np.log10(nIter + 10)
+                            alpha = 1 / np.log10(i + 10)
                             tW[:c.Mk, :c.Qd] = (1 - alpha) * WkkPrev[k] + alpha * tW[:c.Mk, :c.Qd]
                             WkkPrev[k] = tW[:c.Mk, :c.Qd]
                         if k == u:
-                            Pk[u] = tW[:c.Mk, :c.Qd]
+                            if alg.startswith("tidanse"):
+                                Pk[u] = tW[:c.Mk, :c.Qd] @ np.linalg.pinv(tW[c.Mk:, :c.Qd])
+                            else:
+                                Pk[u] = tW[:c.Mk, :c.Qd]
                         W_netWide[alg][k] = Ck @ tW[:, :c.D]
+
+                        # Compute metrics
+                        if 'msew' in c.metricsToCompute:
+                            metrics['msew'][alg][k, i] = np.mean(
+                                np.abs(W_netWide[alg][k] - W_netWide['centralized'][k]) ** 2
+                            )
+                        if 'msed' in c.metricsToCompute:
+                            dhatk = W_netWide[alg][k].T @ y
+                            metrics['msed'][alg][k, i] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
                     u = (u + 1) % c.K  # Update the node index for next iteration
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
         
-        if 'centralized' in c.algos:
-            # Compute MSE_W
-            msew = dict([(alg, np.zeros(c.K)) for alg in c.algos])
-            for alg in c.algos:
-                for k in range(c.K):
-                    msew[alg][k] = np.mean(
-                        np.abs(W_netWide[alg][k] - W_netWide['centralized'][k]) ** 2
-                    )
-            
-            for alg in c.algos:
-                if alg == 'centralized':
-                    continue
-                string = f"MSE_W {alg}: %10.3E" % np.mean(msew[alg])
-                if c.scmEstimation == 'oracle':
-                    thrs = 1e-10
-                elif c.scmEstimation == 'batch':
-                    thrs = 1e-4
-                if np.mean(msew[alg]) < thrs:
-                    string += f" (PASSED [{c.scmEstimation}])"
-                else:
-                    string += f" (FAILED [{c.scmEstimation}])"
-                print(string)
+        fig, axes = plt.subplots(1, len(c.metricsToCompute))
+        fig.set_size_inches(8.5, 3.5)
+        for ii, m in enumerate(c.metricsToCompute):
+            ax = axes[ii] if len(c.metricsToCompute) > 1 else axes
+            if any('danse' in alg for alg in c.algos):
+                ax.set_yscale('log')
+                for ii, alg in enumerate(metrics[m].keys()):
+                    if m == 'msew' and alg in ['centralized', 'local']:
+                        continue
+                    if 'danse' in alg:
+                        if metrics[m][alg] is not None:
+                            ax.plot(np.mean(metrics[m][alg], axis=0), label=alg)
+                        else:
+                            print(f"No {m} data for {alg}, skipping.")
+                    else:
+                        # Non-iterative algorithms
+                        ax.axhline(y=np.mean(metrics[m][alg]), linestyle='--', label=alg, color=f'C{ii}')
+                ax.set_xlim(0, c.maxDANSEiter)
+            else:
+                pass  # TODO
+            ax.legend()
+            ax.set_title(m)
+        fig.suptitle(f'{c.observability}, {c.scmEstimation}')
+        fig.tight_layout()
+        plt.show()
+        # for alg in c.algos:
+        #     if alg == 'centralized':
+        #         continue
+        #     string = f"MSE_W {alg}: %10.3E" % np.mean(msew[alg])
+        #     if c.scmEstimation == 'oracle':
+        #         thrs = 1e-10
+        #     elif c.scmEstimation == 'batch':
+        #         thrs = 1e-4
+        #     if np.mean(msew[alg]) < thrs:
+        #         string += f" (PASSED [{c.scmEstimation}])"
+        #     else:
+        #         string += f" (FAILED [{c.scmEstimation}])"
+        #     print(string)
 
 
 def randmat(shape):
