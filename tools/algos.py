@@ -6,7 +6,6 @@
 import copy
 import numpy as np
 import networkx as nx
-import scipy.linalg as sla
 from .base import Parameters
 from collections import deque
 import matplotlib.pyplot as plt
@@ -25,8 +24,8 @@ class Run:
         Bmat = randmat((c.M, c.Qn))
         cAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
         cBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
-        slat = np.random.randn(c.Qd, c.N)
-        nlat = np.random.randn(c.Qn, c.N)
+        slat = randmat((c.Qd, c.N))
+        nlat = randmat((c.Qn, c.N))
         pows = np.mean(np.abs(slat) ** 2, axis=1)
         pown = np.mean(np.abs(nlat) ** 2, axis=1)
         # Compute steering matrices
@@ -107,14 +106,14 @@ class Run:
             # source and noise steering matrices
             Gam_s = np.diag(pows)
             Gam_n = np.diag(pown)
-            Rss = Amat @ Gam_s @ Amat.T
-            Rnn = Bmat @ Gam_n @ Bmat.T
+            Rss = Amat @ Gam_s @ Amat.conj().T
+            Rnn = Bmat @ Gam_n @ Bmat.conj().T
             Rvv = np.eye(c.M) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         elif c.scmEstimation == 'batch':
             # Batch SCM estimation based on actual signals
-            Rss = s @ s.T / c.N
-            Rnn = n @ n.T / c.N
-            Rvv = v @ v.T / c.N
+            Rss = s @ s.conj().T / c.N
+            Rnn = n @ n.conj().T / c.N
+            Rvv = v @ v.conj().T / c.N
         
         # Complete signal SCM
         Ryy = Rss + Rnn + Rvv
@@ -155,7 +154,7 @@ class Run:
                 ]
                 if 'msed' in c.metricsToCompute:
                     for k in range(c.K):
-                        dhatk = W_netWide[alg][k].T @ y
+                        dhatk = W_netWide[alg][k].conj().T @ y
                         metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
             elif alg == "local":
                 for k in range(c.K):
@@ -163,18 +162,18 @@ class Run:
                     Rsksk = Rss[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * k + c.D]
                     W_netWide[alg][k] = np.linalg.inv(Rykyk) @ Rsksk
                     if 'msed' in c.metricsToCompute:
-                        dhatk = W_netWide[alg][k].T @ y[c.Mk * k:c.Mk * (k + 1), :]
+                        dhatk = W_netWide[alg][k].conj().T @ y[c.Mk * k:c.Mk * (k + 1), :]
                         metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Rgqgqu = np.zeros((c.Mk, self.oQq[q]))
+                    Rgqgqu = np.zeros((c.Mk, self.oQq[q]), dtype=complex)
                     for p in range(c.K):
                         if p == q:
                             continue
-                        Eqps = np.zeros((c.Mk, self.oQq[q]))
+                        Eqps = np.zeros((c.Mk, self.oQq[q]), dtype=complex)
                         Eqps[:self.Qkq[q, p], :self.Qkq[q, p]] = np.eye(self.Qkq[q, p])
                         # Eqps[self.Qkq[q, p]:, self.Qkq[q, p]:] = np.random.randn(c.Mk- self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p])
                         Eqps[self.Qkq[q, p]:, self.Qkq[q, p]:] = np.ones((c.Mk- self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
@@ -184,7 +183,7 @@ class Run:
                 for k in range(c.K):
                     # ty = C^H.y
                     QkqNeighs = np.delete(self.oQq, k)  # Remove k
-                    Ck = np.zeros((c.M, c.Mk + int(np.sum(QkqNeighs))))
+                    Ck = np.zeros((c.M, c.Mk + int(np.sum(QkqNeighs))), dtype=complex)
                     Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
                     for q in range(c.K):
@@ -194,8 +193,8 @@ class Run:
                             Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
                             idxNei += 1
                     # Compute the filters
-                    tRyy = Ck.T @ Ryy @ Ck
-                    tRss = Ck.T @ Rss @ Ck
+                    tRyy = Ck.conj().T @ Ryy @ Ck
+                    tRss = Ck.conj().T @ Rss @ Ck
                     tW = np.linalg.inv(tRyy) @ tRss[:, :c.D]
                     W_netWide[alg][k] = Ck @ tW
 
@@ -205,7 +204,7 @@ class Run:
                             np.abs(W_netWide[alg][k] - W_netWide['centralized'][k]) ** 2
                         )
                     if 'msed' in c.metricsToCompute:
-                        dhatk = W_netWide[alg][k].T @ y
+                        dhatk = W_netWide[alg][k].conj().T @ y
                         metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
                         pass
 
@@ -238,7 +237,7 @@ class Run:
                             dim = c.Mk + int(
                                 np.sum([hQkq[k][u] for u in upstreamNeighs[q]])
                             )
-                        Cqk[q] = np.zeros((c.M, dim))
+                        Cqk[q] = np.zeros((c.M, dim), dtype=complex)
                         Cqk[q][c.Mk * q:c.Mk * (q + 1), :c.Mk] = np.eye(c.Mk)
                     # Compute fusion matrices
                     Pk = [None for _ in range(c.K)]
@@ -255,7 +254,7 @@ class Run:
                             Cqk[q][:, idxBeg:idxEnd] = Cqk[n] @ Pk[n]
                         if q != k:
                             # Compute Pk
-                            Rhyqhyq = Cqk[q].T @ Ryy @ Cqk[q]
+                            Rhyqhyq = Cqk[q].conj().T @ Ryy @ Cqk[q]
                             if c.observability == 'foss':
                                 dim = c.Q
                             elif c.observability == 'poss':
@@ -266,11 +265,11 @@ class Run:
                                 c.Mk * downstreamNeighs[q]:\
                                 c.Mk * downstreamNeighs[q] + dim, :dim
                             ] = np.eye(dim)
-                            Rhyqyktq = Cqk[q].T @ Ryy @ hEq
+                            Rhyqyktq = Cqk[q].conj().T @ Ryy @ hEq
                             Pk[q] = np.linalg.inv(Rhyqhyq) @ Rhyqyktq
                     # Compute estimation filter
-                    tRyy = Cqk[k].T @ Ryy @ Cqk[k]
-                    tRss = Cqk[k].T @ Rss @ Cqk[k]
+                    tRyy = Cqk[k].conj().T @ Ryy @ Cqk[k]
+                    tRss = Cqk[k].conj().T @ Rss @ Cqk[k]
                     W_netWide[alg][k] = Cqk[k] @ np.linalg.inv(tRyy) @ tRss[:, :c.D]
                     
                     # Compute metrics
@@ -279,7 +278,7 @@ class Run:
                             np.abs(W_netWide[alg][k] - W_netWide['centralized'][k]) ** 2
                         )
                     if 'msed' in c.metricsToCompute:
-                        dhatk = W_netWide[alg][k].T @ y
+                        dhatk = W_netWide[alg][k].conj().T @ y
                         metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
             elif 'danse' in alg:
                 # Adapt metrics dimension
@@ -287,18 +286,18 @@ class Run:
                     metrics[m][alg] = np.zeros((c.K, c.maxDANSEiter))
                 # Initialize the fusion matrices
                 Pk = [randmat((c.Mk, c.Qd)) for _ in range(c.K)]
-                WkkPrev = [np.zeros((c.Mk, c.Qd)) for _ in range(c.K)]
+                WkkPrev = [np.zeros((c.Mk, c.Qd), dtype=complex) for _ in range(c.K)]
                 u = 0  # updating node index
                 for i in range(c.maxDANSEiter):
                     for k in range(c.K):
                         if alg.startswith("tidanse"):
-                            Ck = np.zeros((c.M, c.Mk + c.Qd))
+                            Ck = np.zeros((c.M, c.Mk + c.Qd), dtype=complex)
                             Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                             for q in range(c.K):
                                 if q != k:
                                     Ck[c.Mk * q:c.Mk * (q + 1), c.Mk:] = Pk[q]
                         else:
-                            Ck = np.zeros((c.M, c.Mk + c.Qd * (c.K - 1)))
+                            Ck = np.zeros((c.M, c.Mk + c.Qd * (c.K - 1)), dtype=complex)
                             Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                             idxNei = 0
                             for q in range(c.K):
@@ -308,8 +307,8 @@ class Run:
                                     Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
                                     idxNei += 1
                         # Compute the filters
-                        tRyy = Ck.T @ Ryy @ Ck
-                        tRss = Ck.T @ Rss @ Ck
+                        tRyy = Ck.conj().T @ Ryy @ Ck
+                        tRss = Ck.conj().T @ Rss @ Ck
                         tW = np.linalg.pinv(tRyy) @ tRss
                         if alg.startswith("rsdanse"):
                             alpha = 1 / np.log10(i + 10)
@@ -328,7 +327,7 @@ class Run:
                                 np.abs(W_netWide[alg][k] - W_netWide['centralized'][k]) ** 2
                             )
                         if 'msed' in c.metricsToCompute:
-                            dhatk = W_netWide[alg][k].T @ y
+                            dhatk = W_netWide[alg][k].conj().T @ y
                             metrics['msed'][alg][k, i] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
                     u = (u + 1) % c.K  # Update the node index for next iteration
             else:
@@ -341,7 +340,7 @@ class Run:
             if any('danse' in alg for alg in c.algos):
                 ax.set_yscale('log')
                 for ii, alg in enumerate(metrics[m].keys()):
-                    if m == 'msew' and alg in ['centralized', 'local']:
+                    if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
                         continue
                     if 'danse' in alg:
                         if metrics[m][alg] is not None:
@@ -359,24 +358,14 @@ class Run:
         fig.suptitle(f'{c.observability}, {c.scmEstimation}')
         fig.tight_layout()
         plt.show()
-        # for alg in c.algos:
-        #     if alg == 'centralized':
-        #         continue
-        #     string = f"MSE_W {alg}: %10.3E" % np.mean(msew[alg])
-        #     if c.scmEstimation == 'oracle':
-        #         thrs = 1e-10
-        #     elif c.scmEstimation == 'batch':
-        #         thrs = 1e-4
-        #     if np.mean(msew[alg]) < thrs:
-        #         string += f" (PASSED [{c.scmEstimation}])"
-        #     else:
-        #         string += f" (FAILED [{c.scmEstimation}])"
-        #     print(string)
 
 
-def randmat(shape):
+def randmat(shape, makeComplex=True):
     """Generate a random matrix with given shape."""
-    return np.random.rand(*shape)
+    if makeComplex:
+        return np.random.randn(*shape) + 1j * np.random.randn(*shape)
+    else:
+        return np.random.randn(*shape)
     
 
 def tree_levels(G: nx.Graph, root):
