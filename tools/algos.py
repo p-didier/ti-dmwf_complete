@@ -314,11 +314,11 @@ class Run:
                             alpha = 1 / np.log10(i + 10)
                             tW[:c.Mk, :c.Qd] = (1 - alpha) * WkkPrev[k] + alpha * tW[:c.Mk, :c.Qd]
                             WkkPrev[k] = tW[:c.Mk, :c.Qd]
-                        if k == u:
+                        if k == u or alg.startswith("rsdanse"):
                             if alg.startswith("tidanse"):
-                                Pk[u] = tW[:c.Mk, :c.Qd] @ np.linalg.pinv(tW[c.Mk:, :c.Qd])
+                                Pk[k] = tW[:c.Mk, :c.Qd] @ np.linalg.pinv(tW[c.Mk:, :c.Qd])
                             else:
-                                Pk[u] = tW[:c.Mk, :c.Qd]
+                                Pk[k] = tW[:c.Mk, :c.Qd]
                         W_netWide[alg][k] = Ck @ tW[:, :c.D]
 
                         # Compute metrics

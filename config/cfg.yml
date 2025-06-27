@@ -34,7 +34,7 @@ scmEstimation: oracle  # type of SCM estimation to use
     # 'oracle' for perfect knowledge,
     # 'batch' for batch time-averaged,
     # 'online' for online
-maxDANSEiter: 100  # maximum number of iterations for DANSE
+maxDANSEiter: 30  # maximum number of iterations for DANSE
 
 # Metrics parameters
 metricsToCompute:
