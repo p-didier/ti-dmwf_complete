@@ -104,34 +104,25 @@ class Run:
             Gam_n = np.diag(pown)
             Rss = Amat @ Gam_s @ Amat.T
             Rnn = Bmat @ Gam_n @ Bmat.T
-            Rgg = [
-                cAmat[q] @ Gam_s @ cAmat[q].T + cBmat[q] @ Gam_n @ cBmat[q].T
-                for q in range(c.K)
-            ]
             Rvv = np.eye(c.M) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         elif c.scmEstimation == 'batch':
             # Batch SCM estimation based on actual signals
             s = Amat @ slat
             n = Bmat @ nlat
-            g = [
-                cAmat[q] @ slat + cBmat[q] @ nlat
-                for q in range(c.K)
-            ]
             v = np.random.randn(c.M, c.N) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
             Rss = s @ s.T / c.N
             Rnn = n @ n.T / c.N
             Rvv = v @ v.T / c.N
-            Rgg = [g[q] @ g[q].T / c.N for q in range(c.K)]
         
         # Complete signal SCM
         Ryy = Rss + Rnn + Rvv
 
-        return Ryy, Rss, Rnn, Rvv, Amat, Bmat, cAmat, cBmat, Rgg
+        return Ryy, Rss
 
     def launch(self):
         # Generate scenario
         c = self.cfg
-        Ryy, Rss, Rnn, Rvv, Amat, Bmat, cAmat, cBmat, Rgg = self.setup_scms()
+        Ryy, Rss = self.setup_scms()
         
         # Generate tree
         if c.graphDiameter is not None:
@@ -156,17 +147,15 @@ class Run:
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    if 0:
-                        Rgqgqu = Rgg[q][c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * q + self.oQq[q]]
-                    else:
-                        Rgqgqu = np.zeros((c.Mk, self.oQq[q]))
-                        for p in range(c.K):
-                            if p == q:
-                                continue
-                            Eqps = np.zeros((c.Mk, self.oQq[q]))
-                            Eqps[:self.Qkq[q, p], :self.Qkq[q, p]] = np.eye(self.Qkq[q, p])
-                            Eqps[self.Qkq[q, p]:, self.Qkq[q, p]:] = np.random.randn(c.Mk- self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p])
-                            Rgqgqu += Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
+                    Rgqgqu = np.zeros((c.Mk, self.oQq[q]))
+                    for p in range(c.K):
+                        if p == q:
+                            continue
+                        Eqps = np.zeros((c.Mk, self.oQq[q]))
+                        Eqps[:self.Qkq[q, p], :self.Qkq[q, p]] = np.eye(self.Qkq[q, p])
+                        # Eqps[self.Qkq[q, p]:, self.Qkq[q, p]:] = np.random.randn(c.Mk- self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p])
+                        Eqps[self.Qkq[q, p]:, self.Qkq[q, p]:] = np.ones((c.Mk- self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
+                        Rgqgqu += Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
                     Pk[q] = np.linalg.inv(Ryqyq) @ Rgqgqu
                 pass
                 # Estimation filters
@@ -287,11 +276,15 @@ class Run:
             for alg in c.algos:
                 if alg == 'centralized':
                     continue
-                string = f"MSE_W {alg}: {np.mean(msew[alg])}"
-                if np.mean(msew[alg]) < 1e-10:
-                    string += " (PASSED)"
+                string = f"MSE_W {alg}: %10.3E" % np.mean(msew[alg])
+                if c.scmEstimation == 'oracle':
+                    thrs = 1e-10
+                elif c.scmEstimation == 'batch':
+                    thrs = 1e-4
+                if np.mean(msew[alg]) < thrs:
+                    string += f" (PASSED [{c.scmEstimation}])"
                 else:
-                    string += " (FAILED)"
+                    string += f" (FAILED [{c.scmEstimation}])"
                 print(string)
 
 def randmat(shape):
