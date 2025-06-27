@@ -32,6 +32,7 @@ class Run:
         # Compute steering matrices
         if c.observability == 'foss':
             self.oQq = np.full(c.K, c.Q)
+            self.Qkq = np.full((c.K, c.K), c.Q)
         elif c.observability == 'poss':
             # Do not differentiate between global and local sources, 
             # randomly generate observability pattern
@@ -59,7 +60,7 @@ class Run:
                 for n in range(c.Qn):
                     if self.obsMat[k, c.Qd + n] == 0:
                         Bmat[c.Mk * k:c.Mk * (k + 1), n] = 0
-            # Number of sources in common between node k and q
+            # Number of sources useful for fusion matrix computation for node q
             self.oQq = [0 for _ in range(c.K)]
             for k in range(c.K):
                 for s in range(c.Q):
@@ -70,6 +71,15 @@ class Run:
                         self.oQq[k] += 1
             assert np.all(np.array(self.oQq) <= np.sum(self.obsMat, axis=1)), \
                 "Number of sources in common exceeds number of sources observed by node."
+            # Compute the number of sources in common between nodes k and q
+            self.Qkq = np.zeros((c.K, c.K), dtype=int)
+            for k in range(c.K):
+                for q in range(c.K):
+                    if k == q:
+                        continue
+                    self.Qkq[k, q] = np.sum(
+                        self.obsMat[k, :] * self.obsMat[q, :]
+                    )
             for k in range(c.K):
                 # "Global" Amat and Bmat matrices
                 # List of sources that are either not observed by node k, or
@@ -149,10 +159,14 @@ class Run:
                     if 0:
                         Rgqgqu = Rgg[q][c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * q + self.oQq[q]]
                     else:
-                        Rgqgqu = np.sum([
-                            Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * p + self.oQq[q]]
-                            for p in range(c.K) if p != q
-                        ], axis=0)
+                        Rgqgqu = np.zeros((c.Mk, self.oQq[q]))
+                        for p in range(c.K):
+                            if p == q:
+                                continue
+                            Eqps = np.zeros((c.Mk, self.oQq[q]))
+                            Eqps[:self.Qkq[q, p], :self.Qkq[q, p]] = np.eye(self.Qkq[q, p])
+                            Eqps[self.Qkq[q, p]:, self.Qkq[q, p]:] = np.random.randn(c.Mk- self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p])
+                            Rgqgqu += Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
                     Pk[q] = np.linalg.inv(Ryqyq) @ Rgqgqu
                 pass
                 # Estimation filters
