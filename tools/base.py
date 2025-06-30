@@ -6,6 +6,7 @@
 import yaml
 import pickle
 import numpy as np
+import scipy.signal as sig
 from dataclasses import dataclass, field
 
 @dataclass
@@ -63,9 +64,7 @@ class Parameters:
     babbleDatabasePath: str = ""  # path to the babble database
     speechFiles: list[str] = field(default_factory=list)  # list of speech files
     noiseFiles: list[str] = field(default_factory=list)  # list of noise files
-    fileDuration: float = 5.0  # duration of the sound files in seconds
-    selfNoiseFactor: float = 0.01  # self noise factor (as a fraction of the speech contributions)
-    
+
     # Algorithm(s) parameters
     algos: list[str] = field(default_factory=lambda: [
         "centralized", "dmwf", "tidmwf"
@@ -82,12 +81,17 @@ class Parameters:
         "msed",  # MSE between estimated and true desired signals
     ])
 
+    # Debug
+    singleLine: int = None  # if not None, only process this frequency line in WOLA domain
+
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
 
     def __post_init__(self):
         np.random.seed(self.seed)
         self.N = int(self.fs * self.T)
+        # Number of positive frequencies in STFT
+        self.nPosFreqs = self.nfft // 2 + 1 if self.singleLine is None else 1
         # Validate parameters
         if self.Qd + self.Qn > self.Mk:
             raise ValueError("The sum of global desired and noise sources must not exceed the number of sensors per node.")
@@ -101,11 +105,12 @@ class Parameters:
                 # ^^^ this is too strict, but we keep it for now
             algs_to_remove = []
             for alg in self.algos:
-                if 'idanse' in alg:
+                if 'idanse' in alg or 'tidmwf' in alg:
                     print(f'{alg} not implemented for partially overlapping subspaces.')
                     algs_to_remove.append(alg)
             for alg in algs_to_remove:
                 self.algos.remove(alg)
+            
 
     def load_from_yaml(self, path: str):
         """Load parameters from a YAML file."""
@@ -119,6 +124,29 @@ class Parameters:
         """Export parameters to a Pickle archive."""
         with open(f'{self.outputDir}/{name}.pkl', 'wb') as f:
             pickle.dump(self.__dict__, f)
+    
+    def get_stft(self, x):
+        tmp = sig.stft(
+            x,
+            fs=self.fs,
+            nperseg=self.nfft,
+            noverlap=self.nfft - self.nhop,
+            window=self.win,
+            return_onesided=True,
+        )[-1]
+        if self.singleLine is not None:
+            return tmp[..., [self.singleLine], :]
+        else:
+            return tmp
+    
+    def get_istft(self, X):
+        return sig.istft(
+            X,
+            fs=self.fs,
+            nperseg=self.nfft,
+            noverlap=self.nfft - self.nhop,
+            window=self.win,
+        )[1]
 
 
 def randmat(shape, makeComplex=True):

@@ -13,8 +13,10 @@ observability: foss  # "foss" for fully overlapping subspaces,
 # possDiffuse: True  # if True and observability is 'foss', the
 possDiffuse: False  # if True and observability is 'foss', the
     # noise sources are assumed only local, i.e., uncorrelated across nodes
+###########################
 # domain: time  # domain of the signals, 'time' or 'wola'
 domain: wola  # domain of the signals, 'time' or 'wola'
+###########################
 roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
@@ -22,8 +24,8 @@ nodeRadius: 0.1  # radius of the node in meters
 t60: 0.          # reverberation time in seconds
 # t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
-observabilityCriterion: raw_distance  # criterion for computing observability
-# observabilityCriterion: hierarchical  # criterion for computing observability
+# observabilityCriterion: raw_distance  # criterion for computing observability
+observabilityCriterion: hierarchical  # criterion for computing observability
     # 'raw_distance': based on the distance between nodes and sources
     # 'hierarchical': starting from full observability, then removing observability connections starting from the largest node-source distance
 hierarchicalObsPruningThrs: 0.5  # for 'hierarchical' `observabilityCriterion`, threshold for pruning observability connections
@@ -52,7 +54,8 @@ win: hann  # STFT window type
 
 # Signals parameters
 fs: 16000  # sampling frequency
-T: 1.0  # duration of the signals in seconds
+# T: 20.0  # duration of the signals in seconds
+T: 60.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
 selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
@@ -62,12 +65,6 @@ desSigType: speech  # speech or noise
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
 speechDatabasePath: "C:/Users/pdidier/Documents/datasets/DS_10283_3443/VCTK-Corpus-0.92/wav48_silence_trimmed"
-fileDuration: 20.0  # duration of the sound files in seconds
-# fileDuration: 5.0  # duration of the sound files in seconds
-# fileDuration: 30.0  # duration of the sound files in seconds
-# selfNoiseFactor: .01  # self noise factor (as a fraction of the speech contributions)
-selfNoiseFactor: 5  # self noise factor (as a fraction of the speech contributions)
-
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
 - centralized
@@ -87,5 +84,9 @@ maxDANSEiter: 30  # maximum number of iterations for DANSE
 metricsToCompute:
 - msew
 - msed
+
+# Debug
+# singleLine: null  # if not None, only process this frequency line in WOLA domain
+singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 42  # random number generator seed

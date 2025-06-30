@@ -10,13 +10,12 @@ from collections import deque
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from .asc import AcousticScenario
+from collections import defaultdict
 from .base import Parameters, randmat
 
 @dataclass
 class Run:
     cfg: Parameters
-    obsMat: np.ndarray = None  # Observability matrix, initialized later
-    oQq: np.ndarray = None  # Number of sources in common between nodes
 
     def launch(self):
         # Generate scenario
@@ -24,17 +23,72 @@ class Run:
         asc = AcousticScenario(cfg=c)
         Ryy, Rss, s, n, v = asc.setup()
         y = s + n + v  # Observed signal (centralized)
-        d = np.array([s[c.Mk * k:c.Mk * k + c.D, :] for k in range(c.K)])  # target signals
+        d = np.array([s[c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])  # target signals
         
         # Generate tree
         if c.graphDiameter is not None:
-            G = generate_tree_with_diameter(c.K, c.graphDiameter)
+            graph = generate_tree_with_diameter(c.K, c.graphDiameter)
         else:
-            G = nx.complete_graph(c.K)
-            for (u, v) in G.edges():
-                G.edges[u, v]['weight'] = np.random.random()
-            G = nx.minimum_spanning_tree(G)
+            graph = nx.complete_graph(c.K)
+            for (u, v) in graph.edges():
+                graph.edges[u, v]['weight'] = np.random.random()
+            graph = nx.minimum_spanning_tree(graph)
 
+        if c.domain == 'time':
+            metrics = self.launch_single_line(Ryy, Rss, y, d, asc, graph)
+        elif c.domain == 'wola':
+            metrics = defaultdict(lambda: defaultdict(list))
+            for kappa in range(c.nPosFreqs):
+                print(f"Processing frequency line {kappa + 1}/{c.nPosFreqs}...")
+                # Extract the frequency line
+                Ryy_kappa = Ryy[kappa, ...]
+                Rss_kappa = Rss[kappa, ...]
+                y_kappa = y[:, kappa, :]
+                d_kappa = d[:, :, kappa, :]
+                tmp = self.launch_single_line(Ryy_kappa, Rss_kappa, y_kappa, d_kappa, asc, graph)
+                # Store metrics for this frequency line
+                for m in tmp.keys():
+                    for alg in tmp[m].keys():
+                        metrics[m][alg].append(tmp[m][alg])
+
+        # Post-process results
+        self.plot_metrics(metrics)
+
+    def plot_metrics(self, metrics):
+        c = self.cfg
+        fig, axes = plt.subplots(1, len(c.metricsToCompute))
+        for ii, m in enumerate(c.metricsToCompute):
+            ax = axes[ii] if len(c.metricsToCompute) > 1 else axes
+            if any('danse' in alg for alg in c.algos):
+                ax.set_yscale('log')
+                for ii, alg in enumerate(metrics[m].keys()):
+                    if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
+                        continue
+                    if 'danse' in alg:
+                        if metrics[m][alg] is not None:
+                            if c.domain == 'wola':
+                                data = np.mean(metrics[m][alg], axis=(0, 1))
+                            elif c.domain == 'time':
+                                data = np.mean(metrics[m][alg], axis=0)
+                            ax.plot(data, label=alg)
+                        else:
+                            print(f"No {m} data for {alg}, skipping.")
+                    else:
+                        # Non-iterative algorithms
+                        ax.axhline(y=np.mean(metrics[m][alg]), linestyle='--', label=alg, color=f'C{ii}')
+                ax.set_xlim(0, c.maxDANSEiter)
+            else:
+                pass  # TODO
+            ax.legend()
+            ax.set_title(m)
+        fig.suptitle(f'{c.observability}, {c.scmEstimation}')
+        fig.tight_layout()
+        plt.show()
+        fig.set_size_inches(8.5, 3.5)
+
+    def launch_single_line(self, Ryy, Rss, y, d, asc: AcousticScenario, G):
+        """Launch algorithms for a single frequency line (or time-domain processing)."""
+        c = self.cfg
         W_netWide = dict([(alg, [
             None for _ in range(c.K)
         ]) for alg in c.algos])  # Initialize node-speciifc filters dictionary
@@ -68,27 +122,26 @@ class Run:
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Rgqgqu = np.zeros((c.Mk, self.oQq[q]), dtype=complex)
+                    Rgqgqu = np.zeros((c.Mk, asc.oQq[q]), dtype=complex)
                     for p in range(c.K):
                         if p == q:
                             continue
-                        Eqps = np.zeros((c.Mk, self.oQq[q]), dtype=complex)
-                        Eqps[:self.Qkq[q, p], :self.Qkq[q, p]] = np.eye(self.Qkq[q, p])
-                        # Eqps[self.Qkq[q, p]:, self.Qkq[q, p]:] = np.random.randn(c.Mk- self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p])
-                        Eqps[self.Qkq[q, p]:, self.Qkq[q, p]:] = np.ones((c.Mk- self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
+                        Eqps = np.zeros((c.Mk, asc.oQq[q]), dtype=complex)
+                        Eqps[:asc.Qkq[q, p], :asc.Qkq[q, p]] = np.eye(asc.Qkq[q, p])
+                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk- asc.Qkq[q, p], asc.oQq[q] - asc.Qkq[q, p]))
                         Rgqgqu += Ryy[c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
                     Pk[q] = np.linalg.inv(Ryqyq) @ Rgqgqu
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
-                    QkqNeighs = np.delete(self.oQq, k)  # Remove k
+                    QkqNeighs = np.delete(asc.oQq, k)  # Remove k
                     Ck = np.zeros((c.M, c.Mk + int(np.sum(QkqNeighs))), dtype=complex)
                     Ck[c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
                     for q in range(c.K):
                         if q != k:
                             idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
-                            idxEnd = idxBeg + self.oQq[q]
+                            idxEnd = idxBeg + asc.oQq[q]
                             Ck[c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
                             idxNei += 1
                     # Compute the filters
@@ -105,13 +158,8 @@ class Run:
                     if 'msed' in c.metricsToCompute:
                         dhatk = W_netWide[alg][k].conj().T @ y
                         metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
-                        pass
 
             elif alg == "tidmwf":
-                if c.observability == 'poss':
-                    print("Warning: TI-dMWF is not implemented for partially overlapping subspaces.")
-                    c.algos.remove(alg)
-                    continue
                 for k in range(c.K):
                     upstreamNodes, upstreamNeighs = get_upstream_nodes(G, k)
                     downstreamNodes, downstreamNeighs = get_downstream_nodes(G, k)
@@ -122,11 +170,11 @@ class Run:
                             if q == k:
                                 continue
                             obss = np.sum(
-                                self.obsMat[np.array(list(upstreamNodes[q]) + [q]), :],
+                                asc.obsMat[np.array(list(upstreamNodes[q]) + [q]), :],
                                 axis=0
                             ) > 0   # boolean vector indicating which sources are
                                     # observed by node q or any node upstream of q 
-                            hQkq[k][q] = int(np.sum(self.obsMat[k, :] + obss == 2))
+                            hQkq[k][q] = int(np.sum(asc.obsMat[k, :] + obss == 2))
                             # ^^^ number of channels exchanged downstream by node q
                                 # when node k is the root                    
                     for q in range(c.K):
@@ -231,32 +279,8 @@ class Run:
                     u = (u + 1) % c.K  # Update the node index for next iteration
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
-        
-        fig, axes = plt.subplots(1, len(c.metricsToCompute))
-        fig.set_size_inches(8.5, 3.5)
-        for ii, m in enumerate(c.metricsToCompute):
-            ax = axes[ii] if len(c.metricsToCompute) > 1 else axes
-            if any('danse' in alg for alg in c.algos):
-                ax.set_yscale('log')
-                for ii, alg in enumerate(metrics[m].keys()):
-                    if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
-                        continue
-                    if 'danse' in alg:
-                        if metrics[m][alg] is not None:
-                            ax.plot(np.mean(metrics[m][alg], axis=0), label=alg)
-                        else:
-                            print(f"No {m} data for {alg}, skipping.")
-                    else:
-                        # Non-iterative algorithms
-                        ax.axhline(y=np.mean(metrics[m][alg]), linestyle='--', label=alg, color=f'C{ii}')
-                ax.set_xlim(0, c.maxDANSEiter)
-            else:
-                pass  # TODO
-            ax.legend()
-            ax.set_title(m)
-        fig.suptitle(f'{c.observability}, {c.scmEstimation}')
-        fig.tight_layout()
-        plt.show()
+            
+        return metrics
 
 
 def tree_levels(G: nx.Graph, root):

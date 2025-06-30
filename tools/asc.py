@@ -161,13 +161,44 @@ class TreeWASN:
 class AcousticScenario:
     """A dataclass for the acoustic scenario parameters."""
     cfg: Parameters
+    nodes: list[Node] = field(default_factory=list)  # list of nodes
+    obsMat: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # observability matrix
+    Qkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources in common between nodes
+    oQq: np.ndarray = field(default_factory=lambda: np.zeros(0))  # number of sources observed by each node
 
     def setup(self):
         c = self.cfg
         if c.domain == 'wola':
-            return self.setup_wola_domain()
+            out = self.setup_wola_domain()
         if c.domain == 'time':
-            return self.setup_time_domain()
+            out = self.setup_time_domain()
+        
+        if c.observability == 'foss':
+            self.oQq = np.full(c.K, c.Q)
+            self.Qkq = np.full((c.K, c.K), c.Q)
+        elif c.observability == 'poss':
+            # Number of sources useful for fusion matrix computation for node q
+            self.oQq = [0 for _ in range(c.K)]
+            for k in range(c.K):
+                for ii in range(c.Q):
+                    if self.obsMat[k, ii] != 0 and np.sum(self.obsMat[:, ii]) > 1:
+                        # If node k does observes source ii, and it is observed
+                        # by at least one other node, then the number of sources
+                        # in common is increased by one
+                        self.oQq[k] += 1
+            assert np.all(np.array(self.oQq) <= np.sum(self.obsMat, axis=1)), \
+                "Number of sources in common exceeds number of sources observed by node."
+            # Compute the number of sources in common between nodes k and q
+            self.Qkq = np.zeros((c.K, c.K), dtype=int)
+            for k in range(c.K):
+                for q in range(c.K):
+                    if k == q:
+                        continue
+                    self.Qkq[k, q] = np.sum(
+                        self.obsMat[k, :] * self.obsMat[q, :]
+                    )
+        
+        return out
 
     def setup_time_domain(self):
         """Setup the acoustic scenario in the time domain."""
@@ -212,26 +243,6 @@ class AcousticScenario:
                 for n in range(c.Qn):
                     if self.obsMat[k, c.Qd + n] == 0:
                         Bmat[c.Mk * k:c.Mk * (k + 1), n] = 0
-            # Number of sources useful for fusion matrix computation for node q
-            self.oQq = [0 for _ in range(c.K)]
-            for k in range(c.K):
-                for s in range(c.Q):
-                    if self.obsMat[k, s] != 0 and np.sum(self.obsMat[:, s]) > 1:
-                        # If node k does observes source s, and it is observed
-                        # by at least one other node, then the number of sources
-                        # in common is increased by one
-                        self.oQq[k] += 1
-            assert np.all(np.array(self.oQq) <= np.sum(self.obsMat, axis=1)), \
-                "Number of sources in common exceeds number of sources observed by node."
-            # Compute the number of sources in common between nodes k and q
-            self.Qkq = np.zeros((c.K, c.K), dtype=int)
-            for k in range(c.K):
-                for q in range(c.K):
-                    if k == q:
-                        continue
-                    self.Qkq[k, q] = np.sum(
-                        self.obsMat[k, :] * self.obsMat[q, :]
-                    )
             for k in range(c.K):
                 # "Global" Amat and Bmat matrices
                 # List of sources that are either not observed by node k, or
@@ -289,8 +300,9 @@ class AcousticScenario:
             rd,
             fs=c.fs,
             max_order=maxOrd,
-            air_absorption=True,
+            # air_absorption=True,
             materials=pra.Material(eAbs),
+            use_rand_ism=False
         )
 
         # Get latent signals
@@ -342,7 +354,60 @@ class AcousticScenario:
             self.nodes[q].td['n'] += self.nodes[q].td['sn']
             self.nodes[q].td['y'] = self.nodes[q].td['n'] + self.nodes[q].td['s']
 
-        print("Acoustic environment generated successfully.")
+        print("Acoustic environment generated successfully, computing SCMs...")
+        # Compute SCMs (from steering matrices if oracle, from signals if batch)
+        return self.compute_scms()
+
+    def compute_scms(self):
+        """Compute the SCMs for the acoustic scenario."""
+        c = self.cfg
+        # Compute centralized signals STFT
+        stack = dict()
+        for st in ['s', 'n', 'sn']:
+            tmp = np.vstack(
+                [self.nodes[k].td[st] for k in range(c.K)]
+            )
+            stack[st] = c.get_stft(tmp)
+        # Stack the signals
+        if c.scmEstimation == 'oracle':
+            # Compute FFT of RIRs
+            steeringMats = np.zeros((c.M, c.Q, c.nPosFreqs), dtype=complex)
+            for ii in range(c.Q):
+                rirs = np.array([self.rirs[m][ii] for m in range(c.M)])
+                tmp = np.fft.rfft(rirs, n=c.nfft, axis=-1)
+                if c.singleLine is not None:
+                    # If singleLine is set, only use the specified frequency line
+                    tmp = tmp[:, [c.singleLine]]
+                idxAllZeros = np.where(self.obsMat[:, ii] == 0)[0]
+                tmp[idxAllZeros, :] = 0
+                steeringMats[:, ii, :] = tmp
+            # Compute STFTs of latent signals
+            slatSTFT = c.get_stft(self.latentSpeech)
+            nlatSTFT = c.get_stft(self.latentNoise)
+            power_s = np.mean(np.abs(slatSTFT) ** 2, axis=-1)
+            power_n = np.mean(np.abs(nlatSTFT) ** 2, axis=-1)
+            power_v = np.mean(np.abs(stack['sn']) ** 2, axis=-1)
+            # Compute the SCMs
+            Rss = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
+            Ryy = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
+            for kappa in range(c.nPosFreqs):
+                Rsslat = np.diag(power_s[:, kappa])
+                Rnnlat = np.diag(power_n[:, kappa])
+                Rss[kappa, ...] = steeringMats[:, :c.Qd, kappa] @ Rsslat @ steeringMats[:, :c.Qd, kappa].conj().T
+                Rnn = steeringMats[:, c.Qd:, kappa] @ Rnnlat @ steeringMats[:, c.Qd:, kappa].conj().T
+                Rvv = np.diag(power_v[:, kappa])
+                Ryy[kappa, ...] = Rss[kappa, ...] + Rnn + Rvv
+
+        elif c.scmEstimation == 'batch':
+            # Compute the SCMs
+            nFrames = stack['s'].shape[-1]
+            Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
+            Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
+            Rvv = np.einsum('ijk,ljk->jil', stack['sn'], stack['sn'].conj()) / nFrames
+            # Complete signal SCM
+            Ryy = Rss + Rnn + Rvv
+            
+        return Ryy, Rss, stack['s'], stack['n'], stack['sn']
 
     def plot(self):
         """Export the environment to a TXT file and to a plot."""
@@ -668,7 +733,15 @@ class AcousticScenario:
         for ii in range(len(room.rir)):
             for jj in range(len(room.rir[ii])):
                 # Truncate the RIRs to the first c.nfft samples
-                room.rir[ii][jj] = room.rir[ii][jj][:c.nfft]
+                if len(room.rir[ii][jj]) > c.nfft:
+                    room.rir[ii][jj] = room.rir[ii][jj][:c.nfft]
+                elif len(room.rir[ii][jj]) < c.nfft:
+                    # Pad the RIRs with zeros to the first c.nfft samples
+                    room.rir[ii][jj] = np.pad(
+                        room.rir[ii][jj],
+                        (0, c.nfft - len(room.rir[ii][jj])),
+                        mode='constant'
+                    )
 
         return StaticScenarioParameters(
             nodesPos=nodesPos,
@@ -685,59 +758,64 @@ class AcousticScenario:
     def get_observability_matrix(self, nodesPos, speechPos, noisePos) -> np.ndarray:
         """Compute the observability matrix."""
         c = self.cfg
-        # Create the distance matrix
-        distMat = np.zeros((c.K, c.Qd + c.Qn))
-        for k in range(c.K):
-            for d in range(c.Qd):
-                # Compute the distance between the node and the source
-                distMat[k, d] = np.linalg.norm(nodesPos[k, :] - speechPos[d, :])
-            for n in range(c.Qn):
-                # Compute the distance between the node and the noise source
-                distMat[k, c.Qd + n] = np.linalg.norm(nodesPos[k, :] - noisePos[n, :])
-        # Threshold the distance matrix to obtain the observability matrix.
-        # Adapt the threshold as long as some nodes do not observe any desired
-        # source or any noise source, and as long as there exist sources
-        # that are not observed by any node.
-        thrs = c.maxDistForObservability
-        if thrs is None:
-            thrs = np.inf  # No threshold -- full observability
-        def inadequacy_criterion(om):
-            return (c.Qd > 0 and np.any(np.sum(om[:, :c.Qd], axis=1) == 0)) |\
-                (c.Qn > 0 and np.any(np.sum(om[:, c.Qd:], axis=1) == 0)) |\
-                np.any(np.sum(om, axis=0) == 0)
-        
-        # Initialize the observability matrix
-        if c.observabilityCriterion == 'raw_distance':
-            obsMat = np.zeros((c.K, c.Qd + c.Qn))
-            while inadequacy_criterion(obsMat):
-                # Obtain observability by thresholding the distance matrix
-                obsMat[distMat <= thrs] = 1
-                if inadequacy_criterion(obsMat):
-                    # Increase the threshold
-                    thrs *= 1.1
-                    if thrs == np.inf:
-                        raise ValueError("No threshold can ensure observability for all nodes and sources.")
-                    print(f"[Observability matrix] Increasing the threshold to {thrs:.2f} m", end='\r')
-        elif c.observabilityCriterion == 'hierarchical':
-            # Start with full observability
+        if c.observability == 'foss':
+            # Full observability -- all nodes observe all sources
             obsMat = np.ones((c.K, c.Qd + c.Qn))
-            # Remove observability connections starting from the largest node-source distance
-            # Find indices of largest element in the distance matrix
-            counter = 0
-            obsMats = []
-            while not inadequacy_criterion(obsMat):
-                idx = np.unravel_index(np.argmax(distMat, axis=None), distMat.shape)
-                obsMat[idx] = 0  # Remove the observability connection
-                obsMats.append(obsMat.copy())
-                # Prepare the distance matrix for the next iteration
-                distMat[idx] = 0
-                counter += 1
-            # Find the desired amount of observability connections to remove
-            if c.hierarchicalObsPruningThrs > 0:
-                nToRemove = int(c.hierarchicalObsPruningThrs * counter)
-                obsMat = obsMats[nToRemove]
-            else:
-                obsMat = obsMats[0]
+        elif c.observability == 'poss':
+            # Partial observability -- nodes observe sources based on distance
+            # Create the distance matrix
+            distMat = np.zeros((c.K, c.Qd + c.Qn))
+            for k in range(c.K):
+                for d in range(c.Qd):
+                    # Compute the distance between the node and the source
+                    distMat[k, d] = np.linalg.norm(nodesPos[k, :] - speechPos[d, :])
+                for n in range(c.Qn):
+                    # Compute the distance between the node and the noise source
+                    distMat[k, c.Qd + n] = np.linalg.norm(nodesPos[k, :] - noisePos[n, :])
+            # Threshold the distance matrix to obtain the observability matrix.
+            # Adapt the threshold as long as some nodes do not observe any desired
+            # source or any noise source, and as long as there exist sources
+            # that are not observed by any node.
+            thrs = c.maxDistForObservability
+            if thrs is None:
+                thrs = np.inf  # No threshold -- full observability
+            def inadequacy_criterion(om):
+                return (c.Qd > 0 and np.any(np.sum(om[:, :c.Qd], axis=1) == 0)) |\
+                    (c.Qn > 0 and np.any(np.sum(om[:, c.Qd:], axis=1) == 0)) |\
+                    np.any(np.sum(om, axis=0) == 0)
+            
+            # Initialize the observability matrix
+            if c.observabilityCriterion == 'raw_distance':
+                obsMat = np.zeros((c.K, c.Qd + c.Qn))
+                while inadequacy_criterion(obsMat):
+                    # Obtain observability by thresholding the distance matrix
+                    obsMat[distMat <= thrs] = 1
+                    if inadequacy_criterion(obsMat):
+                        # Increase the threshold
+                        thrs *= 1.1
+                        if thrs == np.inf:
+                            raise ValueError("No threshold can ensure observability for all nodes and sources.")
+                        print(f"[Observability matrix] Increasing the threshold to {thrs:.2f} m", end='\r')
+            elif c.observabilityCriterion == 'hierarchical':
+                # Start with full observability
+                obsMat = np.ones((c.K, c.Qd + c.Qn))
+                # Remove observability connections starting from the largest node-source distance
+                # Find indices of largest element in the distance matrix
+                counter = 0
+                obsMats = []
+                while not inadequacy_criterion(obsMat):
+                    idx = np.unravel_index(np.argmax(distMat, axis=None), distMat.shape)
+                    obsMat[idx] = 0  # Remove the observability connection
+                    obsMats.append(obsMat.copy())
+                    # Prepare the distance matrix for the next iteration
+                    distMat[idx] = 0
+                    counter += 1
+                # Find the desired amount of observability connections to remove
+                if c.hierarchicalObsPruningThrs > 0:
+                    nToRemove = int(c.hierarchicalObsPruningThrs * counter)
+                    obsMat = obsMats[nToRemove]
+                else:
+                    obsMat = obsMats[0]
         return obsMat  # node x source
 
     def tree_pruning(
