@@ -6,10 +6,11 @@
 import copy
 import numpy as np
 import networkx as nx
-from .base import Parameters
 from collections import deque
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
+from .asc import AcousticScenario
+from .base import Parameters, randmat
 
 @dataclass
 class Run:
@@ -17,113 +18,11 @@ class Run:
     obsMat: np.ndarray = None  # Observability matrix, initialized later
     oQq: np.ndarray = None  # Number of sources in common between nodes
 
-    def setup(self):
-        c = self.cfg
-
-        Amat = randmat((c.M, c.Qd))
-        Bmat = randmat((c.M, c.Qn))
-        cAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
-        cBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
-        slat = randmat((c.Qd, c.N))
-        nlat = randmat((c.Qn, c.N))
-        pows = np.mean(np.abs(slat) ** 2, axis=1)
-        pown = np.mean(np.abs(nlat) ** 2, axis=1)
-        # Compute steering matrices
-        if c.observability == 'foss':
-            self.oQq = np.full(c.K, c.Q)
-            self.Qkq = np.full((c.K, c.K), c.Q)
-        elif c.observability == 'poss':
-            # Do not differentiate between global and local sources, 
-            # randomly generate observability pattern
-            self.obsMat = np.zeros((c.K, c.Q))
-            def inadequate(om):
-                return np.any(np.sum(om, axis=1) == 0) | np.any(np.sum(om, axis=0) == 0)
-            # Criterion for adequacy: at least one desired source and one noise
-            # source must be observed by each node, and each source must be
-            # observed by at least one node.
-            # while inadequate(self.obsMat[:, :c.Qd]) or inadequate(self.obsMat[:, c.Qd:]):
-            while inadequate(self.obsMat):
-                self.obsMat = np.random.randint(0, 2, (c.K, c.Q))
-            if c.possDiffuse:
-                # Make sure each noise source is only observed by one node at most
-                for n in range(c.Qn):
-                    idx = np.where(self.obsMat[:, c.Qd + n] == 1)[0]
-                    if len(idx) > 1:
-                        idx = np.random.choice(idx, 1, replace=False)
-                        self.obsMat[:, c.Qd + n] = 0
-                        self.obsMat[idx, c.Qd + n] = 1
-            for k in range(c.K):
-                for s in range(c.Qd):
-                    if self.obsMat[k, s] == 0:
-                        Amat[c.Mk * k:c.Mk * (k + 1), s] = 0
-                for n in range(c.Qn):
-                    if self.obsMat[k, c.Qd + n] == 0:
-                        Bmat[c.Mk * k:c.Mk * (k + 1), n] = 0
-            # Number of sources useful for fusion matrix computation for node q
-            self.oQq = [0 for _ in range(c.K)]
-            for k in range(c.K):
-                for s in range(c.Q):
-                    if self.obsMat[k, s] != 0 and np.sum(self.obsMat[:, s]) > 1:
-                        # If node k does observes source s, and it is observed
-                        # by at least one other node, then the number of sources
-                        # in common is increased by one
-                        self.oQq[k] += 1
-            assert np.all(np.array(self.oQq) <= np.sum(self.obsMat, axis=1)), \
-                "Number of sources in common exceeds number of sources observed by node."
-            # Compute the number of sources in common between nodes k and q
-            self.Qkq = np.zeros((c.K, c.K), dtype=int)
-            for k in range(c.K):
-                for q in range(c.K):
-                    if k == q:
-                        continue
-                    self.Qkq[k, q] = np.sum(
-                        self.obsMat[k, :] * self.obsMat[q, :]
-                    )
-            for k in range(c.K):
-                # "Global" Amat and Bmat matrices
-                # List of sources that are either not observed by node k, or
-                # not observed by any other node
-                idxUncorr_A, idxUncorr_B = [], []
-                for s in range(c.Qd):
-                    if self.obsMat[k, s] == 0 or np.sum(self.obsMat[:, s]) == 1:
-                        idxUncorr_A.append(s)
-                for n in range(c.Qn):
-                    if self.obsMat[k, c.Qd + n] == 0 or np.sum(self.obsMat[:, c.Qd + n]) == 1:
-                        idxUncorr_B.append(n)
-                if len(idxUncorr_A) > 0:
-                    cAmat[k][:, idxUncorr_A] = 0
-                if len(idxUncorr_B) > 0:
-                    cBmat[k][:, idxUncorr_B] = 0
-
-        # Compute signals
-        s = Amat @ slat
-        n = Bmat @ nlat
-        v = np.random.randn(c.M, c.N) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
-        
-        # Compute the SCMs
-        if c.scmEstimation == 'oracle':
-            # For oracle SCM estimation, we assume perfect knowledge of the
-            # source and noise steering matrices
-            Gam_s = np.diag(pows)
-            Gam_n = np.diag(pown)
-            Rss = Amat @ Gam_s @ Amat.conj().T
-            Rnn = Bmat @ Gam_n @ Bmat.conj().T
-            Rvv = np.eye(c.M) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
-        elif c.scmEstimation == 'batch':
-            # Batch SCM estimation based on actual signals
-            Rss = s @ s.conj().T / c.N
-            Rnn = n @ n.conj().T / c.N
-            Rvv = v @ v.conj().T / c.N
-        
-        # Complete signal SCM
-        Ryy = Rss + Rnn + Rvv
-
-        return Ryy, Rss, s, n, v
-
     def launch(self):
         # Generate scenario
         c = self.cfg
-        Ryy, Rss, s, n, v = self.setup()
+        asc = AcousticScenario(cfg=c)
+        Ryy, Rss, s, n, v = asc.setup()
         y = s + n + v  # Observed signal (centralized)
         d = np.array([s[c.Mk * k:c.Mk * k + c.D, :] for k in range(c.K)])  # target signals
         
@@ -359,14 +258,6 @@ class Run:
         fig.tight_layout()
         plt.show()
 
-
-def randmat(shape, makeComplex=True):
-    """Generate a random matrix with given shape."""
-    if makeComplex:
-        return np.random.randn(*shape) + 1j * np.random.randn(*shape)
-    else:
-        return np.random.randn(*shape)
-    
 
 def tree_levels(G: nx.Graph, root):
     # Compute shortest path distances from root
