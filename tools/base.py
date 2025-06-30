@@ -31,6 +31,7 @@ class Parameters:
     roomHeight: float = 3.0   # height of the room in meters
     t60: float = 0.0          # reverberation time in seconds
     minDistFromWall: float = 0.25  # minimum distance from the wall in meters
+    minDistNodeSource: float = 0.25  # minimum distance from any node to a source in meters
     nodeRadius: float = 0.1  # radius of the node in meters
     onPlane: bool = True  # if True, all elements are on the same plane
     observabilityCriterion: str = 'raw_distance'  # criterion for computing observability
@@ -105,12 +106,11 @@ class Parameters:
                 # ^^^ this is too strict, but we keep it for now
             algs_to_remove = []
             for alg in self.algos:
-                if 'idanse' in alg or 'tidmwf' in alg:
+                if 'tidmwf' in alg:
                     print(f'{alg} not implemented for partially overlapping subspaces.')
                     algs_to_remove.append(alg)
             for alg in algs_to_remove:
                 self.algos.remove(alg)
-            
 
     def load_from_yaml(self, path: str):
         """Load parameters from a YAML file."""

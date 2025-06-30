@@ -24,11 +24,13 @@ nodeRadius: 0.1  # radius of the node in meters
 t60: 0.          # reverberation time in seconds
 # t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
+minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
 observabilityCriterion: hierarchical  # criterion for computing observability
     # 'raw_distance': based on the distance between nodes and sources
     # 'hierarchical': starting from full observability, then removing observability connections starting from the largest node-source distance
-hierarchicalObsPruningThrs: 0.5  # for 'hierarchical' `observabilityCriterion`, threshold for pruning observability connections
+# hierarchicalObsPruningThrs: 0.5  # for 'hierarchical' `observabilityCriterion`, threshold for pruning observability connections
+hierarchicalObsPruningThrs: 1  # for 'hierarchical' `observabilityCriterion`, threshold for pruning observability connections
     # if 0, no pruning is done
     # if 1, all possible observability connections are pruned, down to minimum criterion (observabilityCriterion = 'raw_distance')
     # intermediate values stop the pruning between 0 and 1.
@@ -60,8 +62,8 @@ T: 60.0  # duration of the signals in seconds
 selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
 noiseSigType: babble  # random or babble
-desSigType: speech  # speech or noise
-# desSigType: noise  # speech or noise
+# desSigType: speech  # speech or noise
+desSigType: noise  # speech or noise
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
 speechDatabasePath: "C:/Users/pdidier/Documents/datasets/DS_10283_3443/VCTK-Corpus-0.92/wav48_silence_trimmed"

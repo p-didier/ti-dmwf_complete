@@ -26,18 +26,18 @@ TEST_SET = [
         'scmEstimation': 'oracle',
         'observability': 'foss',
     },
-    # {
-    #     'scmEstimation': 'oracle',
-    #     'observability': 'poss',
-    # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'foss',
-    # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'poss',
-    # },
+    {
+        'scmEstimation': 'oracle',
+        'observability': 'poss',
+    },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'foss',
+    },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'poss',
+    },
 ]
 
 def main():
@@ -53,6 +53,7 @@ def main():
         cfg = copy.deepcopy(cfgBase)
         for key, value in test.items():
             setattr(cfg, key, value)
+        cfg.__post_init__()
 
         # Reset random state for each test
         np.random.set_state(rngState)

@@ -349,10 +349,8 @@ class AcousticScenario:
             sPower = np.mean(np.abs(self.nodes[k].td['s']) ** 2)
             sn *= np.sqrt(c.selfNoiseFactor * sPower / snPower)
             self.nodes[k].td['sn'] = sn
-
-        for q in range(c.K):
-            self.nodes[q].td['n'] += self.nodes[q].td['sn']
-            self.nodes[q].td['y'] = self.nodes[q].td['n'] + self.nodes[q].td['s']
+            self.nodes[k].td['n'] += self.nodes[k].td['sn']
+            self.nodes[k].td['y'] = self.nodes[k].td['n'] + self.nodes[k].td['s']
 
         print("Acoustic environment generated successfully, computing SCMs...")
         # Compute SCMs (from steering matrices if oracle, from signals if batch)
@@ -378,8 +376,9 @@ class AcousticScenario:
                 if c.singleLine is not None:
                     # If singleLine is set, only use the specified frequency line
                     tmp = tmp[:, [c.singleLine]]
-                idxAllZeros = np.where(self.obsMat[:, ii] == 0)[0]
-                tmp[idxAllZeros, :] = 0
+                # Set the steering vectors of nodes that do not observe source ii to zero
+                for q in np.where(self.obsMat[:, ii] == 0)[0]:
+                    tmp[c.Mk * q:c.Mk * (q + 1), :] = 0
                 steeringMats[:, ii, :] = tmp
             # Compute STFTs of latent signals
             slatSTFT = c.get_stft(self.latentSpeech)
@@ -407,6 +406,21 @@ class AcousticScenario:
             # Complete signal SCM
             Ryy = Rss + Rnn + Rvv
             
+        if 0:
+            vmin = np.amin([np.abs(Rss[0, ...]), np.abs(Ryy[0, ...])])
+            vmax = np.amax([np.abs(Rss[0, ...]), np.abs(Ryy[0, ...])])
+            # Plot the SCMs
+            fig, axes = plt.subplots(1, 2)
+            fig.set_size_inches(8.5, 3.5)
+            mapp = axes[0].imshow(np.abs(Rss[0, ...]), vmin=vmin, vmax=vmax)
+            axes[0].set_title('Rss')
+            fig.colorbar(mapp, ax=axes[0])
+            axes[1].imshow(np.abs(Ryy[0, ...]), vmin=vmin, vmax=vmax)
+            axes[1].set_title('Ryy')
+            fig.colorbar(mapp, ax=axes[1])
+            fig.tight_layout()
+            plt.show()
+
         return Ryy, Rss, stack['s'], stack['n'], stack['sn']
 
     def plot(self):
@@ -593,7 +607,6 @@ class AcousticScenario:
         for k in range(c.K):
             # Get the indices of the microphones for this node
             micIdx = np.arange(k * c.Mk, (k + 1) * c.Mk)
-            pass
             # Apply the room impulse responses to the latent signals
             for ii in range(c.Qd):
                 # ---------------------------------------
@@ -604,7 +617,6 @@ class AcousticScenario:
                     tmp = sig.fftconvolve(
                         self.latentSpeech[ii, smIdx[0]:smIdx[1]],
                         p.rirs[m][ii],
-                        # mode='same'
                     )
                     self.nodes[k].td['sIndiv'][ii, jj, smIdx[0]:smIdx[1]] = tmp[
                         :int(smIdx[1] - smIdx[0])
@@ -654,7 +666,7 @@ class AcousticScenario:
             if c.onPlane:
                 attempt[2] = zPlane
             counter = 0
-            while np.linalg.norm(attempt - nodesPos, axis=1).min() < c.minDistFromWall:
+            while np.linalg.norm(attempt - nodesPos, axis=1).min() < c.minDistNodeSource:
                 print(f"Desired source {ii + 1}/{c.Qd} too close to a node, generating a new position ({counter+1}-th trial)...", end='\r')
                 # If the source is too close to a node, generate a new position
                 attempt = np.random.rand(3) *\
@@ -673,8 +685,8 @@ class AcousticScenario:
             if c.onPlane:
                 attempt[2] = zPlane
             counter = 0
-            while np.linalg.norm(attempt - nodesPos, axis=1).min() < c.minDistFromWall or\
-                np.linalg.norm(attempt - speechSourcesPos, axis=1).min() < c.minDistFromWall:
+            while np.linalg.norm(attempt - nodesPos, axis=1).min() < c.minDistNodeSource or\
+                np.linalg.norm(attempt - speechSourcesPos, axis=1).min() < c.minDistNodeSource:
                 print(f"Noise source {ii + 1}/{c.Qd} too close to a node or a desired source, generating a new position ({counter+1}-th trial)...", end='\r')
                 # If the source is too close to a node, generate a new position
                 attempt = np.random.rand(3) *\
@@ -762,60 +774,80 @@ class AcousticScenario:
             # Full observability -- all nodes observe all sources
             obsMat = np.ones((c.K, c.Qd + c.Qn))
         elif c.observability == 'poss':
-            # Partial observability -- nodes observe sources based on distance
-            # Create the distance matrix
-            distMat = np.zeros((c.K, c.Qd + c.Qn))
-            for k in range(c.K):
-                for d in range(c.Qd):
-                    # Compute the distance between the node and the source
-                    distMat[k, d] = np.linalg.norm(nodesPos[k, :] - speechPos[d, :])
-                for n in range(c.Qn):
-                    # Compute the distance between the node and the noise source
-                    distMat[k, c.Qd + n] = np.linalg.norm(nodesPos[k, :] - noisePos[n, :])
-            # Threshold the distance matrix to obtain the observability matrix.
-            # Adapt the threshold as long as some nodes do not observe any desired
-            # source or any noise source, and as long as there exist sources
-            # that are not observed by any node.
-            thrs = c.maxDistForObservability
-            if thrs is None:
-                thrs = np.inf  # No threshold -- full observability
-            def inadequacy_criterion(om):
-                return (c.Qd > 0 and np.any(np.sum(om[:, :c.Qd], axis=1) == 0)) |\
-                    (c.Qn > 0 and np.any(np.sum(om[:, c.Qd:], axis=1) == 0)) |\
-                    np.any(np.sum(om, axis=0) == 0)
-            
-            # Initialize the observability matrix
-            if c.observabilityCriterion == 'raw_distance':
-                obsMat = np.zeros((c.K, c.Qd + c.Qn))
-                while inadequacy_criterion(obsMat):
-                    # Obtain observability by thresholding the distance matrix
-                    obsMat[distMat <= thrs] = 1
-                    if inadequacy_criterion(obsMat):
-                        # Increase the threshold
-                        thrs *= 1.1
-                        if thrs == np.inf:
-                            raise ValueError("No threshold can ensure observability for all nodes and sources.")
-                        print(f"[Observability matrix] Increasing the threshold to {thrs:.2f} m", end='\r')
-            elif c.observabilityCriterion == 'hierarchical':
-                # Start with full observability
-                obsMat = np.ones((c.K, c.Qd + c.Qn))
-                # Remove observability connections starting from the largest node-source distance
-                # Find indices of largest element in the distance matrix
-                counter = 0
-                obsMats = []
-                while not inadequacy_criterion(obsMat):
-                    idx = np.unravel_index(np.argmax(distMat, axis=None), distMat.shape)
-                    obsMat[idx] = 0  # Remove the observability connection
-                    obsMats.append(obsMat.copy())
-                    # Prepare the distance matrix for the next iteration
-                    distMat[idx] = 0
-                    counter += 1
-                # Find the desired amount of observability connections to remove
-                if c.hierarchicalObsPruningThrs > 0:
-                    nToRemove = int(c.hierarchicalObsPruningThrs * counter)
-                    obsMat = obsMats[nToRemove]
-                else:
-                    obsMat = obsMats[0]
+            # Partial observability -- nodes only observe certain sources
+            if 1:
+                # Do not differentiate between global and local sources, 
+                # randomly generate observability pattern
+                obsMat = np.zeros((c.K, c.Q))
+                def inadequate(om):
+                    observedDesired = np.sum(om[:, :c.Qd], axis=1) > 0
+                    observedNoise = np.sum(om[:, c.Qd:], axis=1) > 0
+                    oneObserver = np.sum(om, axis=0) > 0
+                    return not np.all(observedDesired) or\
+                        not np.all(oneObserver)
+                        # not np.all(observedNoise) or not np.all(oneObserver)
+                # Criterion for adequacy: at least one desired source and one noise
+                # source must be observed by each node, and each source must be
+                # observed by at least one node.
+                # while inadequate(self.obsMat[:, :c.Qd]) or inadequate(self.obsMat[:, c.Qd:]):
+                while inadequate(obsMat):
+                    obsMat = np.random.randint(0, 2, (c.K, c.Q))
+            else:
+                # Create the distance matrix
+                distMat = np.zeros((c.K, c.Qd + c.Qn))
+                for k in range(c.K):
+                    for d in range(c.Qd):
+                        # Compute the distance between the node and the source
+                        distMat[k, d] = np.linalg.norm(nodesPos[k, :] - speechPos[d, :])
+                    for n in range(c.Qn):
+                        # Compute the distance between the node and the noise source
+                        distMat[k, c.Qd + n] = np.linalg.norm(nodesPos[k, :] - noisePos[n, :])
+                # Threshold the distance matrix to obtain the observability matrix.
+                # Adapt the threshold as long as some nodes do not observe any desired
+                # source or any noise source, and as long as there exist sources
+                # that are not observed by any node.
+                thrs = c.maxDistForObservability
+                if thrs is None:
+                    thrs = np.inf  # No threshold -- full observability
+                def inadequacy_criterion(om):
+                    return (c.Qd > 0 and np.any(np.sum(om[:, :c.Qd], axis=1) == 0)) |\
+                        (c.Qn > 0 and np.any(np.sum(om[:, c.Qd:], axis=1) == 0)) |\
+                        np.any(np.sum(om, axis=0) == 0)
+                
+                # Initialize the observability matrix
+                if c.observabilityCriterion == 'raw_distance':
+                    obsMat = np.zeros((c.K, c.Qd + c.Qn))
+                    while inadequacy_criterion(obsMat):
+                        # Obtain observability by thresholding the distance matrix
+                        obsMat[distMat <= thrs] = 1
+                        if inadequacy_criterion(obsMat):
+                            # Increase the threshold
+                            thrs *= 1.1
+                            if thrs == np.inf:
+                                raise ValueError("No threshold can ensure observability for all nodes and sources.")
+                            print(f"[Observability matrix] Increasing the threshold to {thrs:.2f} m", end='\r')
+                elif c.observabilityCriterion == 'hierarchical':
+                    # Start with full observability
+                    obsMat = np.ones((c.K, c.Qd + c.Qn))
+                    # Remove observability connections starting from the largest
+                    # node-source distance, until the inadequacy criterion is met.
+
+                    # Find indices of largest element in the distance matrix
+                    counter = 0
+                    obsMats = []
+                    while not inadequacy_criterion(obsMat):
+                        idx = np.unravel_index(np.argmax(distMat, axis=None), distMat.shape)
+                        obsMat[idx] = 0  # Remove the observability connection
+                        obsMats.append(obsMat.copy())
+                        # Prepare the distance matrix for the next iteration
+                        distMat[idx] = 0
+                        counter += 1
+                    # Find the desired amount of observability connections to remove
+                    if c.hierarchicalObsPruningThrs > 0:
+                        nToRemove = int(c.hierarchicalObsPruningThrs * counter) - 1
+                        obsMat = obsMats[nToRemove]
+                    else:
+                        obsMat = obsMats[0]
         return obsMat  # node x source
 
     def tree_pruning(
