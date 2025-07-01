@@ -37,19 +37,8 @@ class Run:
         if c.domain == 'time':
             metrics = self.launch_single_line(Ryy, Rss, y, d, asc, graph)
         elif c.domain == 'wola':
-            metrics = defaultdict(lambda: defaultdict(list))
-            for kappa in range(c.nPosFreqs):
-                print(f"Processing frequency line {kappa + 1}/{c.nPosFreqs}...")
-                # Extract the frequency line
-                Ryy_kappa = Ryy[kappa, ...]
-                Rss_kappa = Rss[kappa, ...]
-                y_kappa = y[:, kappa, :]
-                d_kappa = d[:, :, kappa, :]
-                tmp = self.launch_single_line(Ryy_kappa, Rss_kappa, y_kappa, d_kappa, asc, graph)
-                # Store metrics for this frequency line
-                for m in tmp.keys():
-                    for alg in tmp[m].keys():
-                        metrics[m][alg].append(tmp[m][alg])
+            print(f"Processing {c.nPosFreqs} frequency lines vectorized...")
+            metrics = self.launch_vectorized(Ryy, Rss, y, d, asc, graph)
 
         # Post-process results
         self.plot_metrics(metrics)
@@ -96,7 +85,7 @@ class Run:
             (alg, np.zeros(c.K)) for alg in c.algos + ['unprocessed']
         ])) for metric in c.metricsToCompute])
         metrics['msed']['unprocessed'] = [
-            np.mean(np.abs(d[k, :] - y[c.Mk * k:c.Mk * k + c.D, :]) ** 2)
+            np.mean(np.abs(d[k, ...] - y[c.Mk * k:c.Mk * k + c.D, ...]) ** 2)
             for k in range(c.K)
         ]
         for alg in c.algos:
@@ -108,7 +97,7 @@ class Run:
                 if 'msed' in c.metricsToCompute:
                     for k in range(c.K):
                         dhatk = W_netWide[alg][k].conj().T @ y
-                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
+                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, ...] - dhatk) ** 2)
             elif alg == "local":
                 for k in range(c.K):
                     Rykyk = Ryy[c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
@@ -116,7 +105,7 @@ class Run:
                     W_netWide[alg][k] = np.linalg.inv(Rykyk) @ Rsksk
                     if 'msed' in c.metricsToCompute:
                         dhatk = W_netWide[alg][k].conj().T @ y[c.Mk * k:c.Mk * (k + 1), :]
-                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
+                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, ...] - dhatk) ** 2)
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
@@ -157,61 +146,32 @@ class Run:
                         )
                     if 'msed' in c.metricsToCompute:
                         dhatk = W_netWide[alg][k].conj().T @ y
-                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
+                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, ...] - dhatk) ** 2)
 
             elif alg == "tidmwf":
                 for k in range(c.K):
                     upstreamNodes, upstreamNeighs = get_upstream_nodes(G, k)
                     downstreamNodes, downstreamNeighs = get_downstream_nodes(G, k)
                     Cqk = [None for _ in range(c.K)]
-                    if c.observability == 'poss':
-                        hQkq = [[None for _ in range(c.K)] for _ in range(c.K)]
-                        for q in range(c.K):
-                            if q == k:
-                                continue
-                            obss = np.sum(
-                                asc.obsMat[np.array(list(upstreamNodes[q]) + [q]), :],
-                                axis=0
-                            ) > 0   # boolean vector indicating which sources are
-                                    # observed by node q or any node upstream of q 
-                            hQkq[k][q] = int(np.sum(asc.obsMat[k, :] + obss == 2))
-                            # ^^^ number of channels exchanged downstream by node q
-                                # when node k is the root                    
                     for q in range(c.K):
-                        if c.observability == 'foss':
-                            dim = c.Mk + c.Q * len(upstreamNeighs[q])
-                        elif c.observability == 'poss':
-                            dim = c.Mk + int(
-                                np.sum([hQkq[k][u] for u in upstreamNeighs[q]])
-                            )
+                        dim = c.Mk + c.Q * len(upstreamNeighs[q])
                         Cqk[q] = np.zeros((c.M, dim), dtype=complex)
                         Cqk[q][c.Mk * q:c.Mk * (q + 1), :c.Mk] = np.eye(c.Mk)
                     # Compute fusion matrices
                     Pk = [None for _ in range(c.K)]
                     for q in flatten_list(tree_levels(G, k)):
                         for ii, n in enumerate(upstreamNeighs[q]):
-                            if c.observability == 'foss':
-                                idxBeg = c.Mk + ii * c.Q
-                                idxEnd = idxBeg + c.Q
-                            else:
-                                idxBeg = c.Mk + int(
-                                    np.sum([hQkq[k][u] for u in upstreamNeighs[q][:ii]])
-                                )
-                                idxEnd = idxBeg + hQkq[k][n]
+                            idxBeg = c.Mk + ii * c.Q
+                            idxEnd = idxBeg + c.Q
                             Cqk[q][:, idxBeg:idxEnd] = Cqk[n] @ Pk[n]
                         if q != k:
                             # Compute Pk
                             Rhyqhyq = Cqk[q].conj().T @ Ryy @ Cqk[q]
-                            if c.observability == 'foss':
-                                dim = c.Q
-                            elif c.observability == 'poss':
-                                dim = hQkq[k][q]
-                            hEq = np.zeros((c.M, dim))
-                            # hEq[c.Mk * k:c.Mk * k + dim, :dim] = np.eye(dim)
+                            hEq = np.zeros((c.M, c.Q))
                             hEq[
                                 c.Mk * downstreamNeighs[q]:\
-                                c.Mk * downstreamNeighs[q] + dim, :dim
-                            ] = np.eye(dim)
+                                c.Mk * downstreamNeighs[q] + c.Q, :
+                            ] = np.eye(c.Q)
                             Rhyqyktq = Cqk[q].conj().T @ Ryy @ hEq
                             Pk[q] = np.linalg.inv(Rhyqhyq) @ Rhyqyktq
                     # Compute estimation filter
@@ -226,7 +186,7 @@ class Run:
                         )
                     if 'msed' in c.metricsToCompute:
                         dhatk = W_netWide[alg][k].conj().T @ y
-                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
+                        metrics['msed'][alg][k] = np.mean(np.abs(d[k, ...] - dhatk) ** 2)
             elif 'danse' in alg:
                 # Adapt metrics dimension
                 for m in c.metricsToCompute:
@@ -275,7 +235,7 @@ class Run:
                             )
                         if 'msed' in c.metricsToCompute:
                             dhatk = W_netWide[alg][k].conj().T @ y
-                            metrics['msed'][alg][k, i] = np.mean(np.abs(d[k, :] - dhatk) ** 2)
+                            metrics['msed'][alg][k, i] = np.mean(np.abs(d[k, ...] - dhatk) ** 2)
                     u = (u + 1) % c.K  # Update the node index for next iteration
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
@@ -376,12 +336,12 @@ def generate_tree_with_diameter(N, E):
     assert E >= 1, "Diameter must be at least 1."
     assert N >= E + 1, "Need at least E+1 nodes for diameter E."
 
-    T = nx.Graph()
+    tree = nx.Graph()
 
     # Step 1: create a path of length E (E+1 nodes)
     path_nodes = list(range(E + 1))
     for i in range(E):
-        T.add_edge(path_nodes[i], path_nodes[i+1])
+        tree.add_edge(path_nodes[i], path_nodes[i+1])
 
     next_node = E + 1
 
@@ -391,8 +351,8 @@ def generate_tree_with_diameter(N, E):
     i = 0
     while next_node < N:
         attach_to = attachable_nodes[i % len(attachable_nodes)]
-        T.add_edge(attach_to, next_node)
+        tree.add_edge(attach_to, next_node)
         next_node += 1
         i += 1
 
-    return T
+    return tree

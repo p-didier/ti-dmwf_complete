@@ -11,8 +11,8 @@
 import sys
 import copy
 import numpy as np
-from tools.algos import *
 from tools.base import *
+from tools.algos import *
 
 import matplotlib as mpl
 mpl.use('TkAgg')  # use TkAgg backend to avoid issues when plotting
@@ -22,22 +22,22 @@ plt.ion()  # interactive mode on
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
 TEST_SET = [
-    {
-        'scmEstimation': 'oracle',
-        'observability': 'foss',
-    },
+    # {
+    #     'scmEstimation': 'oracle',
+    #     'observability': 'foss',
+    # },
     {
         'scmEstimation': 'oracle',
         'observability': 'poss',
     },
-    {
-        'scmEstimation': 'batch',
-        'observability': 'foss',
-    },
-    {
-        'scmEstimation': 'batch',
-        'observability': 'poss',
-    },
+    # {
+    #     'scmEstimation': 'batch',
+    #     'observability': 'foss',
+    # },
+    # {
+    #     'scmEstimation': 'batch',
+    #     'observability': 'poss',
+    # },
 ]
 
 def main():

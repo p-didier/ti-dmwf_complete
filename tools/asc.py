@@ -236,6 +236,7 @@ class AcousticScenario:
                         idx = np.random.choice(idx, 1, replace=False)
                         self.obsMat[:, c.Qd + n] = 0
                         self.obsMat[idx, c.Qd + n] = 1
+
             for k in range(c.K):
                 for s in range(c.Qd):
                     if self.obsMat[k, s] == 0:
