@@ -75,6 +75,7 @@ class Parameters:
         # 'batch' for batch time-averaged,
         # 'online' for online
     maxDANSEiter: int = 100  # maximum number of iterations for DANSE
+    mu: float = 1  # SDW-MWF factor
 
     # Metrics parameters
     metricsToCompute: list[str] = field(default_factory=lambda: [

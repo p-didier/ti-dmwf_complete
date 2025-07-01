@@ -22,14 +22,14 @@ plt.ion()  # interactive mode on
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
 TEST_SET = [
-    # {
-    #     'scmEstimation': 'oracle',
-    #     'observability': 'foss',
-    # },
     {
         'scmEstimation': 'oracle',
-        'observability': 'poss',
+        'observability': 'foss',
     },
+    # {
+    #     'scmEstimation': 'oracle',
+    #     'observability': 'poss',
+    # },
     # {
     #     'scmEstimation': 'batch',
     #     'observability': 'foss',
@@ -59,7 +59,7 @@ def main():
         np.random.set_state(rngState)
 
         # Launch the simulation
-        Run(cfg).launch()
+        Run(cfg).go()
 
     pass
 

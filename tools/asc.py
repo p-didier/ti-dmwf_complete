@@ -389,14 +389,15 @@ class AcousticScenario:
             power_v = np.mean(np.abs(stack['sn']) ** 2, axis=-1)
             # Compute the SCMs
             Rss = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
+            Rnn = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
             Ryy = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
             for kappa in range(c.nPosFreqs):
                 Rsslat = np.diag(power_s[:, kappa])
                 Rnnlat = np.diag(power_n[:, kappa])
                 Rss[kappa, ...] = steeringMats[:, :c.Qd, kappa] @ Rsslat @ steeringMats[:, :c.Qd, kappa].conj().T
-                Rnn = steeringMats[:, c.Qd:, kappa] @ Rnnlat @ steeringMats[:, c.Qd:, kappa].conj().T
+                Rnn[kappa, ...] = steeringMats[:, c.Qd:, kappa] @ Rnnlat @ steeringMats[:, c.Qd:, kappa].conj().T
                 Rvv = np.diag(power_v[:, kappa])
-                Ryy[kappa, ...] = Rss[kappa, ...] + Rnn + Rvv
+                Ryy[kappa, ...] = Rss[kappa, ...] + Rnn[kappa, ...] + Rvv
 
         elif c.scmEstimation == 'batch':
             # Compute the SCMs
@@ -406,23 +407,8 @@ class AcousticScenario:
             Rvv = np.einsum('ijk,ljk->jil', stack['sn'], stack['sn'].conj()) / nFrames
             # Complete signal SCM
             Ryy = Rss + Rnn + Rvv
-            
-        if 0:
-            vmin = np.amin([np.abs(Rss[0, ...]), np.abs(Ryy[0, ...])])
-            vmax = np.amax([np.abs(Rss[0, ...]), np.abs(Ryy[0, ...])])
-            # Plot the SCMs
-            fig, axes = plt.subplots(1, 2)
-            fig.set_size_inches(8.5, 3.5)
-            mapp = axes[0].imshow(np.abs(Rss[0, ...]), vmin=vmin, vmax=vmax)
-            axes[0].set_title('Rss')
-            fig.colorbar(mapp, ax=axes[0])
-            axes[1].imshow(np.abs(Ryy[0, ...]), vmin=vmin, vmax=vmax)
-            axes[1].set_title('Ryy')
-            fig.colorbar(mapp, ax=axes[1])
-            fig.tight_layout()
-            plt.show()
 
-        return Ryy, Rss, stack['s'], stack['n'], stack['sn']
+        return Ryy, Rss, Rnn, stack['s'], stack['n'], stack['sn']
 
     def plot(self):
         """Export the environment to a TXT file and to a plot."""
@@ -525,7 +511,7 @@ class AcousticScenario:
         c = self.cfg
         if c.desSigType == 'noise':
             # Generate white noise signals
-            return np.random.randn(n, c.N).astype('float32')
+            return randmat((n, c.N), makeComplex=False)
         elif c.desSigType == 'speech':
             # Recursively search for all .wav files in the database path
             path = Path(c.speechDatabasePath)
