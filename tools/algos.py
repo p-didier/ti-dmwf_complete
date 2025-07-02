@@ -6,13 +6,15 @@
 import time
 import numpy as np
 import networkx as nx
-from numba import njit
 from .tree_utils import *
 import matplotlib.pyplot as plt
+from mypystoi import stoi_any_fs
 from dataclasses import dataclass
 from pyinstrument import Profiler
 from .asc import AcousticScenario
 from .base import Parameters, randmat
+
+TD_METRICS = ['msed', 'snr', 'stoi']
 
 @dataclass
 class Run:
@@ -22,8 +24,8 @@ class Run:
         # Generate scenario
         c = self.cfg
         asc = AcousticScenario(cfg=c)
-        Ryy, Rss, Rnn, s, n, v = asc.setup()
-        y = s + n + v  # Observed signal (centralized)
+        Ryy, Rss, Rnn, s, n = asc.setup()
+        y = s + n  # Observed signal (centralized)
         d = np.array([s[c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])  # target signals
         
         # Generate tree
@@ -41,7 +43,7 @@ class Run:
         # Compute metrics
         print("\nComputing metrics...")
         t0 = time.time()
-        metrics = self.get_metrics(W_netWide, y, d)
+        metrics = self.get_metrics(W_netWide, y, d, n, s)
         print(f"\nMetrics computed in {time.time() - t0:.2f} seconds.")
 
         # Post-process results
@@ -53,7 +55,10 @@ class Run:
         fig.set_size_inches(8.5, 3.5)
         for ii, m in enumerate(c.metricsToCompute):
             ax = axes[ii] if len(c.metricsToCompute) > 1 else axes
+            if m == 'stoi':
+                ax.set_ylim(0, 1)
             if any('danse' in alg for alg in c.algos):
+                # Line plot when including iterative algorithms
                 ax.set_yscale('log')
                 for ii, alg in enumerate(metrics[m].keys()):
                     if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
@@ -65,71 +70,84 @@ class Run:
                         else:
                             print(f"No {m} data for {alg}, skipping.")
                     else:
-                        # Non-iterative algorithms
+                        # Non-iterative algorithms as horizontal lines
                         ax.axhline(y=np.mean(metrics[m][alg]), linestyle='--', label=alg, color=f'C{ii}')
                 ax.set_xlim(0, c.maxDANSEiter)
             else:
-                pass  # TODO
+                # Bar plot when not including iterative algorithms
+                for ii, alg in enumerate(metrics[m].keys()):
+                    if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
+                        continue
+                    ax.bar(ii, np.mean(metrics[m][alg]), label=alg, color=f'C{ii}')
+            if m == 'snr' and ax.get_ylim()[0] < 0:
+                # Ensure SNR = 0 dB is visible as a horizontal line
+                ax.axhline(y=0, color='0.5', linestyle='--', linewidth=0.5)
             ax.legend()
             ax.set_title(m)
         fig.suptitle(f'{c.observability}, {c.scmEstimation}')
         fig.tight_layout()
         plt.show()
 
-    def get_metrics(self, W_netWide, y, d):
+    def get_metrics(self, W_netWide, y, d, n=None, s=None):
         c = self.cfg
 
         metrics = dict([(metric, dict([
-            (alg, [None for _ in range(c.K)]) for alg in c.algos + ['unprocessed']
+            (alg, [None for _ in range(c.K)]) for alg in c.algos
         ])) for metric in c.metricsToCompute])
 
+        def _apply_filter(Wk, x):
+            return c.get_istft((herm(Wk) @ x.transpose(1, 0, 2)).transpose(1, 0, 2))
 
-        def _process_msed(dk=None, dhatk=None):
-            """Process MSEd metric."""
-            if dk.shape[0] == c.nfft // 2 + 1 and dhatk.shape[0] == c.nfft // 2 + 1:
-                # Compute ISTFT -- back to time domain
-                dkTD = c.get_istft(dk.transpose(1, 0, 2))
-                dhatkTD = c.get_istft(dhatk.transpose(1, 0, 2))
-                return np.mean(np.abs(dkTD - dhatkTD) ** 2)
-            return np.mean(np.abs(dk - dhatk) ** 2)
-        
-        def _process(Wk, hWk=None, dk=None, dhatk=None,):
+        def _process(Wk, hWk=None, dk=None, dhatk=None, shatk=None, nhatk=None):
             metrics_curr = dict([(metric, None) for metric in c.metricsToCompute])
-            if 'msew' in c.metricsToCompute:
-                metrics_curr['msew'] = np.mean(np.abs(Wk - hWk) ** 2)
-            if 'msed' in c.metricsToCompute:
-                metrics_curr['msed'] = _process_msed(dk, dhatk)
+            for m in c.metricsToCompute:
+                if m == 'msew':
+                    metrics_curr['msew'] = np.mean(np.abs(Wk - hWk) ** 2)
+                if m == 'msed':
+                    metrics_curr['msed'] = np.mean(np.abs(dk - dhatk) ** 2)
+                if m == 'snr':
+                    metrics_curr['snr'] = 20 * np.log10(
+                        np.mean(np.abs(shatk) ** 2) /
+                        np.mean(np.abs(nhatk) ** 2)
+                    )
+                if m == 'stoi':
+                    metrics_curr['stoi'] = stoi_any_fs(dk, dhatk, fs_sig=c.fs)
             return metrics_curr
         
         msedOverFrames = 50 # Number of frames to average MSEd over
 
-        yc = y[..., :msedOverFrames].transpose(1, 0, 2)  # Centralized signal for MSEd computation
+        yc = y[..., :msedOverFrames]  # Centralized signal for MSEd computation
+        if 'snr' in c.metricsToCompute:
+            sc = s[..., :msedOverFrames]  # Centralized signal for MSEd computation
+            nc = n[..., :msedOverFrames]  # Centralized signal for MSEd computation
+
         for k in range(c.K):
+
             hWk = W_netWide['centralized'][k]
-            dk = d[k, ..., :msedOverFrames].transpose(1, 0, 2)  # Desired signal for node k
-            if 'msed' in c.metricsToCompute:
-                # Compute unprocessed MSE
-                metrics['msed']['unprocessed'][k] = _process_msed(
-                    dk=dk, dhatk=yc[:, c.Mk * k:c.Mk * k + c.D, :]
-                )
+            dkTD = c.get_istft(d[k, ..., :msedOverFrames])  # Desired signal for node k
+            kwargs = dict(hWk=hWk, dk=dkTD)  # Common arguments for metric computation
+
             for alg in c.algos:
-                if alg == 'tidmwf':
-                    pass
                 print(f"Computing metrics for {alg}, node {k}...", end='\r')
-                if isinstance(W_netWide[alg][k], list):
-                    for ii in range(len(W_netWide[alg][k])):
-                        dhatk = herm(W_netWide[alg][k][ii]) @ yc
-                        metric_curr = _process(W_netWide[alg][k][ii], hWk=hWk, dk=dk, dhatk=dhatk)
-                        for m in c.metricsToCompute:
-                            if metrics[m][alg][k] is None:
-                                metrics[m][alg][k] = []
-                            metrics[m][alg][k].append(metric_curr[m])
-                else:
-                    dhatk = herm(W_netWide[alg][k]) @ yc
-                    metric_curr = _process(W_netWide[alg][k], hWk=hWk, dk=dk, dhatk=dhatk)
+
+                if not isinstance(W_netWide[alg][k], list):
+                    W_netWide[alg][k] = [W_netWide[alg][k]]
+                
+                for ii in range(len(W_netWide[alg][k])):
+                    # Compute signal estimates
+                    wCurr = W_netWide[alg][k][ii]
+                    kwargs['dhatk'] = _apply_filter(wCurr, yc)
+                    if 'snr' in c.metricsToCompute:
+                        kwargs['shatk'] = _apply_filter(wCurr, sc)
+                        kwargs['nhatk'] = _apply_filter(wCurr, nc)
+
+                    # Compute metrics for the current filter
+                    metric_curr = _process(wCurr, **kwargs)
+
                     for m in c.metricsToCompute:
-                        metrics[m][alg][k] = metric_curr[m]
-                pass
+                        if metrics[m][alg][k] is None:
+                            metrics[m][alg][k] = []
+                        metrics[m][alg][k].append(metric_curr[m])
 
         return metrics
 
@@ -142,7 +160,10 @@ class Run:
         ]) for alg in c.algos])  # Initialize node-specific filters dictionary
         for alg in c.algos:
             print(f"Running algorithm: {alg}...")
-            if alg == "centralized":
+            if alg == 'unprocessed':
+                for k in range(c.K):
+                    W_netWide[alg][k][..., c.Mk * k:c.Mk * k + c.D, :] = np.eye(c.D)
+            elif alg == "centralized":
                 Wcentr = self.filtup(Ryy, Rss)
                 W_netWide[alg] = [
                     Wcentr[..., c.Mk * k:c.Mk * k + c.D] for k in range(c.K)
@@ -259,13 +280,16 @@ class Run:
                                 alpha * tW[..., :c.Mk, :c.Qd]
                             WkkPrev[k] = tW[..., :c.Mk, :c.Qd]
                         W_netWide[alg][k].append(Ck @ tW[..., :c.D])
-                        if i == 1 and alg == 'rsdanse':
-                            pass
                         # Update the fusion matrices
                         if k == u or alg.startswith("rsdanse"):
                             if alg.startswith("tidanse"):
-                                Pk[k] = tW[..., :c.Mk, :c.Qd] @\
-                                    np.linalg.inv(tW[..., c.Mk:, :c.Qd])
+                                try:
+                                    Pk[k] = tW[..., :c.Mk, :c.Qd] @\
+                                        np.linalg.inv(tW[..., c.Mk:, :c.Qd])
+                                except np.linalg.LinAlgError:
+                                    print("Matrix inversion failed, using pseudo-inverse instead.")
+                                    Pk[k] = tW[..., :c.Mk, :c.Qd] @\
+                                        np.linalg.pinv(tW[..., c.Mk:, :c.Qd])
                             else:
                                 Pk[k] = tW[..., :c.Mk, :c.Qd]
                     u = (u + 1) % c.K  # Update the node index for next iteration
@@ -281,8 +305,13 @@ class Run:
         if finalSize < Ryy.shape[-1]:
             # To apply the SDW addition, we need to pad Ryy (then discard the extra columns later)
             Rss = np.pad(Rss, ((0, 0), (0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
-        tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
+        try:
+            tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
+        except np.linalg.LinAlgError:
+            print("Matrix inversion failed, using pseudo-inverse instead.")
+            tmp = np.linalg.pinv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
         return tmp[..., :finalSize]
+
 
 def flatten_list(l):
     """Flatten a list of lists."""

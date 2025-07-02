@@ -53,6 +53,7 @@ class SignalContainer:
         else:
             raise ValueError("Domain must be 'td' or 'wd'.")
 
+
 @dataclass
 class Node(SignalContainer):
     """A dataclass for the node."""
@@ -264,7 +265,8 @@ class AcousticScenario:
         s = Amat @ slat
         n = Bmat @ nlat
         v = np.random.randn(c.M, c.N) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
-        
+        n += v  # add self-noise to noise signal
+
         # Compute the SCMs
         if c.scmEstimation == 'oracle':
             # For oracle SCM estimation, we assume perfect knowledge of the
@@ -274,16 +276,16 @@ class AcousticScenario:
             Rss = Amat @ Gam_s @ Amat.conj().T
             Rnn = Bmat @ Gam_n @ Bmat.conj().T
             Rvv = np.eye(c.M) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
+            Rnn += Rvv  # add self-noise to noise SCM
         elif c.scmEstimation == 'batch':
             # Batch SCM estimation based on actual signals
             Rss = s @ s.conj().T / c.N
             Rnn = n @ n.conj().T / c.N
-            Rvv = v @ v.conj().T / c.N
         
         # Complete signal SCM
-        Ryy = Rss + Rnn + Rvv
+        Ryy = Rss + Rnn
 
-        return Ryy, Rss, s, n, v
+        return Ryy, Rss, s, n
     
     def setup_wola_domain(self):
         """Setup the acoustic scenario in the WOLA domain."""
@@ -301,7 +303,7 @@ class AcousticScenario:
             rd,
             fs=c.fs,
             max_order=maxOrd,
-            # air_absorption=True,
+            air_absorption=True if c.t60 > 0 else False,
             materials=pra.Material(eAbs),
             use_rand_ism=False
         )
@@ -367,6 +369,7 @@ class AcousticScenario:
                 [self.nodes[k].td[st] for k in range(c.K)]
             )
             stack[st] = c.get_stft(tmp)
+        stack['n'] = stack['n'] + stack['sn']  # Add self-noise to noise signal
         # Stack the signals
         if c.scmEstimation == 'oracle':
             # Compute FFT of RIRs
@@ -404,11 +407,10 @@ class AcousticScenario:
             nFrames = stack['s'].shape[-1]
             Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
             Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
-            Rvv = np.einsum('ijk,ljk->jil', stack['sn'], stack['sn'].conj()) / nFrames
             # Complete signal SCM
             Ryy = Rss + Rnn + Rvv
 
-        return Ryy, Rss, Rnn, stack['s'], stack['n'], stack['sn']
+        return Ryy, Rss, Rnn, stack['s'], stack['n']
 
     def plot(self):
         """Export the environment to a TXT file and to a plot."""
@@ -509,7 +511,7 @@ class AcousticScenario:
     def gen_latent_speech(self, n: int) -> list[str]:
         """Generate speech signals using files from the database."""
         c = self.cfg
-        if c.desSigType == 'noise':
+        if c.desSigType == 'random':
             # Generate white noise signals
             return randmat((n, c.N), makeComplex=False)
         elif c.desSigType == 'speech':

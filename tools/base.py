@@ -60,7 +60,7 @@ class Parameters:
     N: int = field(init=False)  # number of samples, computed from fs and T
     selfNoiseFactor: float = 1e-6  # self-noise factor, used to scale the noise covariance
     noiseSigType: str = "random"  # random or babble
-    desSigType: str = "speech"  # speech or noise
+    desSigType: str = "speech"  # speech or random
     speechDatabasePath: str = ""  # path to the speech database
     babbleDatabasePath: str = ""  # path to the babble database
     speechFiles: list[str] = field(default_factory=list)  # list of speech files
@@ -112,6 +112,14 @@ class Parameters:
                     algs_to_remove.append(alg)
             for alg in algs_to_remove:
                 self.algos.remove(alg)
+        
+        if self.desSigType != 'speech':
+            if 'snr' in self.metricsToCompute:
+                print("SNR metric is not applicable for non-speech desired signals. Removing it from metrics to compute.")
+                self.metricsToCompute.remove('snr')
+            if 'stoi' in self.metricsToCompute:
+                print("STOI metric is not applicable for non-speech desired signals. Removing it from metrics to compute.")
+                self.metricsToCompute.remove('stoi')
 
     def load_from_yaml(self, path: str):
         """Load parameters from a YAML file."""
@@ -141,13 +149,17 @@ class Parameters:
             return tmp
     
     def get_istft(self, X):
-        return sig.istft(
-            X,
-            fs=self.fs,
-            nperseg=self.nfft,
-            noverlap=self.nfft - self.nhop,
-            window=self.win,
-        )[1]
+        if X.shape[-2] > 1:
+            return sig.istft(
+                X,
+                fs=self.fs,
+                nperseg=self.nfft,
+                noverlap=self.nfft - self.nhop,
+                window=self.win,
+            )[1]
+        else:
+            print("Warning: Only one frequency line is processed, ISTFT not applied.")
+            return X  # leave it as is if only one frequency line is processed
 
 
 def randmat(shape, makeComplex=True):

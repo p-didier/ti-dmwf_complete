@@ -21,8 +21,8 @@ roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.2  # radius of the node in meters
-t60: 0.          # reverberation time in seconds
-# t60: 0.2          # reverberation time in seconds
+# t60: 0.          # reverberation time in seconds
+t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
@@ -62,23 +62,24 @@ T: 60.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
-noiseSigType: random  # random or babble
-# noiseSigType: babble  # random or babble
-# desSigType: speech  # speech or noise
-desSigType: noise  # speech or noise
+# noiseSigType: random  # random or babble
+noiseSigType: babble  # random or babble
+desSigType: speech  # speech or noise
+# desSigType: random  # speech or noise
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
 speechDatabasePath: "C:/Users/pdidier/Documents/datasets/DS_10283_3443/VCTK-Corpus-0.92/wav48_silence_trimmed"
 
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
+- unprocessed
 - centralized
 - local
-- dmwf
-- tidmwf
-- danse
-- rsdanse
-- tidanse
+# - dmwf
+# - tidmwf
+# - danse
+# - rsdanse
+# - tidanse
 scmEstimation: oracle  # type of SCM estimation to use
     # 'oracle' for perfect knowledge,
     # 'batch' for batch time-averaged,
@@ -92,6 +93,8 @@ mu: 1  # SDW-MWF factor
 metricsToCompute:
 - msew
 - msed
+- snr
+- stoi
 
 # Debug
 singleLine: null  # if not None, only process this frequency line in WOLA domain
