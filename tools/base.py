@@ -88,6 +88,8 @@ class Parameters:
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
+    outputFilePath: str = ""  # path to output file
+    suffix: str = ""  # output file suffix
 
     def __post_init__(self):
         np.random.seed(self.seed)

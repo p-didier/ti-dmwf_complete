@@ -408,7 +408,7 @@ class AcousticScenario:
             Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
             Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
             # Complete signal SCM
-            Ryy = Rss + Rnn + Rvv
+            Ryy = Rss + Rnn
 
         return Ryy, Rss, Rnn, stack['s'], stack['n']
 

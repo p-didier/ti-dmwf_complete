@@ -75,11 +75,11 @@ algos:  # list of algorithms to run
 - unprocessed
 - centralized
 - local
-# - dmwf
-# - tidmwf
-# - danse
-# - rsdanse
-# - tidanse
+- dmwf
+- tidmwf
+- danse
+- rsdanse
+- tidanse
 scmEstimation: oracle  # type of SCM estimation to use
     # 'oracle' for perfect knowledge,
     # 'batch' for batch time-averaged,
@@ -92,7 +92,7 @@ mu: 1  # SDW-MWF factor
 # Metrics parameters
 metricsToCompute:
 - msew
-- msed
+# - msed
 - snr
 - stoi
 
@@ -101,3 +101,4 @@ singleLine: null  # if not None, only process this frequency line in WOLA domain
 # singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 42  # random number generator seed
+suffix: 'widebandtest'  # output file suffix

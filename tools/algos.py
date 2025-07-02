@@ -4,6 +4,7 @@
 # (c) Paul Didier, SOUNDS ETN, KU Leuven ESAT STADIUS
 
 import time
+import pickle
 import numpy as np
 import networkx as nx
 from .tree_utils import *
@@ -25,8 +26,6 @@ class Run:
         c = self.cfg
         asc = AcousticScenario(cfg=c)
         Ryy, Rss, Rnn, s, n = asc.setup()
-        y = s + n  # Observed signal (centralized)
-        d = np.array([s[c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])  # target signals
         
         # Generate tree
         if c.graphDiameter is not None:
@@ -40,116 +39,23 @@ class Run:
         # Launch algorithms
         W_netWide = self.launch(Ryy, Rss, Rnn, asc, graph)
 
-        # Compute metrics
-        print("\nComputing metrics...")
-        t0 = time.time()
-        metrics = self.get_metrics(W_netWide, y, d, n, s)
-        print(f"\nMetrics computed in {time.time() - t0:.2f} seconds.")
+        # Export results
+        self.export_results(W_netWide, s, n)
 
-        # Post-process results
-        self.plot_metrics(metrics)
+        return 0
 
-    def plot_metrics(self, metrics):
+    def export_results(self, W_netWide, s, n):
+        """Export results to a file."""
         c = self.cfg
-        fig, axes = plt.subplots(1, len(c.metricsToCompute))
-        fig.set_size_inches(8.5, 3.5)
-        for ii, m in enumerate(c.metricsToCompute):
-            ax = axes[ii] if len(c.metricsToCompute) > 1 else axes
-            if m == 'stoi':
-                ax.set_ylim(0, 1)
-            if any('danse' in alg for alg in c.algos):
-                # Line plot when including iterative algorithms
-                ax.set_yscale('log')
-                for ii, alg in enumerate(metrics[m].keys()):
-                    if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
-                        continue
-                    if 'danse' in alg:
-                        if metrics[m][alg] is not None:
-                            data = np.mean(metrics[m][alg], axis=0)
-                            ax.plot(data, label=alg)
-                        else:
-                            print(f"No {m} data for {alg}, skipping.")
-                    else:
-                        # Non-iterative algorithms as horizontal lines
-                        ax.axhline(y=np.mean(metrics[m][alg]), linestyle='--', label=alg, color=f'C{ii}')
-                ax.set_xlim(0, c.maxDANSEiter)
-            else:
-                # Bar plot when not including iterative algorithms
-                for ii, alg in enumerate(metrics[m].keys()):
-                    if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
-                        continue
-                    ax.bar(ii, np.mean(metrics[m][alg]), label=alg, color=f'C{ii}')
-            if m == 'snr' and ax.get_ylim()[0] < 0:
-                # Ensure SNR = 0 dB is visible as a horizontal line
-                ax.axhline(y=0, color='0.5', linestyle='--', linewidth=0.5)
-            ax.legend()
-            ax.set_title(m)
-        fig.suptitle(f'{c.observability}, {c.scmEstimation}')
-        fig.tight_layout()
-        plt.show()
-
-    def get_metrics(self, W_netWide, y, d, n=None, s=None):
-        c = self.cfg
-
-        metrics = dict([(metric, dict([
-            (alg, [None for _ in range(c.K)]) for alg in c.algos
-        ])) for metric in c.metricsToCompute])
-
-        def _apply_filter(Wk, x):
-            return c.get_istft((herm(Wk) @ x.transpose(1, 0, 2)).transpose(1, 0, 2))
-
-        def _process(Wk, hWk=None, dk=None, dhatk=None, shatk=None, nhatk=None):
-            metrics_curr = dict([(metric, None) for metric in c.metricsToCompute])
-            for m in c.metricsToCompute:
-                if m == 'msew':
-                    metrics_curr['msew'] = np.mean(np.abs(Wk - hWk) ** 2)
-                if m == 'msed':
-                    metrics_curr['msed'] = np.mean(np.abs(dk - dhatk) ** 2)
-                if m == 'snr':
-                    metrics_curr['snr'] = 20 * np.log10(
-                        np.mean(np.abs(shatk) ** 2) /
-                        np.mean(np.abs(nhatk) ** 2)
-                    )
-                if m == 'stoi':
-                    metrics_curr['stoi'] = stoi_any_fs(dk, dhatk, fs_sig=c.fs)
-            return metrics_curr
-        
-        msedOverFrames = 50 # Number of frames to average MSEd over
-
-        yc = y[..., :msedOverFrames]  # Centralized signal for MSEd computation
-        if 'snr' in c.metricsToCompute:
-            sc = s[..., :msedOverFrames]  # Centralized signal for MSEd computation
-            nc = n[..., :msedOverFrames]  # Centralized signal for MSEd computation
-
-        for k in range(c.K):
-
-            hWk = W_netWide['centralized'][k]
-            dkTD = c.get_istft(d[k, ..., :msedOverFrames])  # Desired signal for node k
-            kwargs = dict(hWk=hWk, dk=dkTD)  # Common arguments for metric computation
-
-            for alg in c.algos:
-                print(f"Computing metrics for {alg}, node {k}...", end='\r')
-
-                if not isinstance(W_netWide[alg][k], list):
-                    W_netWide[alg][k] = [W_netWide[alg][k]]
-                
-                for ii in range(len(W_netWide[alg][k])):
-                    # Compute signal estimates
-                    wCurr = W_netWide[alg][k][ii]
-                    kwargs['dhatk'] = _apply_filter(wCurr, yc)
-                    if 'snr' in c.metricsToCompute:
-                        kwargs['shatk'] = _apply_filter(wCurr, sc)
-                        kwargs['nhatk'] = _apply_filter(wCurr, nc)
-
-                    # Compute metrics for the current filter
-                    metric_curr = _process(wCurr, **kwargs)
-
-                    for m in c.metricsToCompute:
-                        if metrics[m][alg][k] is None:
-                            metrics[m][alg][k] = []
-                        metrics[m][alg][k].append(metric_curr[m])
-
-        return metrics
+        results = {
+            'W_netWide': W_netWide,
+            's': s,
+            'n': n,
+            'cfg': c,
+        }
+        with open(c.outputFilePath, 'wb') as f:
+            pickle.dump(results, f)
+        print(f"Results exported to {c.outputFilePath}")
 
     def launch(self, Ryy, Rss, Rnn, asc: AcousticScenario, G):
         """Launch algorithms."""
@@ -287,7 +193,7 @@ class Run:
                                     Pk[k] = tW[..., :c.Mk, :c.Qd] @\
                                         np.linalg.inv(tW[..., c.Mk:, :c.Qd])
                                 except np.linalg.LinAlgError:
-                                    print("Matrix inversion failed, using pseudo-inverse instead.")
+                                    print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
                                     Pk[k] = tW[..., :c.Mk, :c.Qd] @\
                                         np.linalg.pinv(tW[..., c.Mk:, :c.Qd])
                             else:
@@ -308,7 +214,7 @@ class Run:
         try:
             tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
         except np.linalg.LinAlgError:
-            print("Matrix inversion failed, using pseudo-inverse instead.")
+            print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
             tmp = np.linalg.pinv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
         return tmp[..., :finalSize]
 

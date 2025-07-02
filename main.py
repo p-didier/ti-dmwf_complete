@@ -9,8 +9,10 @@
 # (c) Paul Didier, SOUNDS ETN, KU Leuven ESAT STADIUS
 
 import sys
+import time
 import copy
 import numpy as np
+from pathlib import Path
 from tools.base import *
 from tools.algos import *
 
@@ -26,24 +28,27 @@ TEST_SET = [
         'scmEstimation': 'oracle',
         'observability': 'foss',
     },
-    # {
-    #     'scmEstimation': 'oracle',
-    #     'observability': 'poss',
-    # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'foss',
-    # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'poss',
-    # },
+    {
+        'scmEstimation': 'oracle',
+        'observability': 'poss',
+    },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'foss',
+    },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'poss',
+    },
 ]
 
 def main():
     """Main function (called by default when running script)."""
     cfgBase = Parameters()
     cfgBase.load_from_yaml(PATH_TO_CFG)
+    cfgBase.outputDir = f"{Path(__file__).parent}/out/res_{time.strftime('%Y%m%d_%H%M')}_{cfgBase.suffix}"  # Set output directory
+    # Generate folder if it does not exist
+    Path(cfgBase.outputDir).mkdir(parents=True, exist_ok=True)
 
     np.random.seed(cfgBase.seed)
     rngState = np.random.get_state()
@@ -51,6 +56,7 @@ def main():
     for i, test in enumerate(TEST_SET):
         print(f"\nTest {i + 1}/{len(TEST_SET)}: {test}")
         cfg = copy.deepcopy(cfgBase)
+        cfg.outputFilePath = f"{cfgBase.outputDir}/res_cfg{i + 1}.pkl"  # Unique output file for each test
         for key, value in test.items():
             setattr(cfg, key, value)
         cfg.__post_init__()
