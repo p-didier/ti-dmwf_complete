@@ -20,7 +20,7 @@ domain: wola  # domain of the signals, 'time' or 'wola'
 roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
-nodeRadius: 0.1  # radius of the node in meters
+nodeRadius: 0.2  # radius of the node in meters
 t60: 0.          # reverberation time in seconds
 # t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
@@ -77,8 +77,8 @@ algos:  # list of algorithms to run
 - dmwf
 - tidmwf
 - danse
-# - rsdanse
-# - tidanse
+- rsdanse
+- tidanse
 scmEstimation: oracle  # type of SCM estimation to use
     # 'oracle' for perfect knowledge,
     # 'batch' for batch time-averaged,
@@ -86,6 +86,7 @@ scmEstimation: oracle  # type of SCM estimation to use
 # maxDANSEiter: 50  # maximum number of iterations for DANSE
 maxDANSEiter: 10  # maximum number of iterations for DANSE
 mu: 1  # SDW-MWF factor
+# mu: 10  # SDW-MWF factor
 
 # Metrics parameters
 metricsToCompute:

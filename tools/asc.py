@@ -674,7 +674,7 @@ class AcousticScenario:
             counter = 0
             while np.linalg.norm(attempt - nodesPos, axis=1).min() < c.minDistNodeSource or\
                 np.linalg.norm(attempt - speechSourcesPos, axis=1).min() < c.minDistNodeSource:
-                print(f"Noise source {ii + 1}/{c.Qd} too close to a node or a desired source, generating a new position ({counter+1}-th trial)...", end='\r')
+                print(f"Noise source {ii + 1}/{c.Qd} too close to a node or a desired source, generating a new position (trial #{counter+1})...", end='\r')
                 # If the source is too close to a node, generate a new position
                 attempt = np.random.rand(3) *\
                     (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall

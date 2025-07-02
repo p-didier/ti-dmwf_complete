@@ -253,17 +253,21 @@ class Run:
                         tRss = herm(Ck) @ Rss @ Ck
                         tW = self.filtup(tRyy, tRss)
                         if alg.startswith("rsdanse"):
+                            # For rS-DANSE, we apply a relaxation
                             alpha = 1 / np.log10(i + 10)
                             tW[..., :c.Mk, :c.Qd] = (1 - alpha) * WkkPrev[k] +\
                                 alpha * tW[..., :c.Mk, :c.Qd]
                             WkkPrev[k] = tW[..., :c.Mk, :c.Qd]
+                        W_netWide[alg][k].append(Ck @ tW[..., :c.D])
+                        if i == 1 and alg == 'rsdanse':
+                            pass
+                        # Update the fusion matrices
                         if k == u or alg.startswith("rsdanse"):
                             if alg.startswith("tidanse"):
                                 Pk[k] = tW[..., :c.Mk, :c.Qd] @\
                                     np.linalg.inv(tW[..., c.Mk:, :c.Qd])
                             else:
                                 Pk[k] = tW[..., :c.Mk, :c.Qd]
-                        W_netWide[alg][k].append(Ck @ tW[..., :c.D])
                     u = (u + 1) % c.K  # Update the node index for next iteration
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
@@ -275,6 +279,7 @@ class Run:
         c = self.cfg
         finalSize = Rss.shape[-1]
         if finalSize < Ryy.shape[-1]:
+            # To apply the SDW addition, we need to pad Ryy (then discard the extra columns later)
             Rss = np.pad(Rss, ((0, 0), (0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
         tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
         return tmp[..., :finalSize]
