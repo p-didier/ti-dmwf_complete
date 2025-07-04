@@ -10,11 +10,11 @@ import networkx as nx
 import soundfile as sf
 from pathlib import Path
 import scipy.signal as sig
+from .base import Parameters
 from resampy import resample
 import pyroomacoustics as pra
 from collections import deque
 import matplotlib.pyplot as plt
-from .base import Parameters, randmat
 from dataclasses import dataclass, field
 
 @dataclass
@@ -205,12 +205,12 @@ class AcousticScenario:
         """Setup the acoustic scenario in the time domain."""
         c = self.cfg
         # Initialize matrices randomly
-        Amat = randmat((c.M, c.Qd))
-        Bmat = randmat((c.M, c.Qn))
+        Amat = c.randmat((c.M, c.Qd))
+        Bmat = c.randmat((c.M, c.Qn))
         cAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
         cBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
-        slat = randmat((c.Qd, c.N))
-        nlat = randmat((c.Qn, c.N))
+        slat = c.randmat((c.Qd, c.N))
+        nlat = c.randmat((c.Qn, c.N))
         pows = np.mean(np.abs(slat) ** 2, axis=1)
         pown = np.mean(np.abs(nlat) ** 2, axis=1)
         # Compute steering matrices
@@ -271,7 +271,7 @@ class AcousticScenario:
         # Compute signals
         s = Amat @ slat
         n = Bmat @ nlat
-        v = randmat((c.M, c.N)) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
+        v = c.randmat((c.M, c.N)) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         n += v  # add self-noise to noise signal
 
         # Compute the SCMs
@@ -354,7 +354,7 @@ class AcousticScenario:
         # Self-noise addition
         for k in range(c.K):
             # Generate self-noise at correct SNR
-            sn = randmat((c.Mk, c.N))
+            sn = c.randmat((c.Mk, c.N))
             snPower = np.mean(np.abs(sn) ** 2)
             sPower = np.mean(np.abs(self.nodes[k].td['s']) ** 2)
             sn *= np.sqrt(c.selfNoiseFactor * sPower / snPower)
@@ -521,7 +521,7 @@ class AcousticScenario:
         c = self.cfg
         if c.desSigType == 'random':
             # Generate white noise signals
-            return randmat((n, c.N), makeComplex=False)
+            return c.randmat((n, c.N), makeComplex=False)
         elif c.desSigType == 'speech':
             # Recursively search for all .wav files in the database path
             path = Path(c.speechDatabasePath)
@@ -577,7 +577,7 @@ class AcousticScenario:
         c = self.cfg
         if c.noiseSigType == 'random':
             # Generate white noise signals
-            return randmat((n, c.N), makeComplex=False)
+            return c.randmat((n, c.N), makeComplex=False)
         elif c.noiseSigType == 'babble':
             out = np.zeros((n, c.N), dtype='float32')
             # Select babble noise files from the babble database

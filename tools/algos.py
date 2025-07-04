@@ -3,17 +3,13 @@
 #
 # (c) Paul Didier, SOUNDS ETN, KU Leuven ESAT STADIUS
 
-import time
 import pickle
 import numpy as np
 import networkx as nx
 from .tree_utils import *
-import matplotlib.pyplot as plt
-from mypystoi import stoi_any_fs
+from .base import Parameters
 from dataclasses import dataclass
-from pyinstrument import Profiler
 from .asc import AcousticScenario
-from .base import Parameters, randmat
 
 TD_METRICS = ['msed', 'snr', 'stoi']
 
@@ -225,15 +221,13 @@ class Run:
     def init_full(self, shape, value=0, random=False, selection_matrix=False):
         """Initialize a full matrix."""
         c = self.cfg
+        if random:
+            return c.randmat(shape)
         if c.domain == 'wola':
-            if random:
-                return randmat(shape, makeComplex=True)
             return np.full(shape, value, dtype=complex)
         elif 'time' in c.domain:
             if not selection_matrix:
                 shape = (shape[1], shape[2])  # get rid of the frequency dimension
-            if random:
-                return randmat(shape, makeComplex=c.domain == 'time_complex')
             return np.full(shape, value, dtype=complex if c.domain == 'time_complex' else float)
 
 def flatten_list(l):

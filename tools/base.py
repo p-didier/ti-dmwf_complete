@@ -153,9 +153,9 @@ class Parameters:
             return X  # leave it as is if only one frequency line is processed
 
 
-def randmat(shape, makeComplex=False):
-    """Generate a random matrix with given shape."""
-    if makeComplex:
-        return np.random.randn(*shape) + 1j * np.random.randn(*shape)
-    else:
-        return np.random.randn(*shape)
+    def randmat(self, shape):
+        """Generate a random matrix with given shape."""
+        if self.domain in ['time_complex', 'wola']:
+            return np.random.randn(*shape) + 1j * np.random.randn(*shape)
+        else:
+            return np.random.randn(*shape)
