@@ -354,7 +354,7 @@ class AcousticScenario:
         # Self-noise addition
         for k in range(c.K):
             # Generate self-noise at correct SNR
-            sn = c.randmat((c.Mk, c.N))
+            sn = c.randmat((c.Mk, c.N), makeComplex=False)
             snPower = np.mean(np.abs(sn) ** 2)
             sPower = np.mean(np.abs(self.nodes[k].td['s']) ** 2)
             sn *= np.sqrt(c.selfNoiseFactor * sPower / snPower)

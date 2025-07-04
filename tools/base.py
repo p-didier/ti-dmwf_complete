@@ -149,13 +149,13 @@ class Parameters:
                 window=self.win,
             )[1]
         else:
-            print("Warning: Only one frequency line is processed, ISTFT not applied.")
+            print("Warning: Only one frequency line is processed, ISTFT not applied.", end='\r')
             return X  # leave it as is if only one frequency line is processed
 
 
-    def randmat(self, shape):
+    def randmat(self, shape, makeComplex=True):
         """Generate a random matrix with given shape."""
-        if self.domain in ['time_complex', 'wola']:
-            return np.random.randn(*shape) + 1j * np.random.randn(*shape)
-        else:
+        if self.domain == 'time' or not makeComplex:
             return np.random.randn(*shape)
+        else:
+            return np.random.randn(*shape) + 1j * np.random.randn(*shape)

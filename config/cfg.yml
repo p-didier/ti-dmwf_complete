@@ -15,8 +15,8 @@ possDiffuse: False  # if True and observability is 'foss', the
     # noise sources are assumed only local, i.e., uncorrelated across nodes
 ###########################
 # domain: time  # domain of the signals, 'time', or 'time_complex', or 'wola'
-# domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
-domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
+domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
+# domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
 ###########################
 roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
@@ -58,10 +58,11 @@ win: hann  # STFT window type
 
 # Signals parameters
 fs: 16000  # sampling frequency
-T: 4.0  # duration of the signals in seconds
+# T: 0.008  # duration of the signals in seconds
+# T: 4.0  # duration of the signals in seconds
 # T: 20.0  # duration of the signals in seconds
-# T: 120.0  # duration of the signals in seconds
-# T: 512.0  # duration of the signals in seconds
+# T: 32.0  # duration of the signals in seconds
+T: 512.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
@@ -94,4 +95,4 @@ mu: 1  # SDW-MWF factor
 singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 42  # random number generator seed
-suffix: 'time_complex_attempt'  # output file suffix
+suffix: 'wola_512s'  # output file suffix
