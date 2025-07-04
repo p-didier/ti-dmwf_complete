@@ -171,7 +171,7 @@ class AcousticScenario:
         c = self.cfg
         if c.domain == 'wola':
             out = self.setup_wola_domain()
-        if c.domain == 'time':
+        if 'time' in c.domain:
             out = self.setup_time_domain()
         
         if c.observability == 'foss':
@@ -221,12 +221,19 @@ class AcousticScenario:
             # Do not differentiate between global and local sources, 
             # randomly generate observability pattern
             self.obsMat = np.zeros((c.K, c.Q))
+            # def inadequate(om):
+            #     return np.any(np.sum(om, axis=1) == 0) | np.any(np.sum(om, axis=0) == 0)
+            
             def inadequate(om):
-                return np.any(np.sum(om, axis=1) == 0) | np.any(np.sum(om, axis=0) == 0)
+                observedDesired = np.sum(om[:, :c.Qd], axis=1) > 0
+                observedNoise = np.sum(om[:, c.Qd:], axis=1) > 0
+                oneObserver = np.sum(om, axis=0) > 0
+                return not np.all(observedDesired) or\
+                    not np.all(observedNoise) or not np.all(oneObserver)
+                    # not np.all(oneObserver)
             # Criterion for adequacy: at least one desired source and one noise
             # source must be observed by each node, and each source must be
             # observed by at least one node.
-            # while inadequate(self.obsMat[:, :c.Qd]) or inadequate(self.obsMat[:, c.Qd:]):
             while inadequate(self.obsMat):
                 self.obsMat = np.random.randint(0, 2, (c.K, c.Q))
             if c.possDiffuse:
@@ -264,7 +271,7 @@ class AcousticScenario:
         # Compute signals
         s = Amat @ slat
         n = Bmat @ nlat
-        v = np.random.randn(c.M, c.N) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
+        v = randmat((c.M, c.N)) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         n += v  # add self-noise to noise signal
 
         # Compute the SCMs
@@ -285,7 +292,7 @@ class AcousticScenario:
         # Complete signal SCM
         Ryy = Rss + Rnn
 
-        return Ryy, Rss, s, n
+        return Ryy, Rss, Rnn, s, n
     
     def setup_wola_domain(self):
         """Setup the acoustic scenario in the WOLA domain."""
@@ -344,10 +351,10 @@ class AcousticScenario:
         # Store the parameters for later use
         self.store_scenario_parameters(p)
         
-        # Signal-wide adjustments
+        # Self-noise addition
         for k in range(c.K):
             # Generate self-noise at correct SNR
-            sn = np.random.randn(c.Mk, c.N)
+            sn = randmat((c.Mk, c.N))
             snPower = np.mean(np.abs(sn) ** 2)
             sPower = np.mean(np.abs(self.nodes[k].td['s']) ** 2)
             sn *= np.sqrt(c.selfNoiseFactor * sPower / snPower)
@@ -370,6 +377,7 @@ class AcousticScenario:
             )
             stack[st] = c.get_stft(tmp)
         stack['n'] = stack['n'] + stack['sn']  # Add self-noise to noise signal
+        print(f'{c.T} s of signals = {stack["s"].shape[-1]} STFT frames.')
         # Stack the signals
         if c.scmEstimation == 'oracle':
             # Compute FFT of RIRs

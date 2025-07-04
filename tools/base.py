@@ -25,7 +25,7 @@ class Parameters:
         # "poss" for partially overlapping subspaces
     possDiffuse: bool = False  # if True and observability is 'foss', the
         # noise sources are assumed only local, i.e., uncorrelated across nodes
-    domain: str = 'time'  # domain of the signals, 'time' or 'wola'
+    domain: str = 'time'  # domain of the signals, 'time', or 'time_complex', or 'wola'
     roomLength: float = 10.0  # length of the room in meters
     roomWidth: float = 10.0   # width of the room in meters
     roomHeight: float = 3.0   # height of the room in meters
@@ -77,12 +77,6 @@ class Parameters:
     maxDANSEiter: int = 100  # maximum number of iterations for DANSE
     mu: float = 1  # SDW-MWF factor
 
-    # Metrics parameters
-    metricsToCompute: list[str] = field(default_factory=lambda: [
-        "msew",  # MSE between centralized and distributed filter coefficients
-        "msed",  # MSE between estimated and true desired signals
-    ])
-
     # Debug
     singleLine: int = None  # if not None, only process this frequency line in WOLA domain
 
@@ -112,16 +106,11 @@ class Parameters:
                 if 'tidmwf' in alg:
                     print(f'{alg} not implemented for partially overlapping subspaces.')
                     algs_to_remove.append(alg)
+                    if 'tidanse' in self.algos:
+                        print('...also removing TI-DANSE.')
+                        algs_to_remove.append('tidanse')
             for alg in algs_to_remove:
                 self.algos.remove(alg)
-        
-        if self.desSigType != 'speech':
-            if 'snr' in self.metricsToCompute:
-                print("SNR metric is not applicable for non-speech desired signals. Removing it from metrics to compute.")
-                self.metricsToCompute.remove('snr')
-            if 'stoi' in self.metricsToCompute:
-                print("STOI metric is not applicable for non-speech desired signals. Removing it from metrics to compute.")
-                self.metricsToCompute.remove('stoi')
 
     def load_from_yaml(self, path: str):
         """Load parameters from a YAML file."""
@@ -164,7 +153,7 @@ class Parameters:
             return X  # leave it as is if only one frequency line is processed
 
 
-def randmat(shape, makeComplex=True):
+def randmat(shape, makeComplex=False):
     """Generate a random matrix with given shape."""
     if makeComplex:
         return np.random.randn(*shape) + 1j * np.random.randn(*shape)

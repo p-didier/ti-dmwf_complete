@@ -48,7 +48,7 @@ def main():
     cfgBase.load_from_yaml(PATH_TO_CFG)
     cfgBase.outputDir = f"{Path(__file__).parent}/out/res_{time.strftime('%Y%m%d_%H%M')}_{cfgBase.suffix}"  # Set output directory
     # Generate folder if it does not exist
-    Path(cfgBase.outputDir).mkdir(parents=True, exist_ok=True)
+    clean_output_dir(cfgBase.outputDir)  # Clean the output directory if it exists
 
     np.random.seed(cfgBase.seed)
     rngState = np.random.get_state()
@@ -68,6 +68,20 @@ def main():
         Run(cfg).go()
 
     pass
+
+
+def clean_output_dir(output_dir):
+    # Go through subdirs in the parent of output_dir and eliminate empty subdirs
+    parent_dir = Path(output_dir).parent
+    for subdir in parent_dir.iterdir():
+        if subdir.is_dir() and not any(subdir.iterdir()):
+            print(f"Removing empty directory: {subdir.name}")
+            subdir.rmdir()
+    # Create the output directory if it does not exist
+    if not Path(output_dir).exists():
+        print(f"Creating output directory: {Path(output_dir).name}")
+        Path(output_dir).mkdir(parents=True, exist_ok=True) 
+
 
 if __name__ == '__main__':
     sys.exit(main())

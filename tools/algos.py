@@ -61,7 +61,7 @@ class Run:
         """Launch algorithms."""
         c = self.cfg
         W_netWide = dict([(alg, [
-            np.zeros((c.nPosFreqs, c.M, c.D), dtype=complex)
+            self.init_full((c.nPosFreqs, c.M, c.D))
             for _ in range(c.K)
         ]) for alg in c.algos])  # Initialize node-specific filters dictionary
         for alg in c.algos:
@@ -79,26 +79,27 @@ class Run:
                     Rykyk = Ryy[..., c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
                     Rsksk = Rss[..., c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
                     tmp = self.filtup(Rykyk, Rsksk)
-                    W_netWide[alg][k][:, c.Mk * k:c.Mk * (k + 1), :] = tmp[..., :c.D]
+                    W_netWide[alg][k][..., c.Mk * k:c.Mk * (k + 1), :] = tmp[..., :c.D]
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Rgqgqu = np.zeros((c.nPosFreqs, c.Mk, asc.oQq[q]), dtype=complex)
+                    Rgqgqu = self.init_full((c.nPosFreqs, c.Mk, asc.oQq[q]))
                     for p in range(c.K):
                         if p == q:
                             continue
-                        Eqps = np.zeros((c.Mk, asc.oQq[q]), dtype=complex)
+                        Eqps = self.init_full((c.Mk, asc.oQq[q]), selection_matrix=True)
                         Eqps[:asc.Qkq[q, p], :asc.Qkq[q, p]] = np.eye(asc.Qkq[q, p])
-                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk- asc.Qkq[q, p], asc.oQq[q] - asc.Qkq[q, p]))
+                        # Pad with ones
+                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk - asc.Qkq[q, p], asc.oQq[q] - asc.Qkq[q, p]))
                         Rgqgqu += Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
                     Pk[q] = self.filtup(Ryqyq, Rgqgqu)
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
                     QkqNeighs = np.delete(asc.oQq, k)  # Remove k
-                    Ck = np.zeros((c.nPosFreqs, c.M, c.Mk + int(np.sum(QkqNeighs))), dtype=complex)
+                    Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + int(np.sum(QkqNeighs))))
                     Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
                     for q in range(c.K):
@@ -115,14 +116,12 @@ class Run:
 
             elif alg == "tidmwf":
                 for k in range(c.K):
-                    if k == 2:
-                        pass
-                    upstreamNodes, upstreamNeighs = get_upstream_nodes(G, k)
-                    downstreamNodes, downstreamNeigh = get_downstream_nodes(G, k)
+                    _, upstreamNeighs = get_upstream_nodes(G, k)
+                    _, downstreamNeigh = get_downstream_nodes(G, k)
                     Cqk = [None for _ in range(c.K)]
                     for q in range(c.K):
                         dim = c.Mk + c.Q * len(upstreamNeighs[q])
-                        Cqk[q] = np.zeros((c.nPosFreqs, c.M, dim), dtype=complex)
+                        Cqk[q] = self.init_full((c.nPosFreqs, c.M, dim))
                         Cqk[q][..., c.Mk * q:c.Mk * (q + 1), :c.Mk] = np.eye(c.Mk)
                     # Compute fusion matrices
                     Pk = [None for _ in range(c.K)]
@@ -134,13 +133,12 @@ class Run:
                         if q != k:
                             # Compute Pk
                             Rhyqhyq = herm(Cqk[q]) @ Ryy @ Cqk[q]
-                            hEq = np.zeros((c.M, c.Q))
+                            hEq = self.init_full((c.M, c.Q), selection_matrix=True)
                             hEq[
                                 c.Mk * downstreamNeigh[q]:\
                                 c.Mk * downstreamNeigh[q] + c.Q, :
                             ] = np.eye(c.Q)
                             Rhyqyktq = herm(Cqk[q]) @ Ryy @ hEq
-                            # Pk[q] = np.linalg.inv(Rhyqhyq) @ Rhyqyktq
                             Pk[q] = self.filtup(Rhyqhyq, Rhyqyktq)
                     # Compute estimation filter
                     tRyy = herm(Cqk[k]) @ Ryy @ Cqk[k]
@@ -150,9 +148,12 @@ class Run:
             elif 'danse' in alg:
                 W_netWide[alg] = [[] for _ in range(c.K)]
                 # Initialize the fusion matrices
-                Pk = [randmat((c.nPosFreqs, c.Mk, c.Qd)) for _ in range(c.K)]
+                Pk = [
+                    self.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
+                    for _ in range(c.K)
+                ]
                 WkkPrev = [
-                    np.zeros((c.nPosFreqs, c.Mk, c.Qd), dtype=complex)
+                    self.init_full((c.nPosFreqs, c.Mk, c.Qd))
                     for _ in range(c.K)
                 ]
                 u = 0  # updating node index
@@ -160,13 +161,13 @@ class Run:
                     print(f"Iteration {i + 1}/{c.maxDANSEiter} for {alg}...", end='\r')
                     for k in range(c.K):
                         if alg.startswith("tidanse"):
-                            Ck = np.zeros((c.nPosFreqs, c.M, c.Mk + c.Qd), dtype=complex)
+                            Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd))
                             Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                             for q in range(c.K):
                                 if q != k:
                                     Ck[..., c.Mk * q:c.Mk * (q + 1), c.Mk:] = Pk[q]
                         else:
-                            Ck = np.zeros((c.nPosFreqs, c.M, c.Mk + c.Qd * (c.K - 1)), dtype=complex)
+                            Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd * (c.K - 1)))
                             Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                             idxNei = 0
                             for q in range(c.K):
@@ -210,14 +211,30 @@ class Run:
         finalSize = Rss.shape[-1]
         if finalSize < Ryy.shape[-1]:
             # To apply the SDW addition, we need to pad Ryy (then discard the extra columns later)
-            Rss = np.pad(Rss, ((0, 0), (0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
+            if c.domain == 'wola':
+                Rss = np.pad(Rss, ((0, 0), (0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
+            elif 'time' in c.domain:
+                Rss = np.pad(Rss, ((0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
         try:
             tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
         except np.linalg.LinAlgError:
             print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
             tmp = np.linalg.pinv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
         return tmp[..., :finalSize]
-
+    
+    def init_full(self, shape, value=0, random=False, selection_matrix=False):
+        """Initialize a full matrix."""
+        c = self.cfg
+        if c.domain == 'wola':
+            if random:
+                return randmat(shape, makeComplex=True)
+            return np.full(shape, value, dtype=complex)
+        elif 'time' in c.domain:
+            if not selection_matrix:
+                shape = (shape[1], shape[2])  # get rid of the frequency dimension
+            if random:
+                return randmat(shape, makeComplex=c.domain == 'time_complex')
+            return np.full(shape, value, dtype=complex if c.domain == 'time_complex' else float)
 
 def flatten_list(l):
     """Flatten a list of lists."""
