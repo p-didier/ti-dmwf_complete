@@ -81,28 +81,30 @@ class Run:
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Rgqgqu = self.init_full((c.nPosFreqs, c.Mk, asc.oQq[q]))
+                    Rgqgqu = self.init_full((c.nPosFreqs, c.Mk, c.Q))
                     for p in range(c.K):
                         if p == q:
                             continue
-                        Eqps = self.init_full((c.Mk, asc.oQq[q]), selection_matrix=True)
+                        Eqps = self.init_full((c.Mk, c.Q), selection_matrix=True)
                         Eqps[:asc.Qkq[q, p], :asc.Qkq[q, p]] = np.eye(asc.Qkq[q, p])
                         # Pad with ones
-                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk - asc.Qkq[q, p], asc.oQq[q] - asc.Qkq[q, p]))
+                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk - asc.Qkq[q, p], c.Q - asc.Qkq[q, p]))
                         Rgqgqu += Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
                     Pk[q] = self.filtup(Ryqyq, Rgqgqu)
+                pass
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
-                    QkqNeighs = np.delete(asc.oQq, k)  # Remove k
+                    # QkqNeighs = np.delete(asc.oQkq, k)  # Remove k
+                    QkqNeighs = [asc.oQkq[q, k] for q in range(c.K) if q != k]
                     Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + int(np.sum(QkqNeighs))))
                     Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
                     for q in range(c.K):
                         if q != k:
                             idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
-                            idxEnd = idxBeg + asc.oQq[q]
-                            Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
+                            idxEnd = idxBeg + asc.oQkq[q][k]
+                            Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q][..., :QkqNeighs[idxNei]]
                             idxNei += 1
                     # Compute the filters
                     tRyy = herm(Ck) @ Ryy @ Ck

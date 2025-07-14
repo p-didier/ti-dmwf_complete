@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-resDir = f'{baseResultsDir}/res_20250704_1712_wola_32s'  # Path to the results directory
+resDir = f'{baseResultsDir}/res_20250711_1624_test_new_formulation'  # Path to the results directory
 # resDir = f'{baseResultsDir}/res_20250704_1631_rerun_td'  # Path to the results directory
 
 EXPORT = False  # If True, export the figures to files

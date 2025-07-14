@@ -165,7 +165,7 @@ class AcousticScenario:
     nodes: list[Node] = field(default_factory=list)  # list of nodes
     obsMat: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # observability matrix
     Qkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources in common between nodes
-    oQq: np.ndarray = field(default_factory=lambda: np.zeros(0))  # number of sources observed by each node
+    oQkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources observed by each node
 
     def setup(self):
         c = self.cfg
@@ -175,29 +175,34 @@ class AcousticScenario:
             out = self.setup_time_domain()
         
         if c.observability == 'foss':
-            self.oQq = np.full(c.K, c.Q)
+            self.oQkq = np.full((c.K, c.K), c.Q)
             self.Qkq = np.full((c.K, c.K), c.Q)
-        elif c.observability == 'poss':
-            # Number of sources useful for fusion matrix computation for node q
-            self.oQq = [0 for _ in range(c.K)]
-            for k in range(c.K):
-                for ii in range(c.Q):
-                    if self.obsMat[k, ii] != 0 and np.sum(self.obsMat[:, ii]) > 1:
-                        # If node k does observes source ii, and it is observed
-                        # by at least one other node, then the number of sources
-                        # in common is increased by one
-                        self.oQq[k] += 1
-            assert np.all(np.array(self.oQq) <= np.sum(self.obsMat, axis=1)), \
-                "Number of sources in common exceeds number of sources observed by node."
+        elif c.observability == 'poss':            
             # Compute the number of sources in common between nodes k and q
             self.Qkq = np.zeros((c.K, c.K), dtype=int)
             for k in range(c.K):
                 for q in range(c.K):
-                    if k == q:
-                        continue
                     self.Qkq[k, q] = np.sum(
                         self.obsMat[k, :] * self.obsMat[q, :]
                     )
+            # Number of sources useful for fusion matrix computation for node q
+            self.oQkq = np.zeros((c.K, c.K), dtype=int)
+            for ii in range(c.Q):
+                for q in range(c.K):
+                    if self.obsMat[q, ii]:  # node q observes source ii
+                        for k in range(c.K):
+                            if np.any([
+                                self.obsMat[qp, ii]
+                                for qp in range(c.K)
+                                if qp != q and self.Qkq[k, qp] > 0  # qp criterion includes k
+                            ]):
+                                # If any other node that observe source ii
+                                # observe a source in common with node k, count
+                                # this source as observed by node k
+                                self.oQkq[q, k] += 1
+            assert np.all(self.oQkq >= self.Qkq), \
+                "oQkq must be greater than or equal to Qkq."
+            pass
         
         return out
 
@@ -215,7 +220,7 @@ class AcousticScenario:
         pown = np.mean(np.abs(nlat) ** 2, axis=1)
         # Compute steering matrices
         if c.observability == 'foss':
-            self.oQq = np.full(c.K, c.Q)
+            self.oQkq = np.full(c.K, c.Q)
             self.Qkq = np.full((c.K, c.K), c.Q)
         elif c.observability == 'poss':
             # Do not differentiate between global and local sources, 

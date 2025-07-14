@@ -59,10 +59,10 @@ win: hann  # STFT window type
 # Signals parameters
 fs: 16000  # sampling frequency
 # T: 0.008  # duration of the signals in seconds
-# T: 4.0  # duration of the signals in seconds
+T: 4.0  # duration of the signals in seconds
 # T: 20.0  # duration of the signals in seconds
 # T: 32.0  # duration of the signals in seconds
-T: 512.0  # duration of the signals in seconds
+# T: 512.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
@@ -82,9 +82,9 @@ algos:  # list of algorithms to run
 - local
 - dmwf
 - tidmwf
-- danse
-- rsdanse
-- tidanse
+# - danse
+# - rsdanse
+# - tidanse
 # maxDANSEiter: 50  # maximum number of iterations for DANSE
 maxDANSEiter: 10  # maximum number of iterations for DANSE
 mu: 1  # SDW-MWF factor
@@ -94,5 +94,5 @@ mu: 1  # SDW-MWF factor
 # singleLine: null  # if not None, only process this frequency line in WOLA domain
 singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
-seed: 42  # random number generator seed
-suffix: 'wola_512s'  # output file suffix
+seed: 43  # random number generator seed
+suffix: 'test_new_formulation'  # output file suffix
