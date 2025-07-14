@@ -21,10 +21,11 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-resDir = f'{baseResultsDir}/res_20250714_0657_saa_wideband'  # Path to the results directory
+resDir = f'{baseResultsDir}/res_20250714_1231_saa_random_noise'  # Path to the results directory
 
 EXPORT = False  # If True, export the figures to files
 FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
+METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
 def main():
     """Main function (called by default when running script)."""
@@ -118,7 +119,9 @@ class PostProcessor:
             return metrics_curr
         
         if c.domain == 'wola':
-            msedOverFrames = 50 # Number of frames to average MSEd over
+            msedOverFrames = int(
+                c.fs * METRICS_OVER_FIRST_SECONDS / (c.nfft - c.nhop)
+            )
             # msedOverFrames = np.shape(y)[-1] # Number of frames to average MSEd over
             yc = y[..., :msedOverFrames]  # Centralized signal for MSEd computation
             if 'snr' in metricsToCompute:
@@ -129,7 +132,8 @@ class PostProcessor:
                 for k in range(c.K)
             ]  # Desired signal for node k
         elif 'time' in c.domain:
-            yc, sc, nc, dkTD = y, s, n, [d[k, ...] for k in range(c.K)]
+            samples = int(c.fs * METRICS_OVER_FIRST_SECONDS)
+            yc, sc, nc, dkTD = y[:, :samples], s[:, :samples], n[:, :samples], [d[k, :, :samples] for k in range(c.K)]
 
         for k in range(c.K):
 

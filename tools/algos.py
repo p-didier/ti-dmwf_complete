@@ -66,50 +66,49 @@ class Run:
                 for k in range(c.K):
                     W_netWide[alg][k][..., c.Mk * k:c.Mk * k + c.D, :] = np.eye(c.D)
             elif alg == "centralized":
-                Wcentr = self.filtup(Ryy, Rss)
+                Wcentr = self.filtup(Ryy, Rnn)
                 W_netWide[alg] = [
                     Wcentr[..., c.Mk * k:c.Mk * k + c.D] for k in range(c.K)
                 ]
             elif alg == "local":
                 for k in range(c.K):
                     Rykyk = Ryy[..., c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
-                    Rsksk = Rss[..., c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
-                    tmp = self.filtup(Rykyk, Rsksk)
+                    Rnknk = Rnn[..., c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
+                    tmp = self.filtup(Rykyk, Rnknk)
                     W_netWide[alg][k][..., c.Mk * k:c.Mk * (k + 1), :] = tmp[..., :c.D]
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Rgqgqu = self.init_full((c.nPosFreqs, c.Mk, c.Q))
+                    Rgqgqu = self.init_full((c.nPosFreqs, c.Mk, c.Mk))
                     for p in range(c.K):
                         if p == q:
                             continue
-                        Eqps = self.init_full((c.Mk, c.Q), selection_matrix=True)
+                        Eqps = self.init_full((c.Mk, c.Mk), selection_matrix=True)
                         Eqps[:asc.Qkq[q, p], :asc.Qkq[q, p]] = np.eye(asc.Qkq[q, p])
                         # Pad with ones
-                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk - asc.Qkq[q, p], c.Q - asc.Qkq[q, p]))
+                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk - asc.Qkq[q, p], c.Mk - asc.Qkq[q, p]))
                         Rgqgqu += Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
-                    Pk[q] = self.filtup(Ryqyq, Rgqgqu)
+                    Pk[q] = self.filtup(Ryqyq, Ryqyq - Rgqgqu)[..., :asc.oQq[q]]
                 pass
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
-                    # QkqNeighs = np.delete(asc.oQkq, k)  # Remove k
-                    QkqNeighs = [asc.oQkq[q, k] for q in range(c.K) if q != k]
+                    QkqNeighs = np.delete(asc.oQq, k)  # Remove k
                     Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + int(np.sum(QkqNeighs))))
                     Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
                     for q in range(c.K):
                         if q != k:
                             idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
-                            idxEnd = idxBeg + asc.oQkq[q][k]
-                            Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q][..., :QkqNeighs[idxNei]]
+                            idxEnd = idxBeg + asc.oQq[q]
+                            Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
                             idxNei += 1
                     # Compute the filters
                     tRyy = herm(Ck) @ Ryy @ Ck
-                    tRss = herm(Ck) @ Rss @ Ck
-                    tW = self.filtup(tRyy, tRss)[..., :c.D]
+                    tRnn = herm(Ck) @ Rnn @ Ck
+                    tW = self.filtup(tRyy, tRnn)[..., :c.D]
                     W_netWide[alg][k] = Ck @ tW
 
             elif alg == "tidmwf":
@@ -137,11 +136,11 @@ class Run:
                                 c.Mk * downstreamNeigh[q] + c.Q, :
                             ] = np.eye(c.Q)
                             Rhyqyktq = herm(Cqk[q]) @ Ryy @ hEq
-                            Pk[q] = self.filtup(Rhyqhyq, Rhyqyktq)
+                            Pk[q] = self.filtup(Rhyqhyq, Rhyqhyq - Rhyqyktq)
                     # Compute estimation filter
                     tRyy = herm(Cqk[k]) @ Ryy @ Cqk[k]
-                    tRss = herm(Cqk[k]) @ Rss @ Cqk[k]
-                    W_netWide[alg][k] = Cqk[k] @ self.filtup(tRyy, tRss)[..., :c.D]
+                    tRnn = herm(Cqk[k]) @ Rnn @ Cqk[k]
+                    W_netWide[alg][k] = Cqk[k] @ self.filtup(tRyy, tRnn)[..., :c.D]
 
             elif 'danse' in alg:
                 W_netWide[alg] = [[] for _ in range(c.K)]
@@ -176,8 +175,8 @@ class Run:
                                     idxNei += 1
                         # Compute the filters
                         tRyy = herm(Ck) @ Ryy @ Ck
-                        tRss = herm(Ck) @ Rss @ Ck
-                        tW = self.filtup(tRyy, tRss)
+                        tRnn = herm(Ck) @ Rnn @ Ck
+                        tW = self.filtup(tRyy, tRnn)
                         if alg.startswith("rsdanse"):
                             # For rS-DANSE, we apply a relaxation
                             alpha = 1 / np.log10(i + 10)
@@ -203,27 +202,29 @@ class Run:
             
         return W_netWide
 
-    def filtup(self, Ryy, Rss):
+    def filtup(self, Ryy, Rnn):
         """Filter up the SCMs."""
         c = self.cfg
-        finalSize = Rss.shape[-1]
+        finalSize = Rnn.shape[-1]
         if finalSize < Ryy.shape[-1]:
             # To apply the SDW addition, we need to pad Ryy (then discard the extra columns later)
             if c.domain == 'wola':
-                Rss = np.pad(Rss, ((0, 0), (0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
+                Rnn = np.pad(Rnn, ((0, 0), (0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
             elif 'time' in c.domain:
-                Rss = np.pad(Rss, ((0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
+                Rnn = np.pad(Rnn, ((0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
         try:
-            tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
+            tmp = np.linalg.inv(Ryy + (c.mu - 1) * Rnn) @ (Ryy - Rnn)
         except np.linalg.LinAlgError:
             print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
-            tmp = np.linalg.pinv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
+            tmp = np.linalg.pinv(Ryy + (c.mu - 1) * Rnn) @ (Ryy - Rnn)
         return tmp[..., :finalSize]
     
     def init_full(self, shape, value=0, random=False, selection_matrix=False):
         """Initialize a full matrix."""
         c = self.cfg
         if random:
+            if 'time' in c.domain and not selection_matrix:
+                shape = (shape[1], shape[2])  # get rid of the frequency dimension
             return c.randmat(shape)
         if c.domain == 'wola':
             return np.full(shape, value, dtype=complex)
