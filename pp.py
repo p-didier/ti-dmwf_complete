@@ -21,10 +21,10 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-resDir = f'{baseResultsDir}/res_20250711_1624_test_new_formulation'  # Path to the results directory
-# resDir = f'{baseResultsDir}/res_20250704_1631_rerun_td'  # Path to the results directory
+resDir = f'{baseResultsDir}/res_20250714_0657_saa_wideband'  # Path to the results directory
 
 EXPORT = False  # If True, export the figures to files
+FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 
 def main():
     """Main function (called by default when running script)."""
@@ -35,29 +35,41 @@ def main():
         sys.exit(1)
     
     for file in listOfFiles:
-        print(f"Loading results from {file}...")
-        with open(file, 'rb') as f:
-            results = pickle.load(f)
-
-        # Process the results
-        c: Parameters = results['cfg']  # Configuration parameters
-        # Metrics to compute
-        if c.singleLine is not None:
-            print(f"Processing only frequency line {c.singleLine} in WOLA domain.")
-            metricsToCompute = ['msew', 'msed', 'snr', 'ser']
+        # Check if metrics have already been computed
+        metricsFileName = file.stem + '_metrics.pkl'
+        metricsFile = Path(resDir) / metricsFileName
+        if not FORCE_RECOMPUTE_METRICS and metricsFile.exists():
+            print(f"Metrics already computed for {file.stem}, loading from {metricsFileName}...")
+            with open(metricsFile, 'rb') as f:
+                metrics = pickle.load(f)
         else:
-            metricsToCompute = ['msew', 'snr', 'stoi', 'ser']
-        
-        pp = PostProcessor(cfg=c)
-        t0 = time.time()
-        s = results['s']  # desired signals
-        n = results['n']  # noise signals
-        y = s + n  # observed signals
-        d = np.array([s[c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])  # target signals
+            print(f"Loading results from {file}...")
+            with open(file, 'rb') as f:
+                results = pickle.load(f)
 
-        print("\nComputing metrics...")
-        metrics = pp.get_metrics(results['W_netWide'], y, d, n, s, metricsToCompute)
-        print(f"\nMetrics computed in {time.time() - t0:.2f} seconds.")
+            # Process the results
+            c: Parameters = results['cfg']  # Configuration parameters
+            # Metrics to compute
+            if c.singleLine is not None:
+                print(f"Processing only frequency line {c.singleLine} in WOLA domain.")
+                metricsToCompute = ['msew', 'msed', 'snr', 'ser']
+            else:
+                metricsToCompute = ['msew', 'snr', 'stoi', 'ser']
+            
+            pp = PostProcessor(cfg=c)
+            t0 = time.time()
+            s = results['s']  # desired signals
+            n = results['n']  # noise signals
+            y = s + n  # observed signals
+            d = np.array([s[c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])  # target signals
+
+            print("\nComputing metrics...")
+            metrics = pp.get_metrics(results['W_netWide'], y, d, n, s, metricsToCompute)
+            print(f"\nMetrics computed in {time.time() - t0:.2f} seconds.")
+
+            # Export metrics to file
+            with open(metricsFile, 'wb') as f:
+                pickle.dump(metrics, f)
 
         # Post-process results
         fig = pp.plot_metrics(metrics)
@@ -137,9 +149,6 @@ class PostProcessor:
                     if 'snr' in metricsToCompute:
                         kwargs['shatk'] = _apply_filter(wCurr, sc)
                         kwargs['nhatk'] = _apply_filter(wCurr, nc)
-
-                    if k == 0 and ii == 5 and c.observability == 'poss' and c.scmEstimation == 'batch':
-                        pass
 
                     # Compute metrics for the current filter
                     metric_curr = _process(wCurr, **kwargs)
