@@ -21,50 +21,64 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-resDir = f'{baseResultsDir}/res_20250716_1024_saa_random_noise'  # Path to the results directory
+# resDir = f'{baseResultsDir}/res_20250716_1052_narrowbandWOLA_0dBSNR_singleBin40'  # Path to the results directory
+resDir = 'latest'  # <-- pick the latest results directory
 
 EXPORT = False  # If True, export the figures to files
+# FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
-def main():
+def main(resDir=resDir):
     """Main function (called by default when running script)."""
     # Load the results from the directory
-    listOfFiles = list(Path(resDir).glob('*.pkl'))
+    if resDir == 'latest':
+        # Find the latest results directory
+        listOfDirs = sorted(Path(baseResultsDir).glob('res_*'), key=lambda x: x.stat().st_mtime, reverse=True)
+        if not listOfDirs:
+            print("No results directories found.")
+            sys.exit(1)
+        resDir = listOfDirs[0]  # Take the most recent directory
+    else:
+        resDir = Path(resDir)
+    
+    listOfFiles = list(resDir.glob('*.pkl'))
+    listOfFiles = [file for file in listOfFiles if not file.stem.endswith('_metrics')]
     if not listOfFiles:
         print(f"No results found in {resDir}. Please run main.py first.")
         sys.exit(1)
     
     for file in listOfFiles:
+
+        print(f"Loading results from {file}...")
+        with open(file, 'rb') as f:
+            results = pickle.load(f)
+
+        # Process the results
+        c: Parameters = results['cfg']  # Configuration parameters
+
+        pp = PostProcessor(cfg=c)
+        
         # Check if metrics have already been computed
         metricsFileName = file.stem + '_metrics.pkl'
-        metricsFile = Path(resDir) / metricsFileName
+        metricsFile = resDir / metricsFileName
         if not FORCE_RECOMPUTE_METRICS and metricsFile.exists():
             print(f"Metrics already computed for {file.stem}, loading from {metricsFileName}...")
             with open(metricsFile, 'rb') as f:
                 metrics = pickle.load(f)
         else:
-            print(f"Loading results from {file}...")
-            with open(file, 'rb') as f:
-                results = pickle.load(f)
-
-            # Process the results
-            c: Parameters = results['cfg']  # Configuration parameters
             # Metrics to compute
-            if c.singleLine is not None:
-                print(f"Processing only frequency line {c.singleLine} in WOLA domain.")
-                metricsToCompute = ['msew', 'msed', 'snr', 'ser']
-            else:
+            metricsToCompute = ['msew', 'msed', 'snr', 'ser']
+            if c.domain == 'wola' and c.singleLine is None:  # wideband processing
                 metricsToCompute = ['msew', 'snr', 'stoi', 'ser']
             
-            pp = PostProcessor(cfg=c)
-            t0 = time.time()
             s = results['s']  # desired signals
             n = results['n']  # noise signals
             y = s + n  # observed signals
             d = np.array([s[c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])  # target signals
 
             print("\nComputing metrics...")
+            t0 = time.time()
             metrics = pp.get_metrics(results['W_netWide'], y, d, n, s, metricsToCompute)
             print(f"\nMetrics computed in {time.time() - t0:.2f} seconds.")
 
@@ -138,7 +152,8 @@ class PostProcessor:
         for k in range(c.K):
 
             hWk = W_netWide['centralized'][k]
-            kwargs = dict(hWk=hWk, dk=dkTD[k])  # Common arguments for metric computation
+            basekwargs = dict(hWk=hWk, dk=dkTD[k])  # Common arguments for metric computation
+            kwargs = dict([(alg, basekwargs.copy()) for alg in c.algos])
 
             for alg in c.algos:
                 print(f"Computing metrics for {alg}, node {k}...", end='\r')
@@ -149,13 +164,13 @@ class PostProcessor:
                 for ii in range(len(W_netWide[alg][k])):
                     # Compute signal estimates
                     wCurr = W_netWide[alg][k][ii]
-                    kwargs['dhatk'] = _apply_filter(wCurr, yc)
+                    kwargs[alg]['dhatk'] = _apply_filter(wCurr, yc)
                     if 'snr' in metricsToCompute:
-                        kwargs['shatk'] = _apply_filter(wCurr, sc)
-                        kwargs['nhatk'] = _apply_filter(wCurr, nc)
-
+                        kwargs[alg]['shatk'] = _apply_filter(wCurr, sc)
+                        kwargs[alg]['nhatk'] = _apply_filter(wCurr, nc)
+                    
                     # Compute metrics for the current filter
-                    metric_curr = _process(wCurr, **kwargs)
+                    metric_curr = _process(wCurr, **kwargs[alg])
 
                     for m in metricsToCompute:
                         if metrics[m][alg][k] is None:
