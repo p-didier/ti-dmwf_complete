@@ -59,10 +59,11 @@ class Parameters:
     T: float = 1.0  # duration of the signals in seconds
     N: int = field(init=False)  # number of samples, computed from fs and T
     selfNoiseFactor: float = 1e-6  # self-noise factor, used to scale the noise covariance
-    noiseSigType: str = "random"  # random or babble
+    noiseSigType: str = "random"  # random, babble, or ssn
     desSigType: str = "speech"  # speech or random
     speechDatabasePath: str = ""  # path to the speech database
     babbleDatabasePath: str = ""  # path to the babble database
+    ssnDatabasePath: str = ""  # path to the SSN database
     speechFiles: list[str] = field(default_factory=list)  # list of speech files
     noiseFiles: list[str] = field(default_factory=list)  # list of noise files
 
@@ -111,6 +112,9 @@ class Parameters:
                         algs_to_remove.append('tidanse')
             for alg in algs_to_remove:
                 self.algos.remove(alg)
+    
+    def __str__(self):
+        return str(self.__dict__)
 
     def load_from_yaml(self, path: str):
         """Load parameters from a YAML file."""

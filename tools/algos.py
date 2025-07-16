@@ -10,8 +10,8 @@ from .tree_utils import *
 from .base import Parameters
 from dataclasses import dataclass
 from .asc import AcousticScenario
+import matplotlib.pyplot as plt
 
-TD_METRICS = ['msed', 'snr', 'stoi']
 
 @dataclass
 class Run:
@@ -51,6 +51,9 @@ class Run:
         }
         with open(c.outputFilePath, 'wb') as f:
             pickle.dump(results, f)
+        # Export cfg as .txt file
+        with open(c.outputFilePath.replace('.pkl', '.txt'), 'w') as f:
+            f.write(str(c))
         print(f"Results exported to {c.outputFilePath}")
 
     def launch(self, Ryy, Rss, Rnn, asc: AcousticScenario, G):

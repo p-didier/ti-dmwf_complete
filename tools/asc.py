@@ -374,7 +374,6 @@ class AcousticScenario:
                 [self.nodes[k].td[st] for k in range(c.K)]
             )
             stack[st] = c.get_stft(tmp)
-        stack['n'] = stack['n'] + stack['sn']  # Add self-noise to noise signal
         print(f'{c.T} s of signals = {stack["s"].shape[-1]} STFT frames.')
         # Stack the signals
         if c.scmEstimation == 'oracle':
@@ -400,13 +399,16 @@ class AcousticScenario:
             Rss = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
             Rnn = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
             Ryy = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
-            for kappa in range(c.nPosFreqs):
-                Rsslat = np.diag(power_s[:, kappa])
-                Rnnlat = np.diag(power_n[:, kappa])
-                Rss[kappa, ...] = steeringMats[:, :c.Qd, kappa] @ Rsslat @ steeringMats[:, :c.Qd, kappa].conj().T
-                Rnn[kappa, ...] = steeringMats[:, c.Qd:, kappa] @ Rnnlat @ steeringMats[:, c.Qd:, kappa].conj().T
-                Rvv = np.diag(power_v[:, kappa])
-                Ryy[kappa, ...] = Rss[kappa, ...] + Rnn[kappa, ...] + Rvv
+            for f in range(c.nPosFreqs):
+                Rsslat = np.diag(power_s[:, f])
+                Rnnlat = np.diag(power_n[:, f])
+                Rss[f, ...] = steeringMats[:, :c.Qd, f] @ Rsslat @\
+                    steeringMats[:, :c.Qd, f].conj().T
+                Rnn[f, ...] = steeringMats[:, c.Qd:, f] @ Rnnlat @\
+                    steeringMats[:, c.Qd:, f].conj().T
+                # Add self-noise to noise SCM
+                Rnn[f, ...] += np.diag(power_v[:, f])
+                Ryy[f, ...] = Rss[f, ...] + Rnn[f, ...]
 
         elif c.scmEstimation == 'batch':
             # Compute the SCMs
@@ -432,7 +434,7 @@ class AcousticScenario:
             axes.plot([0, c.roomLength], [c.roomWidth, c.roomWidth], 'k-')
             # Plot the nodes
             for k in range(c.K):
-                axes.plot(self.nodesPos[k, 0], self.nodesPos[k, 1], 'ro', markersize=2)
+                # axes.plot(self.nodesPos[k, 0], self.nodesPos[k, 1], 'ro', markersize=2)
                 axes.text(self.nodesPos[k, 0] + c.nodeRadius, self.nodesPos[k, 1] + c.nodeRadius, str(k+1))
             # Plot the sensors
             for k in range(c.K):
@@ -576,20 +578,25 @@ class AcousticScenario:
         if c.noiseSigType == 'random':
             # Generate white noise signals
             return c.randmat((n, c.N), makeComplex=False)
-        elif c.noiseSigType == 'babble':
+        elif c.noiseSigType in ['ssn', 'babble']:
             out = np.zeros((n, c.N), dtype='float32')
-            # Select babble noise files from the babble database
-            allBabbles = list(Path(c.babbleDatabasePath).rglob("babble*.wav"))
+
+            # Select noise files from the database
+            if c.noiseSigType == 'ssn':
+                allFiles = list(Path(c.ssnDatabasePath).rglob("ssn*.wav"))
+            elif c.noiseSigType == 'babble':
+                allFiles = list(Path(c.babbleDatabasePath).rglob("babble*.wav"))
+
             for ii in range(n):
-                # Randomly select one file from the babble database
-                if ii >= len(allBabbles):
-                    raise ValueError(f"Not enough babble files in the database (asked for {n}, found {len(allBabbles)}).")
+                # Randomly select one file from the SSN database
+                if ii >= len(allFiles):
+                    raise ValueError(f"Not enough files in the database (asked for {n}, found {len(allFiles)}).")
                 else:
-                    babbleFile = allBabbles[ii]
-                tmp = load_sound_file(babbleFile, desFs=c.fs)
+                    currFile = allFiles[ii]
+                tmp = load_sound_file(currFile, desFs=c.fs)
                 while len(tmp) < c.N:
                     # If the file is too short, concatenate it with another file
-                    tmp2 = load_sound_file(babbleFile, desFs=c.fs)
+                    tmp2 = load_sound_file(currFile, desFs=c.fs)
                     tmp = np.concatenate((tmp, tmp2))
                 out[ii, :] = tmp[:c.N]
             return out

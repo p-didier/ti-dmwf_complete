@@ -7,9 +7,6 @@ graphDiameter: null  # diameter of the graph corresponding to the network
 Qd: 2  # number of desired sources
 Qn: 2  # number of noise sources
 D: 1  # number of target signal channels
-# observability: poss  # "foss" for fully overlapping subspaces,
-observability: foss  # "foss" for fully overlapping subspaces,
-    # "poss" for partially overlapping subspaces
 # possDiffuse: True  # if True and observability is 'foss', the
 possDiffuse: False  # if True and observability is 'foss', the
     # noise sources are assumed only local, i.e., uncorrelated across nodes
@@ -21,7 +18,7 @@ domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
 roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
-nodeRadius: 0.2  # radius of the node in meters
+nodeRadius: 0.1  # radius of the node in meters
 t60: 0.          # reverberation time in seconds
 # t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
@@ -37,8 +34,8 @@ hierarchicalObsPruningThrs: 1  # for 'hierarchical' `observabilityCriterion`, th
     # intermediate values stop the pruning between 0 and 1.
 # maxDistForObservability: 0.05  # minimum distance for observability in meters
 maxDistForObservability: null  # minimum distance for observability in meters
-latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
-# latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
+# latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
+latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
 commDist: 1.5  # communication distance [m] (used at ad-hoc topology initialization, but `connectivity` plays a role)
 connectivity: 0.5  # amount of ad-hoc topology connectivity
 # pruningStrategy: star  # tree-pruning strategy
@@ -61,16 +58,18 @@ fs: 16000  # sampling frequency
 # T: 0.008  # duration of the signals in seconds
 T: 4.0  # duration of the signals in seconds
 # T: 20.0  # duration of the signals in seconds
-# T: 32.0  # duration of the signals in seconds
-# T: 512.0  # duration of the signals in seconds
+# T: 30.0  # duration of the signals in seconds
+# T: 200.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
-noiseSigType: random  # random or babble
-# noiseSigType: babble  # random or babble
+# noiseSigType: random  # random, babble, or ssn
+# noiseSigType: babble  # random, babble, or ssn
+noiseSigType: ssn  # random, babble, or ssn
 desSigType: speech  # speech or noise
 # desSigType: random  # speech or noise
+ssnDatabasePath: "C:/Users/pdidier/Dropbox/PC/Documents/sounds-phd/02_data/00_raw_signals/02_noise/ssn"  # path to the SSN database
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
 speechDatabasePath: "C:/Users/pdidier/Documents/datasets/DS_10283_3443/VCTK-Corpus-0.92/wav48_silence_trimmed"
@@ -95,4 +94,4 @@ mu: 1  # SDW-MWF factor
 singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
-suffix: 'saa_random_noise'  # output file suffix
+suffix: 'saa_ssn'  # output file suffix

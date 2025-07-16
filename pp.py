@@ -21,12 +21,12 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-# resDir = f'{baseResultsDir}/res_20250716_1052_narrowbandWOLA_0dBSNR_singleBin40'  # Path to the results directory
+# resDir = f'{baseResultsDir}/res_20250716_1128_saa_Qd_eq_Qn_eq_2'  # specific directory
 resDir = 'latest'  # <-- pick the latest results directory
 
 EXPORT = False  # If True, export the figures to files
-# FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
-FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
+FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
+# FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
 def main(resDir=resDir):
@@ -169,8 +169,12 @@ class PostProcessor:
                         kwargs[alg]['shatk'] = _apply_filter(wCurr, sc)
                         kwargs[alg]['nhatk'] = _apply_filter(wCurr, nc)
                     
+                    if alg in ['local', 'centralized']:
+                        pass
+
                     # Compute metrics for the current filter
                     metric_curr = _process(wCurr, **kwargs[alg])
+                    
 
                     for m in metricsToCompute:
                         if metrics[m][alg][k] is None:
