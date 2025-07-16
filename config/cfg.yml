@@ -91,8 +91,8 @@ mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
 
 # Debug
-singleLine: null  # if not None, only process this frequency line in WOLA domain
-# singleLine: 20  # if not None, only process this frequency line in WOLA domain
+# singleLine: null  # if not None, only process this frequency line in WOLA domain
+singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
 suffix: 'saa_random_noise'  # output file suffix

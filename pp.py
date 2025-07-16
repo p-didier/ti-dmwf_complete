@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-resDir = f'{baseResultsDir}/res_20250714_1231_saa_random_noise'  # Path to the results directory
+resDir = f'{baseResultsDir}/res_20250716_1024_saa_random_noise'  # Path to the results directory
 
 EXPORT = False  # If True, export the figures to files
 FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist

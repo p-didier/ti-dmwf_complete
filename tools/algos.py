@@ -81,17 +81,16 @@ class Run:
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Rgqgqu = self.init_full((c.nPosFreqs, c.Mk, c.Mk))
+                    Rgqgqu = self.init_full((c.nPosFreqs, c.Mk, asc.oQq[q]))
                     for p in range(c.K):
                         if p == q:
                             continue
-                        Eqps = self.init_full((c.Mk, c.Mk), selection_matrix=True)
+                        Eqps = self.init_full((c.Mk, asc.oQq[q]), selection_matrix=True)
                         Eqps[:asc.Qkq[q, p], :asc.Qkq[q, p]] = np.eye(asc.Qkq[q, p])
                         # Pad with ones
-                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk - asc.Qkq[q, p], c.Mk - asc.Qkq[q, p]))
+                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk - asc.Qkq[q, p], asc.oQq[q] - asc.Qkq[q, p]))
                         Rgqgqu += Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
-                    Pk[q] = self.filtup(Ryqyq, Ryqyq - Rgqgqu)[..., :asc.oQq[q]]
-                pass
+                    Pk[q] = self.filtup(Ryqyq, Rss=Rgqgqu)
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
@@ -136,7 +135,7 @@ class Run:
                                 c.Mk * downstreamNeigh[q] + c.Q, :
                             ] = np.eye(c.Q)
                             Rhyqyktq = herm(Cqk[q]) @ Ryy @ hEq
-                            Pk[q] = self.filtup(Rhyqhyq, Rhyqhyq - Rhyqyktq)
+                            Pk[q] = self.filtup(Rhyqhyq, Rss=Rhyqyktq)
                     # Compute estimation filter
                     tRyy = herm(Cqk[k]) @ Ryy @ Cqk[k]
                     tRnn = herm(Cqk[k]) @ Rnn @ Cqk[k]
@@ -202,21 +201,25 @@ class Run:
             
         return W_netWide
 
-    def filtup(self, Ryy, Rnn):
+    def filtup(self, Ryy, Rnn=None, Rss=None):
         """Filter up the SCMs."""
         c = self.cfg
-        finalSize = Rnn.shape[-1]
+
+        if Rnn is not None and Rss is None:
+            Rss = Ryy - Rnn
+
+        finalSize = Rss.shape[-1]
         if finalSize < Ryy.shape[-1]:
             # To apply the SDW addition, we need to pad Ryy (then discard the extra columns later)
             if c.domain == 'wola':
-                Rnn = np.pad(Rnn, ((0, 0), (0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
+                Rss = np.pad(Rss, ((0, 0), (0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
             elif 'time' in c.domain:
-                Rnn = np.pad(Rnn, ((0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
+                Rss = np.pad(Rss, ((0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
         try:
-            tmp = np.linalg.inv(Ryy + (c.mu - 1) * Rnn) @ (Ryy - Rnn)
+            tmp = np.linalg.inv(c.mu * Ryy + (1- c.mu) * Rss) @ Rss
         except np.linalg.LinAlgError:
             print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
-            tmp = np.linalg.pinv(Ryy + (c.mu - 1) * Rnn) @ (Ryy - Rnn)
+            tmp = np.linalg.pinv(c.mu * Ryy + (1- c.mu) * Rss) @ Rss
         return tmp[..., :finalSize]
     
     def init_full(self, shape, value=0, random=False, selection_matrix=False):
