@@ -58,8 +58,8 @@ win: hann  # STFT window type
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.06  # duration of the signals in seconds
-# T: 4.0  # duration of the signals in seconds
-T: 30.0  # duration of the signals in seconds
+T: 4.0  # duration of the signals in seconds
+# T: 30.0  # duration of the signals in seconds
 # T: 60.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
@@ -93,11 +93,13 @@ mu: 1  # SDW-MWF factor
 # gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
 gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 
+# Online mode parameters
+frameLength: 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
+beta: 0.99  # forgetting factor for online processing
+
 # Debug
 singleLine: null  # if not None, only process this frequency line in WOLA domain
 # singleLine: 20  # if not None, only process this frequency line in WOLA domain
-# randomSCMs: True  # if True, use randomly generated SCMs (Hermitian, positive semidefinite)
-randomSCMs: False  # if True, use randomly generated SCMs (Hermitian, positive semidefinite)
 
 seed: 43  # random number generator seed
-suffix: 'saa_reverb'  # output file suffix
+suffix: 'saa_wideband'  # output file suffix

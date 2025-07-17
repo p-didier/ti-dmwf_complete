@@ -79,9 +79,12 @@ class Parameters:
     mu: float = 1  # SDW-MWF factor
     gevd: bool = False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 
+    # Online mode parameters
+    frameLength: float = 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
+    beta: float = 0.99  # forgetting factor for online processing
+
     # Debug
     singleLine: int = None  # if not None, only process this frequency line in WOLA domain
-    randomSCMs: bool = False  # if True, use randomly generated SCMs (Hermitian, positive semidefinite)
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
@@ -91,6 +94,10 @@ class Parameters:
     def __post_init__(self):
         np.random.seed(self.seed)
         self.N = int(self.fs * self.T)
+        if self.scmEstimation == 'online':
+            self.nFrames = int(np.floor(self.T / self.frameLength))  # number of frames for online processing
+            # TODO: improve that vvvv
+            self.maxDANSEiter = 1  # one iteration per frame for online processing
         # Number of positive frequencies in STFT
         self.nPosFreqs = self.nfft // 2 + 1 if self.singleLine is None else 1
         # Validate parameters
@@ -155,7 +162,7 @@ class Parameters:
                 window=self.win,
             )[1]
         else:
-            print("Warning: Only one frequency line is processed, ISTFT not applied.", end='\r')
+            # print("Warning: Only one frequency line is processed, ISTFT not applied.", end='\r')
             return X  # leave it as is if only one frequency line is processed
 
 

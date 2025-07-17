@@ -7,6 +7,7 @@ import copy
 import time
 import numpy as np
 from .base import *
+from tqdm import tqdm
 import networkx as nx
 import soundfile as sf
 from pathlib import Path
@@ -169,18 +170,12 @@ class AcousticScenario:
 
     def setup(self):
         c = self.cfg
-        if c.randomSCMs:
-            Rss = self.random_scm(c.M, c.Qd)    # rank-Qd desired signal SCM
-            Rnn = self.random_scm(c.M, c.M)     # full-rank noise SCM because contains self-noise 
-            Ryy = Rss + Rnn
-            out = Ryy, Rss, Rnn, None, None
-            raise NotImplementedError('Not finished...')
-        else:
-            # Setup the acoustic scenario
-            if c.domain == 'wola':
-                out = self.setup_wola_domain()
-            if 'time' in c.domain:
-                out = self.setup_time_domain()
+
+        # Setup the acoustic scenario
+        if c.domain == 'wola':
+            out = self.setup_wola_domain()
+        if 'time' in c.domain:
+            out = self.setup_time_domain()
         
         if c.observability == 'foss':
             self.oQq = np.full(c.K, c.Q)
@@ -413,15 +408,36 @@ class AcousticScenario:
                 Rnn[f, ...] = Cmat[f, :, c.Qd:] @ Rnnlat @ Cmat[f, :, c.Qd:].conj().T
                 # Add self-noise to noise SCM
                 Rnn[f, ...] += np.diag(power_v[:, f])
+            # Complete signal SCM
+            Ryy = Rss + Rnn
 
         elif c.scmEstimation == 'batch':
             # Compute the SCMs
             nFrames = stack['s'].shape[-1]
             Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
             Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
-        
-        # Complete signal SCM
-        Ryy = Rss + Rnn
+            # Complete signal SCM
+            Ryy = Rss + Rnn
+
+        elif c.scmEstimation == 'online':
+            t0 = time.time()
+            # Online SCM estimation
+            RssPrev = 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
+            RnnPrev = 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
+            Rss = [None for _ in range(c.nFrames)]
+            Rnn = [None for _ in range(c.nFrames)]
+            for l in tqdm(range(c.nFrames), desc="Online SCM estimation"):
+                ssH = stack['s'][..., l] @ stack['s'][..., l].conj().T
+                nnH = stack['n'][..., l] @ stack['n'][..., l].conj().T
+                Rss[l] = c.beta * RssPrev + (1 - c.beta) * ssH
+                Rnn[l] = c.beta * RnnPrev + (1 - c.beta) * nnH
+                RssPrev = Rss[l]
+                RnnPrev = Rnn[l]
+            Ryy = [Rss[l] + Rnn[l] for l in range(c.nFrames)]
+            print(f"Online SCM estimation done in {time.time() - t0:.2f} s.")
+        else:
+            raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
+
 
         return Ryy, Rss, Rnn, stack['s'], stack['n']
 

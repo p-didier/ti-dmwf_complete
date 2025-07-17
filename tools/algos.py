@@ -7,6 +7,7 @@ import pickle
 from .base import *
 import numpy as np
 import networkx as nx
+from tqdm import tqdm
 from .tree_utils import *
 import scipy.linalg as sla
 from dataclasses import dataclass
@@ -22,19 +23,43 @@ class Run:
         # Generate scenario
         c = self.cfg
         asc = AcousticScenario(cfg=c)
-        Ryy, Rss, Rnn, s, n = asc.setup()
-        
         # Generate tree
         if c.graphDiameter is not None:
             graph = generate_tree_with_diameter(c.K, c.graphDiameter)
         else:
             graph = nx.complete_graph(c.K)
-            for (u, v) in graph.edges():
-                graph.edges[u, v]['weight'] = np.random.random()
+            for (uDANSE, v) in graph.edges():
+                graph.edges[uDANSE, v]['weight'] = np.random.random()
             graph = nx.minimum_spanning_tree(graph)
 
         # Launch algorithms
-        W_netWide = self.launch(Ryy, Rss, Rnn, asc, graph)
+        Ryy, Rss, Rnn, s, n = asc.setup()
+        # Initialize DANSE-specific variables
+        PkDANSE = dict([(alg, [
+            self.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
+            for _ in range(c.K)
+        ]) for alg in c.algos if 'danse' in alg])
+        WkkPrevDANSE = dict([(alg, [
+            self.init_full((c.nPosFreqs, c.Mk, c.Qd))
+            for _ in range(c.K)
+        ]) for alg in c.algos if 'danse' in alg])
+        uDANSE = dict([(alg, 0) for alg in c.algos if 'danse' in alg])
+
+        if c.scmEstimation == 'online':
+            W_netWide = [None for _ in range(c.nFrames)]
+            for l in tqdm(range(c.nFrames), desc="Processing frames"):
+                W_netWide[l], PkDANSE, WkkPrevDANSE, uDANSE = self.launch(
+                    Ryy[l], Rss[l], Rnn[l],
+                    asc, graph,
+                    PkDANSE=PkDANSE, WkkPrevDANSE=WkkPrevDANSE, uDANSE=uDANSE,
+                    silent=True
+                )  # feedback loop for PkDANSE, WkkPrevDANSE, and uDANSE
+        else:
+            W_netWide = self.launch(
+                Ryy, Rss, Rnn,
+                asc, graph,
+                PkDANSE=PkDANSE, WkkPrevDANSE=WkkPrevDANSE, uDANSE=uDANSE
+            )[0]
 
         # Export results
         self.export_results(W_netWide, s, n)
@@ -57,15 +82,36 @@ class Run:
             f.write(str(c))
         print(f"Results exported to {c.outputFilePath}")
 
-    def launch(self, Ryy, Rss, Rnn, asc: AcousticScenario, G):
-        """Launch algorithms."""
+    def launch(
+            self,
+            Ryy, Rss, Rnn,
+            asc: AcousticScenario, G,
+            PkDANSE: dict[str, list] = None,
+            WkkPrevDANSE: dict[str, list] = None,
+            uDANSE: dict[str, int] = None,
+            silent=False):
+        """
+        Launch algorithms.
+
+        Parameters:
+            Ryy (np.ndarray): Full signal covariance matrix.
+            Rss (np.ndarray): Desired signal covariance matrix.
+            Rnn (np.ndarray): Noise signal covariance matrix.
+            asc (AcousticScenario): Acoustic scenario object.
+            G (nx.Graph): Graph representing the network topology.
+            PkDANSE (dict[str, list]): Fusion matrices for each DANSE algorithm.
+            WkkPrev (dict[str, list]): Previous filters for each DANSE algorithm.
+            u (dict[str, int]): Current updating node index for DANSE algorithms.
+            silent (bool): If True, suppress output messages.
+        """
         c = self.cfg
         W_netWide = dict([(alg, [
             self.init_full((c.nPosFreqs, c.M, c.D))
             for _ in range(c.K)
         ]) for alg in c.algos])  # Initialize node-specific filters dictionary
         for alg in c.algos:
-            print(f"Running algorithm: {alg}...")
+            if not silent:
+                print(f"Running algorithm: {alg}...")
             if alg == 'unprocessed':
                 for k in range(c.K):
                     W_netWide[alg][k][..., c.Mk * k:c.Mk * k + c.D, :] = np.eye(c.D)
@@ -147,29 +193,18 @@ class Run:
                     tRnn = reg(herm(Cqk[k]) @ Rnn @ Cqk[k])
                     W_netWide[alg][k] = Cqk[k] @ self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)[..., :c.D]
 
-                pass
-
             elif 'danse' in alg:
                 W_netWide[alg] = [[] for _ in range(c.K)]
-                # Initialize the fusion matrices
-                Pk = [
-                    self.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
-                    for _ in range(c.K)
-                ]
-                WkkPrev = [
-                    self.init_full((c.nPosFreqs, c.Mk, c.Qd))
-                    for _ in range(c.K)
-                ]
-                u = 0  # updating node index
                 for i in range(c.maxDANSEiter):
-                    print(f"Iteration {i + 1}/{c.maxDANSEiter} for {alg}...", end='\r')
+                    if not silent:
+                        print(f"Iteration {i + 1}/{c.maxDANSEiter} for {alg}...", end='\r')
                     for k in range(c.K):
                         if alg.startswith("tidanse"):
                             Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd))
                             Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                             for q in range(c.K):
                                 if q != k:
-                                    Ck[..., c.Mk * q:c.Mk * (q + 1), c.Mk:] = Pk[q]
+                                    Ck[..., c.Mk * q:c.Mk * (q + 1), c.Mk:] = PkDANSE[alg][q]
                         else:
                             Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd * (c.K - 1)))
                             Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
@@ -178,7 +213,7 @@ class Run:
                                 if q != k:
                                     idxBeg = c.Mk + idxNei * c.Qd
                                     idxEnd = idxBeg + c.Qd
-                                    Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
+                                    Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = PkDANSE[alg][q]
                                     idxNei += 1
                         # Compute the filters
                         tRyy = herm(Ck) @ Ryy @ Ck
@@ -187,27 +222,28 @@ class Run:
                         if alg.startswith("rsdanse"):
                             # For rS-DANSE, we apply a relaxation
                             alpha = 1 / np.log10(i + 10)
-                            tW[..., :c.Mk, :c.Qd] = (1 - alpha) * WkkPrev[k] +\
+                            tW[..., :c.Mk, :c.Qd] = (1 - alpha) * WkkPrevDANSE[alg][k] +\
                                 alpha * tW[..., :c.Mk, :c.Qd]
-                            WkkPrev[k] = tW[..., :c.Mk, :c.Qd]
+                            WkkPrevDANSE[alg][k] = tW[..., :c.Mk, :c.Qd]
                         W_netWide[alg][k].append(Ck @ tW[..., :c.D])
                         # Update the fusion matrices
-                        if k == u or alg.startswith("rsdanse"):
+                        if k == uDANSE[alg] or alg.startswith("rsdanse"):
                             if alg.startswith("tidanse"):
                                 try:
-                                    Pk[k] = tW[..., :c.Mk, :c.Qd] @\
+                                    PkDANSE[alg][k] = tW[..., :c.Mk, :c.Qd] @\
                                         np.linalg.inv(tW[..., c.Mk:, :c.Qd])
                                 except np.linalg.LinAlgError:
-                                    print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
-                                    Pk[k] = tW[..., :c.Mk, :c.Qd] @\
+                                    if not silent:
+                                        print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
+                                    PkDANSE[alg][k] = tW[..., :c.Mk, :c.Qd] @\
                                         np.linalg.pinv(tW[..., c.Mk:, :c.Qd])
                             else:
-                                Pk[k] = tW[..., :c.Mk, :c.Qd]
-                    u = (u + 1) % c.K  # Update the node index for next iteration
+                                PkDANSE[alg][k] = tW[..., :c.Mk, :c.Qd]
+                    uDANSE[alg] = (uDANSE[alg] + 1) % c.K  # Update the node index for next iteration
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
             
-        return W_netWide
+        return W_netWide, PkDANSE, WkkPrevDANSE, uDANSE
 
     def filtup(self, Ryy, Rnn=None, Rss=None, gevd=False, gevdRank=1):
         """Filter up the SCMs."""

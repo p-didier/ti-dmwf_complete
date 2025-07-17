@@ -80,7 +80,9 @@ def main(resDir=resDir):
             metricsToCompute = ['msew', 'msed', 'snr', 'ser']
             if not BYPASS_STOI and c.domain == 'wola' and\
                 c.singleLine is None and c.desSigType == 'speech':  # speech enhancement scenario
-                metricsToCompute = ['msew', 'snr', 'stoi', 'ser']
+                metricsToCompute += ['stoi']
+            if c.scmEstimation == 'online':
+                metricsToCompute.remove('msew')  # msew is not computed in online mode
             
             s = results['s']  # desired signals
             n = results['n']  # noise signals
@@ -111,9 +113,19 @@ class PostProcessor:
     def get_metrics(self, W_netWide, y, d, n=None, s=None, metricsToCompute=[], metricsOver=None):
         c = self.cfg
 
-        metrics = dict([(metric, dict([
-            (alg, [None for _ in range(c.K)]) for alg in c.algos
-        ])) for metric in metricsToCompute])
+        # Initialize `metrics` dictionary
+        if c.scmEstimation == 'online':
+            metrics = dict([(metric, dict([
+                (alg, [
+                    np.zeros(c.nFrames)
+                    for _ in range(c.K)
+                ]) for alg in c.algos
+            ])) for metric in metricsToCompute])
+        else:
+            metrics = dict([(metric, dict([
+                (alg, [None for _ in range(c.K)]) for alg in c.algos
+            ])) for metric in metricsToCompute])
+
 
         def _apply_filter(Wk, x):
             if c.domain == 'wola':
@@ -142,11 +154,9 @@ class PostProcessor:
                     metrics_curr['stoi'] = stoi_any_fs(dk, dhatk, fs_sig=c.fs)
             return metrics_curr
         
+        # Get signals
         if c.domain == 'wola':
-            msedOverFrames = int(
-                c.fs * metricsOver / (c.nfft - c.nhop)
-            )
-            # msedOverFrames = np.shape(y)[-1] # Number of frames to average MSEd over
+            msedOverFrames = int(c.fs * metricsOver / (c.nfft - c.nhop))
             yc = y[..., :msedOverFrames]  # Centralized signal for MSEd computation
             if 'snr' in metricsToCompute:
                 sc = s[..., :msedOverFrames]  # Centralized signal for MSEd computation
@@ -159,40 +169,45 @@ class PostProcessor:
             samples = int(c.fs * metricsOver)
             yc, sc, nc, dkTD = y[:, :samples], s[:, :samples], n[:, :samples], [d[k, :, :samples] for k in range(c.K)]
 
-        pass
-
-        for k in range(c.K):
-
-            hWk = W_netWide['centralized'][k]
+        
+        def _processing_loop(k, WcurrFrame, dkTD, silent=False):
+            hWk = WcurrFrame['centralized'][k]
             basekwargs = dict(hWk=hWk, dk=dkTD[k])  # Common arguments for metric computation
             kwargs = dict([(alg, basekwargs.copy()) for alg in c.algos])
 
+            metricsCurrAlg = dict([(alg, []) for alg in c.algos])
             for alg in c.algos:
-                print(f"Computing metrics for {alg}, node {k}...", end='\r')
+                if not silent:
+                    print(f"Computing metrics for {alg}, node {k}...", end='\r')
 
-                if not isinstance(W_netWide[alg][k], list):
-                    W_netWide[alg][k] = [W_netWide[alg][k]]
+                if not isinstance(WcurrFrame[alg][k], list):
+                    WcurrFrame[alg][k] = [WcurrFrame[alg][k]]
                 
-                for ii in range(len(W_netWide[alg][k])):
+                for ii in range(len(WcurrFrame[alg][k])):
                     # Compute signal estimates
-                    wCurr = W_netWide[alg][k][ii]
+                    wCurr = WcurrFrame[alg][k][ii]
                     kwargs[alg]['dhatk'] = _apply_filter(wCurr, yc)
                     if 'snr' in metricsToCompute:
                         kwargs[alg]['shatk'] = _apply_filter(wCurr, sc)
                         kwargs[alg]['nhatk'] = _apply_filter(wCurr, nc)
-                    
-                    if alg in ['tidmwf', 'centralized']:
-                        pass
-
                     # Compute metrics for the current filter
-                    metric_curr = _process(wCurr, **kwargs[alg])
+                    metricsCurrAlg[alg].append(_process(wCurr, **kwargs[alg]))
                     
+            return metricsCurrAlg
 
-                    for m in metricsToCompute:
-                        if metrics[m][alg][k] is None:
-                            metrics[m][alg][k] = []
-                        metrics[m][alg][k].append(metric_curr[m])
-
+        # Process data for each node and each algorithm (and each time frame if online mode)
+        for k in range(c.K):
+            if isinstance(W_netWide, list) and c.scmEstimation == 'online':
+                # Online-mode processing
+                for l, w in enumerate(W_netWide):
+                    print(f"Computing metrics at node {k}, frame {l + 1}/{len(W_netWide)}...", end='\r')
+                    metricsCurrAlg = _processing_loop(k, w, dkTD, silent=True)
+                    for alg in c.algos:
+                        for m in metricsToCompute:
+                            metrics[m][alg][k][l] = metricsCurrAlg[alg][0][m]  # always only one element in `metricsCurrAlg[alg][m]` list in online-mode
+            else:
+                metrics = _processing_loop(k, W_netWide, dkTD)
+        
         return metrics
     
     def plot_metrics(self, metrics: dict):
@@ -205,6 +220,7 @@ class PostProcessor:
                 np.full(10, val),
                 marker, linestyle='--', color=color,
                 markerfacecolor='none',
+                markevery=0.1,
                 label=label
             )
 
@@ -233,28 +249,26 @@ class PostProcessor:
                 for jj, alg in enumerate(metrics[m].keys()):
                     if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
                         continue
-                    if 'danse' in alg:
+                    if len(metrics[m][alg][0]) > 1:
                         if metrics[m][alg] is not None:
-                            if c.observability == 'poss' and c.scmEstimation == 'batch':
-                                pass
                             data = np.mean(metrics[m][alg], axis=0)
                             ax.plot(data, label=alg, color=colors[alg],
                                     marker=markers[jj % len(markers)],
-                                    markerfacecolor='none')
+                                    markerfacecolor='none', markevery=0.1)
                         else:
                             print(f"No {m} data for {alg}, skipping.")
                     else:
-                        # Non-iterative algorithms as horizontal lines
+                        # Non-iterative algorithms in batch-mode: horizontal lines
                         plot_h(
                             ax,
                             np.mean(metrics[m][alg]),
                             label=alg,
                             color=colors[alg],
-                            marker=markers[jj % len(markers)]
+                            marker=markers[jj % len(markers)],
                         )
-                ax.set_xlim(0, c.maxDANSEiter - 1)
+                ax.set_xlim(0, c.nFrames - 1 if c.scmEstimation == 'online' else c.maxDANSEiter - 1)
             else:
-                # Bar plot when not including iterative algorithms
+                # Bar plot when in batch-mode and not including iterative algorithms
                 for jj, alg in enumerate(metrics[m].keys()):
                     if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
                         continue
