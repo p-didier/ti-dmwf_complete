@@ -206,7 +206,12 @@ class PostProcessor:
                         for m in metricsToCompute:
                             metrics[m][alg][k][l] = metricsCurrAlg[alg][0][m]  # always only one element in `metricsCurrAlg[alg][m]` list in online-mode
             else:
-                metrics = _processing_loop(k, W_netWide, dkTD)
+                metricsCurrAlg = _processing_loop(k, W_netWide, dkTD)
+                for alg in c.algos:
+                    for m in metricsToCompute:
+                        metrics[m][alg][k] = np.array([
+                            mm[m] for mm in metricsCurrAlg[alg]
+                        ])
         
         return metrics
     

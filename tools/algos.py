@@ -121,7 +121,7 @@ class Run:
 
     def launch(
             self,
-            Ryy, Rss, Rnn,
+            RyyAll, RssAll, RnnAll,
             asc: AcousticScenario, G,
             ivIn=None,
             silent=False):
@@ -129,9 +129,9 @@ class Run:
         Launch algorithms.
 
         Parameters:
-            Ryy (np.ndarray): Full signal covariance matrix.
-            Rss (np.ndarray): Desired signal covariance matrix.
-            Rnn (np.ndarray): Noise signal covariance matrix.
+            RyyAll (dict[float, np.ndarray]): Full signal covariance matrix, for all beta values.
+            RssAll (dict[float, np.ndarray]): Desired signal covariance matrix, for all beta values.
+            RnnAll (dict[float, np.ndarray]): Noise signal covariance matrix, for all beta values.
             asc (AcousticScenario): Acoustic scenario object.
             G (nx.Graph): Graph representing the network topology.
             ivDANSE (dict[str, dict]): Iterative variables for each DANSE algorithm.
@@ -146,6 +146,16 @@ class Run:
         for alg in c.algos:
             if not silent:
                 print(f"Running algorithm: {alg}...")
+
+            if c.scmEstimation == 'online':
+                Ryy = RyyAll[c.beta[alg]]
+                Rss = RssAll[c.beta[alg]]
+                Rnn = RnnAll[c.beta[alg]]
+            else:
+                Ryy = RyyAll
+                Rss = RssAll
+                Rnn = RnnAll
+
             if alg == 'unprocessed':
                 for k in range(c.K):
                     W_netWide[alg][k][..., c.Mk * k:c.Mk * k + c.D, :] = np.eye(c.D)
@@ -190,7 +200,8 @@ class Run:
                             idxNei += 1
                     # Compute the filters
                     tRyy = herm(Ck) @ Ryy @ Ck
-                    tRnn = reg(herm(Ck) @ Rnn @ Ck)
+                    # tRnn = reg(herm(Ck) @ Rnn @ Ck)
+                    tRnn = herm(Ck) @ Rnn @ Ck
                     tW = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)[..., :c.D]
                     W_netWide[alg][k] = Ck @ tW
                     pass
@@ -215,16 +226,13 @@ class Run:
                             # Compute Pk
                             Rhyqhyq = herm(Cqk[q]) @ Ryy @ Cqk[q]
                             hEq = self.init_full((c.M, c.Q), selection_matrix=True)
-                            # hEq[
-                            #     c.Mk * downstreamNeigh[q]:\
-                            #     c.Mk * downstreamNeigh[q] + c.Q, :
-                            # ] = np.eye(c.Q)
                             hEq[c.Mk * k: c.Mk * k + c.Q, :] = np.eye(c.Q)
                             Rhyqyktq = herm(Cqk[q]) @ Ryy @ hEq
                             Pk[q] = self.filtup(Rhyqhyq, Rss=Rhyqyktq)
                     # Compute estimation filter
                     tRyy = herm(Cqk[k]) @ Ryy @ Cqk[k]
-                    tRnn = reg(herm(Cqk[k]) @ Rnn @ Cqk[k])
+                    # tRnn = reg(herm(Cqk[k]) @ Rnn @ Cqk[k])
+                    tRnn = herm(Cqk[k]) @ Rnn @ Cqk[k]
                     W_netWide[alg][k] = Cqk[k] @ self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)[..., :c.D]
 
             elif 'danse' in alg:
@@ -234,9 +242,11 @@ class Run:
                 u = ivIn[alg]['u']
                 tRyyPrev = ivIn[alg]['tRyy']
                 tRnnPrev = ivIn[alg]['tRnn']
-                frame_n = ivIn['frame_n']
-                frame_y = ivIn['frame_y']
-                l = ivIn['frameIdx']
+                onlineModeCriterion = True
+                if c.scmEstimation == 'online':
+                    frame_n = ivIn['frame_n']
+                    frame_y = ivIn['frame_y']
+                    onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
 
                 W_netWide[alg] = [[] for _ in range(c.K)]
                 for i in range(c.maxDANSEiter):
@@ -247,12 +257,12 @@ class Run:
                         zy = [np.einsum(
                             'ijk,ij->ik',
                             Pk[k].conj(),
-                            frame_y[:, c.Mk * k:c.Mk * (k + 1)]
+                            ivIn['frame_y'][:, c.Mk * k:c.Mk * (k + 1)]
                         )for k in range(c.K)]
                         zn = [np.einsum(
                             'ijk,ij->ik',
                             Pk[k].conj(),
-                            frame_n[:, c.Mk * k:c.Mk * (k + 1)]
+                            ivIn['frame_n'][:, c.Mk * k:c.Mk * (k + 1)]
                         )for k in range(c.K)]
 
                     for k in range(c.K):
@@ -295,8 +305,8 @@ class Run:
                                 )
                             yyH = np.einsum('ij,ik->ijk', ty, ty.conj())
                             nnH = np.einsum('ij,ik->ijk', tn, tn.conj())
-                            tRyy = c.beta * tRyyPrev[k] + (1 - c.beta) * yyH
-                            tRnn = c.beta * tRnnPrev[k] + (1 - c.beta) * nnH
+                            tRyy = c.beta[alg] * tRyyPrev[k] + (1 - c.beta[alg]) * yyH
+                            tRnn = c.beta[alg] * tRnnPrev[k] + (1 - c.beta[alg]) * nnH
                             tRyyPrev[k] = tRyy
                             tRnnPrev[k] = tRnn
                         else:
@@ -312,7 +322,7 @@ class Run:
                             WkkPrev[k] = tW[..., :c.Mk, :c.Qd]
                         W_netWide[alg][k].append(Ck @ tW[..., :c.D])
                         # Update the fusion matrices
-                        if (k == u or alg.startswith("rsdanse")) and l % c.DANSEiterEveryXframes == 0:
+                        if (k == u or alg.startswith("rsdanse")) and onlineModeCriterion:
                             if alg.startswith("tidanse"):
                                 try:
                                     Pk[k] = tW[..., :c.Mk, :c.Qd] @\
@@ -326,7 +336,7 @@ class Run:
                                 Pk[k] = tW[..., :c.Mk, :c.Qd]
                     
                     # Update the updating node index for next iteration
-                    if l % c.DANSEiterEveryXframes == 0:
+                    if onlineModeCriterion:
                         u = (u + 1) % c.K  
                 
                 # Store the iterative variables for the next frame

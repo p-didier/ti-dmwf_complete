@@ -19,8 +19,8 @@ roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.1  # radius of the node in meters
-# t60: 0.          # reverberation time in seconds
-t60: 0.2          # reverberation time in seconds
+t60: 0.          # reverberation time in seconds
+# t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
@@ -59,8 +59,9 @@ fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.06  # duration of the signals in seconds
 # T: 4.0  # duration of the signals in seconds
-T: 30.0  # duration of the signals in seconds
-# T: 60.0  # duration of the signals in seconds
+# T: 30.0  # duration of the signals in seconds
+T: 60.0  # duration of the signals in seconds
+# T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
@@ -96,11 +97,14 @@ DANSEiterEveryXframes: 10  # DANSE iteration every X frames
 
 # Online mode parameters
 frameLength: 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
-beta: 0.99  # forgetting factor for online processing
+beta: {
+    default: 0.99,
+    tidmwf: 0.999,
+}  # forgetting factor for online processing
 
 # Debug
 # singleLine: null  # if not None, only process this frequency line in WOLA domain
 singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
-suffix: 'saa_DANSEiterEvery_10frames'  # output file suffix
+suffix: 'wola_nb_online_anechoic'  # output file suffix

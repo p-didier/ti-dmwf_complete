@@ -289,6 +289,8 @@ class AcousticScenario:
             # Batch SCM estimation based on actual signals
             Rss = s @ s.conj().T / c.N
             Rnn = n @ n.conj().T / c.N
+        elif c.scmEstimation == 'online':
+            raise NotImplementedError
         
         # Complete signal SCM
         Ryy = Rss + Rnn
@@ -422,22 +424,30 @@ class AcousticScenario:
         elif c.scmEstimation == 'online':
             t0 = time.time()
             # Online SCM estimation
-            RssPrev = 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
-            RnnPrev = 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
-            Rss = [None for _ in range(c.nFrames)]
-            Rnn = [None for _ in range(c.nFrames)]
-            for l in tqdm(range(c.nFrames), desc="Online SCM estimation"):
-                ssH = stack['s'][..., l] @ stack['s'][..., l].conj().T
-                nnH = stack['n'][..., l] @ stack['n'][..., l].conj().T
-                Rss[l] = c.beta * RssPrev + (1 - c.beta) * ssH
-                Rnn[l] = c.beta * RnnPrev + (1 - c.beta) * nnH
-                RssPrev = Rss[l]
-                RnnPrev = Rnn[l]
-            Ryy = [Rss[l] + Rnn[l] for l in range(c.nFrames)]
+            betas = list(set(c.beta.values()))
+            Rss = [{
+                beta: 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
+                if l == 0 else None for beta in betas
+            } for l in range(c.nFrames)]
+            Rnn = [{
+                beta: 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
+                if l == 0 else None for beta in betas
+            } for l in range(c.nFrames)]
+            for l in tqdm(range(1, c.nFrames), desc=f"Online SCM estimation"):
+                ssH = np.einsum('ji,ki->ijk', stack['s'][..., l], stack['s'][..., l].conj())
+                nnH = np.einsum('ji,ki->ijk', stack['n'][..., l], stack['n'][..., l].conj())
+                # Update the SCMs using the online estimation formula
+                for beta in betas:
+                    # Update the SCMs using the online estimation formula
+                    Rss[l][beta] = beta * Rss[l - 1][beta] + (1 - beta) * ssH
+                    Rnn[l][beta] = beta * Rnn[l - 1][beta] + (1 - beta) * nnH
+            Ryy = [
+                {beta: Rss[l][beta] + Rnn[l][beta] for beta in betas}
+                for l in range(c.nFrames)
+            ]
             print(f"Online SCM estimation done in {time.time() - t0:.2f} s.")
         else:
             raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
-
 
         return Ryy, Rss, Rnn, stack['s'], stack['n']
 

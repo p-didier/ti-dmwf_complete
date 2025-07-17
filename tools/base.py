@@ -82,7 +82,7 @@ class Parameters:
 
     # Online mode parameters
     frameLength: float = 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
-    beta: float = 0.99  # forgetting factor for online processing
+    beta: dict = field(default_factory=lambda: {'default': 0.99})  # forgetting factor for online SCM estimation
 
     # Debug
     singleLine: int = None  # if not None, only process this frequency line in WOLA domain
@@ -99,6 +99,9 @@ class Parameters:
             self.nFrames = int(np.floor(self.T / self.frameLength))  # number of frames for online processing
             # TODO: improve that vvvv
             self.maxDANSEiter = 1  # one iteration per frame for online processing
+        # Adjust beta's dictionary
+        if 'default' in self.beta.keys():
+            self.beta = dict([(alg, self.beta.get(alg, self.beta['default'])) for alg in self.algos])
         # Number of positive frequencies in STFT
         self.nPosFreqs = self.nfft // 2 + 1 if self.singleLine is None else 1
         # Validate parameters
