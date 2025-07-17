@@ -78,6 +78,7 @@ class Parameters:
     maxDANSEiter: int = 100  # maximum number of iterations for DANSE
     mu: float = 1  # SDW-MWF factor
     gevd: bool = False  # if True, use GEV decomposition instead of regular MWF in estimation filters
+    DANSEiterEveryXframes: int = 1  # DANSE iteration every X frames
 
     # Online mode parameters
     frameLength: float = 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
