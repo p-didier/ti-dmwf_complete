@@ -15,6 +15,7 @@ import numpy as np
 from pathlib import Path
 from tools.base import *
 from tools.algos import *
+from pp import main as main_pp
 
 import matplotlib as mpl
 mpl.use('TkAgg')  # use TkAgg backend to avoid issues when plotting
@@ -24,29 +25,29 @@ plt.ion()  # interactive mode on
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
 TEST_SET = [
-    {
-        'scmEstimation': 'oracle',
-        'observability': 'foss',
-    },
-    {
-        'scmEstimation': 'oracle',
-        'observability': 'poss',
-    },
     # {
-    #     'scmEstimation': 'batch',
+    #     'scmEstimation': 'oracle',
     #     'observability': 'foss',
     # },
     # {
-    #     'scmEstimation': 'batch',
+    #     'scmEstimation': 'oracle',
     #     'observability': 'poss',
     # },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'foss',
+    },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'poss',
+    },
 ]
 
 def main():
     """Main function (called by default when running script)."""
     cfgBase = Parameters()
     cfgBase.load_from_yaml(PATH_TO_CFG)
-    cfgBase.outputDir = f"{Path(__file__).parent}/out/res_{time.strftime('%Y%m%d_%H%M')}_{cfgBase.suffix}"  # Set output directory
+    cfgBase.outputDir = f"{Path(__file__).parent}\\out\\res_{time.strftime('%Y%m%d_%H%M')}_{cfgBase.suffix}"  # Set output directory
     # Generate folder if it does not exist
     clean_output_dir(cfgBase.outputDir)  # Clean the output directory if it exists
 
@@ -56,7 +57,7 @@ def main():
     for i, test in enumerate(TEST_SET):
         print(f"\nTest {i + 1}/{len(TEST_SET)}: {test}")
         cfg = copy.deepcopy(cfgBase)
-        cfg.outputFilePath = f"{cfgBase.outputDir}/res_cfg{i + 1}.pkl"  # Unique output file for each test
+        cfg.outputFilePath = f"{cfgBase.outputDir}\\res_cfg{i + 1}.pkl"  # Unique output file for each test
         for key, value in test.items():
             setattr(cfg, key, value)
         cfg.__post_init__()
@@ -66,6 +67,9 @@ def main():
 
         # Launch the simulation
         Run(cfg).go()
+
+    # Post-processing
+    main_pp()
 
     pass
 

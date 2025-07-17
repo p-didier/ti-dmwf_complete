@@ -4,10 +4,11 @@
 # (c) Paul Didier, SOUNDS ETN, KU Leuven ESAT STADIUS
 
 import pickle
+from .base import *
 import numpy as np
 import networkx as nx
 from .tree_utils import *
-from .base import Parameters
+import scipy.linalg as sla
 from dataclasses import dataclass
 from .asc import AcousticScenario
 import matplotlib.pyplot as plt
@@ -69,7 +70,7 @@ class Run:
                 for k in range(c.K):
                     W_netWide[alg][k][..., c.Mk * k:c.Mk * k + c.D, :] = np.eye(c.D)
             elif alg == "centralized":
-                Wcentr = self.filtup(Ryy, Rnn)
+                Wcentr = self.filtup(Ryy, Rnn, gevd=c.gevd, gevdRank=c.Qd)
                 W_netWide[alg] = [
                     Wcentr[..., c.Mk * k:c.Mk * k + c.D] for k in range(c.K)
                 ]
@@ -77,14 +78,14 @@ class Run:
                 for k in range(c.K):
                     Rykyk = Ryy[..., c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
                     Rnknk = Rnn[..., c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
-                    tmp = self.filtup(Rykyk, Rnknk)
+                    tmp = self.filtup(Rykyk, Rnknk, gevd=c.gevd, gevdRank=c.Qd)
                     W_netWide[alg][k][..., c.Mk * k:c.Mk * (k + 1), :] = tmp[..., :c.D]
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Rgqgqu = self.init_full((c.nPosFreqs, c.Mk, asc.oQq[q]))
+                    Ryqrhoq = self.init_full((c.nPosFreqs, c.Mk, asc.oQq[q]))
                     for p in range(c.K):
                         if p == q:
                             continue
@@ -92,8 +93,8 @@ class Run:
                         Eqps[:asc.Qkq[q, p], :asc.Qkq[q, p]] = np.eye(asc.Qkq[q, p])
                         # Pad with ones
                         Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk - asc.Qkq[q, p], asc.oQq[q] - asc.Qkq[q, p]))
-                        Rgqgqu += Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
-                    Pk[q] = self.filtup(Ryqyq, Rss=Rgqgqu)
+                        Ryqrhoq += Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
+                    Pk[q] = self.filtup(Ryqyq, Rss=Ryqrhoq)
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
@@ -109,9 +110,10 @@ class Run:
                             idxNei += 1
                     # Compute the filters
                     tRyy = herm(Ck) @ Ryy @ Ck
-                    tRnn = herm(Ck) @ Rnn @ Ck
-                    tW = self.filtup(tRyy, tRnn)[..., :c.D]
+                    tRnn = reg(herm(Ck) @ Rnn @ Ck)
+                    tW = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)[..., :c.D]
                     W_netWide[alg][k] = Ck @ tW
+                    pass
 
             elif alg == "tidmwf":
                 for k in range(c.K):
@@ -133,16 +135,19 @@ class Run:
                             # Compute Pk
                             Rhyqhyq = herm(Cqk[q]) @ Ryy @ Cqk[q]
                             hEq = self.init_full((c.M, c.Q), selection_matrix=True)
-                            hEq[
-                                c.Mk * downstreamNeigh[q]:\
-                                c.Mk * downstreamNeigh[q] + c.Q, :
-                            ] = np.eye(c.Q)
+                            # hEq[
+                            #     c.Mk * downstreamNeigh[q]:\
+                            #     c.Mk * downstreamNeigh[q] + c.Q, :
+                            # ] = np.eye(c.Q)
+                            hEq[c.Mk * k: c.Mk * k + c.Q, :] = np.eye(c.Q)
                             Rhyqyktq = herm(Cqk[q]) @ Ryy @ hEq
                             Pk[q] = self.filtup(Rhyqhyq, Rss=Rhyqyktq)
                     # Compute estimation filter
                     tRyy = herm(Cqk[k]) @ Ryy @ Cqk[k]
-                    tRnn = herm(Cqk[k]) @ Rnn @ Cqk[k]
-                    W_netWide[alg][k] = Cqk[k] @ self.filtup(tRyy, tRnn)[..., :c.D]
+                    tRnn = reg(herm(Cqk[k]) @ Rnn @ Cqk[k])
+                    W_netWide[alg][k] = Cqk[k] @ self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)[..., :c.D]
+
+                pass
 
             elif 'danse' in alg:
                 W_netWide[alg] = [[] for _ in range(c.K)]
@@ -178,7 +183,7 @@ class Run:
                         # Compute the filters
                         tRyy = herm(Ck) @ Ryy @ Ck
                         tRnn = herm(Ck) @ Rnn @ Ck
-                        tW = self.filtup(tRyy, tRnn)
+                        tW = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)
                         if alg.startswith("rsdanse"):
                             # For rS-DANSE, we apply a relaxation
                             alpha = 1 / np.log10(i + 10)
@@ -204,7 +209,7 @@ class Run:
             
         return W_netWide
 
-    def filtup(self, Ryy, Rnn=None, Rss=None):
+    def filtup(self, Ryy, Rnn=None, Rss=None, gevd=False, gevdRank=1):
         """Filter up the SCMs."""
         c = self.cfg
 
@@ -218,11 +223,39 @@ class Run:
                 Rss = np.pad(Rss, ((0, 0), (0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
             elif 'time' in c.domain:
                 Rss = np.pad(Rss, ((0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
-        try:
-            tmp = np.linalg.inv(c.mu * Ryy + (1- c.mu) * Rss) @ Rss
-        except np.linalg.LinAlgError:
-            print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
-            tmp = np.linalg.pinv(c.mu * Ryy + (1- c.mu) * Rss) @ Rss
+
+        def _regular_mwf(Ryy, Rss):
+            try:
+                tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
+            except np.linalg.LinAlgError:
+                print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
+                tmp = np.linalg.pinv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
+            return tmp
+
+        if gevd:
+            sigFull = np.zeros((Ryy.shape[0], Ryy.shape[1]), dtype=complex)
+            Xfull = np.zeros((Ryy.shape[0], Ryy.shape[1], Ryy.shape[1]), dtype=complex)
+            for f in range(Ryy.shape[0]):
+                try:
+                    sigma, Xmat = sla.eigh(Ryy[f, ...], Rnn[f, ...])
+                except np.linalg.LinAlgError:
+                    print("GEVD failed, using pseudo-inverse instead.", end='\r')
+                    return _regular_mwf(Ryy, Rss)[..., :finalSize]
+
+                idx = np.flip(np.argsort(sigma))
+                sigFull[f, :] = sigma[idx]
+                Xfull[f, ...] = Xmat[:, idx]
+            # Inverse-hermitian of `Xmat`
+            Qmat = np.linalg.inv(Xfull.conj().transpose(0, 2, 1))
+            # GEVLs tensor - low-rank approximation is done here
+            Dmat = np.zeros_like(Ryy, dtype=complex)
+            for r in range(gevdRank):
+                Dmat[:, r, r] = np.squeeze(1 - 1 / sigFull[:, r])
+            # Compute filters
+            w = Xfull @ Dmat @ Qmat.conj().transpose(0, 2, 1)
+            return w[..., :finalSize]
+        else:
+            tmp = _regular_mwf(Ryy, Rss)
         return tmp[..., :finalSize]
     
     def init_full(self, shape, value=0, random=False, selection_matrix=False):
@@ -244,9 +277,30 @@ def flatten_list(l):
     return [item for sublist in l for item in sublist]
 
 
-def herm(x: np.ndarray) -> np.ndarray:
-    """Hermitian transpose."""
-    if x.ndim == 2:
-        return x.conj().T
-    elif x.ndim == 3:
-        return x.conj().transpose(0, 2, 1)
+def reg(B_batch, epsilon=1e-8):
+    """Check if a matrix is positive definite."""
+    # if not np.all(B == herm(B)):
+    #     B_reg = (B + herm(B)) / 2
+    #     assert np.all(B_reg == herm(B_reg)), "Matrix is not Hermitian after regularization."
+    # else:
+    #     B_reg = B
+
+    # if np.any(np.linalg.eigvals(B_reg) <= 0) or np.iscomplex(np.linalg.eigvals(B_reg)).any():
+    #     B_reg += 1e-8 * np.eye(B_reg.shape[-1])
+    #     assert np.all(np.linalg.eigvals(B_reg) > 0), "Matrix is not positive definite after regularization."
+
+    M, N, _ = B_batch.shape
+    B_psd = np.zeros_like(B_batch, dtype=np.complex128)
+
+    for m in range(M):
+        Bm = (B_batch[m] + B_batch[m].conj().T) / 2  # Symmetrize
+
+        evals, evecs = np.linalg.eigh(Bm)
+
+        evals_clipped = np.clip(evals, epsilon, None)
+
+        Bm_psd = (evecs @ np.diag(evals_clipped)) @ evecs.conj().T
+
+        B_psd[m] = Bm_psd
+
+    return B_psd

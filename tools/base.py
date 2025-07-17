@@ -77,9 +77,11 @@ class Parameters:
         # 'online' for online
     maxDANSEiter: int = 100  # maximum number of iterations for DANSE
     mu: float = 1  # SDW-MWF factor
+    gevd: bool = False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 
     # Debug
     singleLine: int = None  # if not None, only process this frequency line in WOLA domain
+    randomSCMs: bool = False  # if True, use randomly generated SCMs (Hermitian, positive semidefinite)
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
@@ -163,3 +165,11 @@ class Parameters:
             return np.random.randn(*shape)
         else:
             return np.random.randn(*shape) + 1j * np.random.randn(*shape)
+
+
+def herm(x: np.ndarray) -> np.ndarray:
+    """Hermitian transpose."""
+    if x.ndim == 2:
+        return x.conj().T
+    elif x.ndim == 3:
+        return x.conj().transpose(0, 2, 1)

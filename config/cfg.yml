@@ -19,8 +19,8 @@ roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.1  # radius of the node in meters
-t60: 0.          # reverberation time in seconds
-# t60: 0.2          # reverberation time in seconds
+# t60: 0.          # reverberation time in seconds
+t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
@@ -54,19 +54,21 @@ win: hann  # STFT window type
 # win: rect  # STFT window type
 
 # Signals parameters
+# fs: 41000  # sampling frequency
 fs: 16000  # sampling frequency
-# T: 0.008  # duration of the signals in seconds
-T: 4.0  # duration of the signals in seconds
-# T: 20.0  # duration of the signals in seconds
-# T: 30.0  # duration of the signals in seconds
+# fs: 8000  # sampling frequency
+# T: 0.06  # duration of the signals in seconds
+# T: 4.0  # duration of the signals in seconds
+T: 30.0  # duration of the signals in seconds
+# T: 60.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
-# noiseSigType: random  # random, babble, or ssn
+noiseSigType: random  # random, babble, or ssn
 # noiseSigType: babble  # random, babble, or ssn
-noiseSigType: ssn  # random, babble, or ssn
+# noiseSigType: ssn  # random, babble, or ssn
 desSigType: speech  # speech or noise
 # desSigType: random  # speech or noise
 ssnDatabasePath: "C:/Users/pdidier/Dropbox/PC/Documents/sounds-phd/02_data/00_raw_signals/02_noise/ssn"  # path to the SSN database
@@ -88,10 +90,14 @@ algos:  # list of algorithms to run
 maxDANSEiter: 10  # maximum number of iterations for DANSE
 mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
+# gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
+gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 
 # Debug
-# singleLine: null  # if not None, only process this frequency line in WOLA domain
-singleLine: 20  # if not None, only process this frequency line in WOLA domain
+singleLine: null  # if not None, only process this frequency line in WOLA domain
+# singleLine: 20  # if not None, only process this frequency line in WOLA domain
+# randomSCMs: True  # if True, use randomly generated SCMs (Hermitian, positive semidefinite)
+randomSCMs: False  # if True, use randomly generated SCMs (Hermitian, positive semidefinite)
 
 seed: 43  # random number generator seed
-suffix: 'saa_ssn'  # output file suffix
+suffix: 'saa_reverb'  # output file suffix

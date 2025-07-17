@@ -6,11 +6,11 @@
 import copy
 import time
 import numpy as np
+from .base import *
 import networkx as nx
 import soundfile as sf
 from pathlib import Path
 import scipy.signal as sig
-from .base import Parameters
 from resampy import resample
 import pyroomacoustics as pra
 from collections import deque
@@ -169,10 +169,18 @@ class AcousticScenario:
 
     def setup(self):
         c = self.cfg
-        if c.domain == 'wola':
-            out = self.setup_wola_domain()
-        if 'time' in c.domain:
-            out = self.setup_time_domain()
+        if c.randomSCMs:
+            Rss = self.random_scm(c.M, c.Qd)    # rank-Qd desired signal SCM
+            Rnn = self.random_scm(c.M, c.M)     # full-rank noise SCM because contains self-noise 
+            Ryy = Rss + Rnn
+            out = Ryy, Rss, Rnn, None, None
+            raise NotImplementedError('Not finished...')
+        else:
+            # Setup the acoustic scenario
+            if c.domain == 'wola':
+                out = self.setup_wola_domain()
+            if 'time' in c.domain:
+                out = self.setup_time_domain()
         
         if c.observability == 'foss':
             self.oQq = np.full(c.K, c.Q)
@@ -276,10 +284,10 @@ class AcousticScenario:
         if c.scmEstimation == 'oracle':
             # For oracle SCM estimation, we assume perfect knowledge of the
             # source and noise steering matrices
-            Gam_s = np.diag(pows)
-            Gam_n = np.diag(pown)
-            Rss = Amat @ Gam_s @ Amat.conj().T
-            Rnn = Bmat @ Gam_n @ Bmat.conj().T
+            Rsslat = np.diag(pows)
+            Rnnlat = np.diag(pown)
+            Rss = Amat @ Rsslat @ Amat.conj().T
+            Rnn = Bmat @ Rnnlat @ Bmat.conj().T
             Rvv = np.eye(c.M) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
             Rnn += Rvv  # add self-noise to noise SCM
         elif c.scmEstimation == 'batch':
@@ -378,17 +386,17 @@ class AcousticScenario:
         # Stack the signals
         if c.scmEstimation == 'oracle':
             # Compute FFT of RIRs
-            steeringMats = np.zeros((c.M, c.Q, c.nPosFreqs), dtype=complex)
+            Cmat = np.zeros((c.nPosFreqs, c.M, c.Q), dtype=complex)
             for ii in range(c.Q):
                 rirs = np.array([self.rirs[m][ii] for m in range(c.M)])
-                tmp = np.fft.rfft(rirs, n=c.nfft, axis=-1)
+                tmp = np.fft.rfft(rirs, n=c.nfft, axis=-1)   # RIRs FFT => transfer functions
                 if c.singleLine is not None:
                     # If singleLine is set, only use the specified frequency line
                     tmp = tmp[:, [c.singleLine]]
                 # Set the steering vectors of nodes that do not observe source ii to zero
                 for q in np.where(self.obsMat[:, ii] == 0)[0]:
                     tmp[c.Mk * q:c.Mk * (q + 1), :] = 0
-                steeringMats[:, ii, :] = tmp
+                Cmat[..., ii] = tmp.T
             # Compute STFTs of latent signals
             slatSTFT = c.get_stft(self.latentSpeech)
             nlatSTFT = c.get_stft(self.latentNoise)
@@ -398,25 +406,22 @@ class AcousticScenario:
             # Compute the SCMs
             Rss = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
             Rnn = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
-            Ryy = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
             for f in range(c.nPosFreqs):
                 Rsslat = np.diag(power_s[:, f])
                 Rnnlat = np.diag(power_n[:, f])
-                Rss[f, ...] = steeringMats[:, :c.Qd, f] @ Rsslat @\
-                    steeringMats[:, :c.Qd, f].conj().T
-                Rnn[f, ...] = steeringMats[:, c.Qd:, f] @ Rnnlat @\
-                    steeringMats[:, c.Qd:, f].conj().T
+                Rss[f, ...] = Cmat[f, :, :c.Qd] @ Rsslat @ Cmat[f, :, :c.Qd].conj().T
+                Rnn[f, ...] = Cmat[f, :, c.Qd:] @ Rnnlat @ Cmat[f, :, c.Qd:].conj().T
                 # Add self-noise to noise SCM
                 Rnn[f, ...] += np.diag(power_v[:, f])
-                Ryy[f, ...] = Rss[f, ...] + Rnn[f, ...]
 
         elif c.scmEstimation == 'batch':
             # Compute the SCMs
             nFrames = stack['s'].shape[-1]
             Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
             Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
-            # Complete signal SCM
-            Ryy = Rss + Rnn
+        
+        # Complete signal SCM
+        Ryy = Rss + Rnn
 
         return Ryy, Rss, Rnn, stack['s'], stack['n']
 
@@ -954,6 +959,16 @@ class AcousticScenario:
             Qqup_k=Qqup_k,
             hMk=hMk,
         )
+    
+    def random_scm(self, n, r):
+        """Generate a random Hermitian, positive-semidefinite n x n matrix with rank r."""
+        c = self.cfg
+        if c.domain == 'wola':
+            size = (c.nPosFreqs, n, r)
+        else:   
+            size = (n, r)
+        mat = self.cfg.randmat(size)
+        return mat @ herm(mat)
 
 
 def load_sound_file(file_path, desFs):
@@ -963,17 +978,19 @@ def load_sound_file(file_path, desFs):
         # Resample the signal to the desired sampling frequency
         soundData = resample(soundData, fsRead, desFs)
     # Apply high-pass filter (get rid of potential low-frequency hum from low-quality dataset)
-    soundData = butter_highpass_filter(soundData, 0.01, 5)
+    # soundData = butter_highpass_filter(soundData, 0.01, 5)
     # Normalize the signal
     soundData /= np.amax(np.abs(soundData))  # Normalize
     soundData -= np.mean(soundData)  # Remove DC offset
     return soundData
+
 
 def butter_highpass(cutoff, fs, order=5):
     nyq = 0.5 * fs
     normal_cutoff = cutoff / nyq
     b, a = sig.butter(order, normal_cutoff, btype='high', analog=False)
     return b, a
+
 
 def butter_highpass_filter(data, cutoff, fs, order=5):
     b, a = butter_highpass(cutoff, fs, order=order)

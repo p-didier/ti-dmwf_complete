@@ -18,10 +18,11 @@ import matplotlib.pyplot as plt
 from mypystoi import stoi_any_fs
 from tools.base import Parameters
 from dataclasses import dataclass, field
+from tools.asc import butter_highpass_filter
 
-baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
+BASERESULTSDIR = f'{Path(__file__).parent}/out'  # Base directory for results
 
-# resDir = f'{baseResultsDir}/res_20250716_1128_saa_Qd_eq_Qn_eq_2'  # specific directory
+# resDir = f'{baseResultsDir}/res_20250716_1541_nb_wola_T30s'  # specific directory
 resDir = 'latest'  # <-- pick the latest results directory
 
 EXPORT = False  # If True, export the figures to files
@@ -29,12 +30,14 @@ FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 # FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
+BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging)
+
 def main(resDir=resDir):
     """Main function (called by default when running script)."""
     # Load the results from the directory
     if resDir == 'latest':
         # Find the latest results directory
-        listOfDirs = sorted(Path(baseResultsDir).glob('res_*'), key=lambda x: x.stat().st_mtime, reverse=True)
+        listOfDirs = sorted(Path(BASERESULTSDIR).glob('res_*'), key=lambda x: x.stat().st_birthtime, reverse=True)
         if not listOfDirs:
             print("No results directories found.")
             sys.exit(1)
@@ -56,6 +59,12 @@ def main(resDir=resDir):
 
         # Process the results
         c: Parameters = results['cfg']  # Configuration parameters
+        
+        # Compute metrics over the first seconds of the signal
+        if c.desSigType == 'speech':
+            metricsOver = 10000 / c.fs  # First 10000 samples
+        else:
+            metricsOver = METRICS_OVER_FIRST_SECONDS
 
         pp = PostProcessor(cfg=c)
         
@@ -69,7 +78,8 @@ def main(resDir=resDir):
         else:
             # Metrics to compute
             metricsToCompute = ['msew', 'msed', 'snr', 'ser']
-            if c.domain == 'wola' and c.singleLine is None:  # wideband processing
+            if not BYPASS_STOI and c.domain == 'wola' and\
+                c.singleLine is None and c.desSigType == 'speech':  # speech enhancement scenario
                 metricsToCompute = ['msew', 'snr', 'stoi', 'ser']
             
             s = results['s']  # desired signals
@@ -79,7 +89,7 @@ def main(resDir=resDir):
 
             print("\nComputing metrics...")
             t0 = time.time()
-            metrics = pp.get_metrics(results['W_netWide'], y, d, n, s, metricsToCompute)
+            metrics = pp.get_metrics(results['W_netWide'], y, d, n, s, metricsToCompute, metricsOver)
             print(f"\nMetrics computed in {time.time() - t0:.2f} seconds.")
 
             # Export metrics to file
@@ -98,7 +108,7 @@ def main(resDir=resDir):
 class PostProcessor:
     cfg: Parameters = field(default_factory=lambda: Parameters())
 
-    def get_metrics(self, W_netWide, y, d, n=None, s=None, metricsToCompute=[]):
+    def get_metrics(self, W_netWide, y, d, n=None, s=None, metricsToCompute=[], metricsOver=None):
         c = self.cfg
 
         metrics = dict([(metric, dict([
@@ -134,7 +144,7 @@ class PostProcessor:
         
         if c.domain == 'wola':
             msedOverFrames = int(
-                c.fs * METRICS_OVER_FIRST_SECONDS / (c.nfft - c.nhop)
+                c.fs * metricsOver / (c.nfft - c.nhop)
             )
             # msedOverFrames = np.shape(y)[-1] # Number of frames to average MSEd over
             yc = y[..., :msedOverFrames]  # Centralized signal for MSEd computation
@@ -146,8 +156,10 @@ class PostProcessor:
                 for k in range(c.K)
             ]  # Desired signal for node k
         elif 'time' in c.domain:
-            samples = int(c.fs * METRICS_OVER_FIRST_SECONDS)
+            samples = int(c.fs * metricsOver)
             yc, sc, nc, dkTD = y[:, :samples], s[:, :samples], n[:, :samples], [d[k, :, :samples] for k in range(c.K)]
+
+        pass
 
         for k in range(c.K):
 
@@ -169,7 +181,7 @@ class PostProcessor:
                         kwargs[alg]['shatk'] = _apply_filter(wCurr, sc)
                         kwargs[alg]['nhatk'] = _apply_filter(wCurr, nc)
                     
-                    if alg in ['local', 'centralized']:
+                    if alg in ['tidmwf', 'centralized']:
                         pass
 
                     # Compute metrics for the current filter
