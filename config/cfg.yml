@@ -14,9 +14,11 @@ possDiffuse: False  # if True and observability is 'foss', the
 # domain: time  # domain of the signals, 'time', or 'time_complex', or 'wola'
 domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
 # domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
-###########################
-roomLength: 5.0  # length of the room in meters
-roomWidth: 5.0   # width of the room in meters
+##########################
+# TDsteeringMats: random  # type of steering matrices in time domain
+TDsteeringMats: anechoic  # type of steering matrices in time domain
+roomLength: 7.0  # length of the room in meters
+roomWidth: 7.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.1  # radius of the node in meters
 t60: 0.          # reverberation time in seconds
@@ -34,8 +36,8 @@ hierarchicalObsPruningThrs: 1  # for 'hierarchical' `observabilityCriterion`, th
     # intermediate values stop the pruning between 0 and 1.
 # maxDistForObservability: 0.05  # minimum distance for observability in meters
 maxDistForObservability: null  # minimum distance for observability in meters
-# latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
-latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
+latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
+# latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
 commDist: 1.5  # communication distance [m] (used at ad-hoc topology initialization, but `connectivity` plays a role)
 connectivity: 0.5  # amount of ad-hoc topology connectivity
 # pruningStrategy: star  # tree-pruning strategy
@@ -59,8 +61,8 @@ fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.06  # duration of the signals in seconds
 # T: 4.0  # duration of the signals in seconds
-# T: 30.0  # duration of the signals in seconds
-T: 60.0  # duration of the signals in seconds
+T: 30.0  # duration of the signals in seconds
+# T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
@@ -99,7 +101,7 @@ DANSEiterEveryXframes: 10  # DANSE iteration every X frames
 frameLength: 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
     default: 0.99,
-    tidmwf: 0.999,
+    # tidmwf: 0.999,
 }  # forgetting factor for online processing
 
 # Debug
@@ -107,4 +109,4 @@ beta: {
 singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
-suffix: 'wola_nb_online_anechoic'  # output file suffix
+suffix: 'wola_online_test'  # output file suffix

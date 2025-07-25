@@ -45,10 +45,10 @@ TEST_SET = [
         'scmEstimation': 'online',
         'observability': 'foss',
     },
-    # {
-    #     'scmEstimation': 'online',
-    #     'observability': 'poss',
-    # },
+    {
+        'scmEstimation': 'online',
+        'observability': 'poss',
+    },
 ]
 
 def main():

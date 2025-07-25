@@ -18,6 +18,7 @@ class Parameters:
     graphDiameter: int = None  # diameter of the graph corresponding to the network
 
     # Acoustic scenario parameters
+    c: float = 343.0  # speed of sound in m/s
     Qd: int = 1  # number of desired sources
     Qn: int = 1  # number of noise sources
     D: int = 1  # number of target signal channels
@@ -26,6 +27,9 @@ class Parameters:
     possDiffuse: bool = False  # if True and observability is 'foss', the
         # noise sources are assumed only local, i.e., uncorrelated across nodes
     domain: str = 'time'  # domain of the signals, 'time', or 'time_complex', or 'wola'
+    TDsteeringMats: str = 'random'  # type of steering matrices in time domain
+        # 'random' for random matrices,
+        # 'anechoic' for anechoic scenario (matrices entries are Green's function in free-field),
     roomLength: float = 10.0  # length of the room in meters
     roomWidth: float = 10.0   # width of the room in meters
     roomHeight: float = 3.0   # height of the room in meters
@@ -96,6 +100,8 @@ class Parameters:
         np.random.seed(self.seed)
         self.N = int(self.fs * self.T)
         if self.scmEstimation == 'online':
+            if self.domain == 'wola':
+                self.frameLength = (self.nfft - self.nhop) / self.fs  # frame length in seconds
             self.nFrames = int(np.floor(self.T / self.frameLength))  # number of frames for online processing
             # TODO: improve that vvvv
             self.maxDANSEiter = 1  # one iteration per frame for online processing

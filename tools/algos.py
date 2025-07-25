@@ -28,22 +28,12 @@ class Run:
             graph = generate_tree_with_diameter(c.K, c.graphDiameter)
         else:
             graph = nx.complete_graph(c.K)
-            for (uDANSE, v) in graph.edges():
-                graph.edges[uDANSE, v]['weight'] = np.random.random()
+            for (u, v) in graph.edges():
+                graph.edges[u, v]['weight'] = np.random.random()
             graph = nx.minimum_spanning_tree(graph)
 
         # Launch algorithms
         Ryy, Rss, Rnn, s, n = asc.setup()
-        # Initialize DANSE-specific variables
-        PkDANSE = dict([(alg, [
-            self.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
-            for _ in range(c.K)
-        ]) for alg in c.algos if 'danse' in alg])
-        WkkPrevDANSE = dict([(alg, [
-            self.init_full((c.nPosFreqs, c.Mk, c.Qd))
-            for _ in range(c.K)
-        ]) for alg in c.algos if 'danse' in alg])
-        uDANSE = dict([(alg, 0) for alg in c.algos if 'danse' in alg])
         
         # Iterative variables for DANSE-like algorithms
         algDims = {
@@ -53,12 +43,16 @@ class Run:
         }
         iv = dict([(alg, {
             'tRyy': [
-                1e-6 * c.randmat((c.nPosFreqs, algDims[alg], algDims[alg]), makeComplex=True)
-                for _ in range(c.K)
+                1e-6 * c.randmat(
+                    (c.nPosFreqs, algDims[alg], algDims[alg]) if c.domain == 'wola' else (algDims[alg], algDims[alg]),
+                    makeComplex=True if c.domain != 'time' else False
+                ) for _ in range(c.K)
             ],
             'tRnn': [
-                1e-6 * c.randmat((c.nPosFreqs, algDims[alg], algDims[alg]), makeComplex=True)
-                for _ in range(c.K)
+                1e-6 * c.randmat(
+                    (c.nPosFreqs, algDims[alg], algDims[alg]) if c.domain == 'wola' else (algDims[alg], algDims[alg]),
+                    makeComplex=True if c.domain != 'time' else False
+                ) for _ in range(c.K)
             ],
             'Pk': [
                 self.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
@@ -72,14 +66,18 @@ class Run:
         }) for alg in c.algos if 'danse' in alg])  # iteration variable for DANSE algorithms
 
         if c.scmEstimation == 'online':
-            if c.domain != 'wola':
-                raise ValueError("Online SCM estimation is only supported in WOLA domain.")
             W_netWide = [None for _ in range(c.nFrames)]
             for l in tqdm(range(c.nFrames), desc="Processing frames"):
                 # Current frame information
                 iv['frameIdx'] = l
-                iv['frame_n'] = n[..., l].T
-                iv['frame_y'] = s[..., l].T + n[..., l].T
+                if c.domain == 'wola':
+                    iv['frame_n'] = n[..., l].T
+                    iv['frame_y'] = s[..., l].T + n[..., l].T
+                else:
+                    idxBeg = int(l * (c.frameLength * c.fs))
+                    idxEnd = int((l + 1) * (c.frameLength * c.fs))
+                    iv['frame_n'] = n[..., idxBeg:idxEnd].T
+                    iv['frame_y'] = s[..., idxBeg:idxEnd].T + n[..., idxBeg:idxEnd].T
                 # Launch algorithms for the current frame
                 W_netWide[l], ivOut = self.launch(
                     Ryy[l], Rss[l], Rnn[l],
@@ -254,16 +252,23 @@ class Run:
                         print(f"Iteration {i + 1}/{c.maxDANSEiter} for {alg}...", end='\r')
                     if c.scmEstimation == 'online':
                         # Compute fused signals
-                        zy = [np.einsum(
-                            'ijk,ij->ik',
-                            Pk[k].conj(),
-                            ivIn['frame_y'][:, c.Mk * k:c.Mk * (k + 1)]
-                        )for k in range(c.K)]
-                        zn = [np.einsum(
-                            'ijk,ij->ik',
-                            Pk[k].conj(),
-                            ivIn['frame_n'][:, c.Mk * k:c.Mk * (k + 1)]
-                        )for k in range(c.K)]
+                        zy, zn = [None for _ in range(c.K)], [None for _ in range(c.K)]
+                        for k in range(c.K):
+                            if c.domain == 'wola':
+                                zy[k] = np.einsum(
+                                    'ijk,ij->ik',
+                                    Pk[k].conj(),
+                                    frame_y[:, c.Mk * k:c.Mk * (k + 1)]
+                                )
+                                zn[k] = np.einsum(
+                                    'ijk,ij->ik',
+                                    Pk[k].conj(),
+                                    frame_n[:, c.Mk * k:c.Mk * (k + 1)]
+                                )
+                            else:
+                                # Time-domain-like processing
+                                zy[k] = frame_y[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
+                                zn[k] = frame_n[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
 
                     for k in range(c.K):
                         if alg.startswith("tidanse"):
@@ -303,8 +308,12 @@ class Run:
                                     [frame_n[:, c.Mk * k:c.Mk * (k + 1)]] +\
                                     [zn[q] for q in range(c.K) if q != k], axis=1
                                 )
-                            yyH = np.einsum('ij,ik->ijk', ty, ty.conj())
-                            nnH = np.einsum('ij,ik->ijk', tn, tn.conj())
+                            if c.domain == 'wola':
+                                yyH = np.einsum('ij,ik->ijk', ty, ty.conj())
+                                nnH = np.einsum('ij,ik->ijk', tn, tn.conj())
+                            else:
+                                yyH = ty.T @ ty.conj()
+                                nnH = tn.T @ tn.conj()
                             tRyy = c.beta[alg] * tRyyPrev[k] + (1 - c.beta[alg]) * yyH
                             tRnn = c.beta[alg] * tRnnPrev[k] + (1 - c.beta[alg]) * nnH
                             tRyyPrev[k] = tRyy

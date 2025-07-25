@@ -18,6 +18,11 @@ from collections import deque
 import matplotlib.pyplot as plt
 from dataclasses import dataclass, field
 
+
+SPEECH_DATABASE_NAME_DELIMITER = {
+    'VCTK': 8
+}
+
 @dataclass
 class StaticScenarioParameters:
     """A dataclass for static scenario parameters."""
@@ -201,29 +206,48 @@ class AcousticScenario:
                     )
         
         return out
+    
+    def steermat_green_anechoic(self, sensorsPos: np.ndarray, sourcesPos: np.ndarray) -> np.ndarray:
+        """Compute the steering matrix for the given sensors and sources positions."""
+        c = self.cfg
+        # Compute the steering matrix
+        Cmat = np.zeros((sensorsPos.shape[0], sourcesPos.shape[0]), dtype=complex)
+        for ii in range(sourcesPos.shape[0]):
+            for jj in range(sensorsPos.shape[0]):
+                # Compute the distance between sensor jj and source ii
+                dist = np.linalg.norm(sensorsPos[jj, :] - sourcesPos[ii, :])
+                # Compute the steering vector
+                Cmat[jj, ii] = 1 / dist # 1 / (4 * np.pi * dist) * np.exp(
+                #     -1j * 2 * np.pi * c.fs * dist / c.c
+                # )
+        return Cmat
 
     def setup_time_domain(self):
         """Setup the acoustic scenario in the time domain."""
         c = self.cfg
         # Initialize matrices randomly
-        Amat = c.randmat((c.M, c.Qd))
-        Bmat = c.randmat((c.M, c.Qn))
-        cAmat = [copy.deepcopy(Amat) for _ in range(c.K)]
-        cBmat = [copy.deepcopy(Bmat) for _ in range(c.K)]
-        slat = c.randmat((c.Qd, c.N))
-        nlat = c.randmat((c.Qn, c.N))
+        if c.TDsteeringMats == 'random':
+            Amat = c.randmat((c.M, c.Qd))
+            Bmat = c.randmat((c.M, c.Qn))
+        elif c.TDsteeringMats == 'anechoic':
+            # Define an anechoic scenario
+            _, sensorsPos, desSourcePos, noiSourcesPos = self.define_layout()
+            Amat = self.steermat_green_anechoic(sensorsPos, desSourcePos)
+            Bmat = self.steermat_green_anechoic(sensorsPos, noiSourcesPos)
+            if c.domain == 'time':
+                Amat = np.abs(Amat)
+                Bmat = np.abs(Bmat)
+        # slat = c.randmat((c.Qd, c.N))
+        # nlat = c.randmat((c.Qn, c.N))
+        slat = self.gen_latent_speech(n=c.Qd)
+        nlat = self.get_latent_noise(n=c.Qn)
         pows = np.mean(np.abs(slat) ** 2, axis=1)
         pown = np.mean(np.abs(nlat) ** 2, axis=1)
         # Compute steering matrices
-        if c.observability == 'foss':
-            self.oQkq = np.full(c.K, c.Q)
-            self.Qkq = np.full((c.K, c.K), c.Q)
-        elif c.observability == 'poss':
+        if c.observability == 'poss':
             # Do not differentiate between global and local sources, 
             # randomly generate observability pattern
             self.obsMat = np.zeros((c.K, c.Q))
-            # def inadequate(om):
-            #     return np.any(np.sum(om, axis=1) == 0) | np.any(np.sum(om, axis=0) == 0)
             
             def inadequate(om):
                 observedDesired = np.sum(om[:, :c.Qd], axis=1) > 0
@@ -253,21 +277,6 @@ class AcousticScenario:
                 for n in range(c.Qn):
                     if self.obsMat[k, c.Qd + n] == 0:
                         Bmat[c.Mk * k:c.Mk * (k + 1), n] = 0
-            for k in range(c.K):
-                # "Global" Amat and Bmat matrices
-                # List of sources that are either not observed by node k, or
-                # not observed by any other node
-                idxUncorr_A, idxUncorr_B = [], []
-                for s in range(c.Qd):
-                    if self.obsMat[k, s] == 0 or np.sum(self.obsMat[:, s]) == 1:
-                        idxUncorr_A.append(s)
-                for n in range(c.Qn):
-                    if self.obsMat[k, c.Qd + n] == 0 or np.sum(self.obsMat[:, c.Qd + n]) == 1:
-                        idxUncorr_B.append(n)
-                if len(idxUncorr_A) > 0:
-                    cAmat[k][:, idxUncorr_A] = 0
-                if len(idxUncorr_B) > 0:
-                    cBmat[k][:, idxUncorr_B] = 0
 
         # Compute signals
         s = Amat @ slat
@@ -285,15 +294,44 @@ class AcousticScenario:
             Rnn = Bmat @ Rnnlat @ Bmat.conj().T
             Rvv = np.eye(c.M) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
             Rnn += Rvv  # add self-noise to noise SCM
+            # Complete signal SCM
+            Ryy = Rss + Rnn
         elif c.scmEstimation == 'batch':
             # Batch SCM estimation based on actual signals
             Rss = s @ s.conj().T / c.N
             Rnn = n @ n.conj().T / c.N
+            # Complete signal SCM
+            Ryy = Rss + Rnn
         elif c.scmEstimation == 'online':
-            raise NotImplementedError
-        
-        # Complete signal SCM
-        Ryy = Rss + Rnn
+            t0 = time.time()
+            # Online SCM estimation
+            betas = list(set(c.beta.values()))
+            Rss = [{
+                beta: c.randmat((c.M, c.M))
+                if l == 0 else None for beta in betas
+            } for l in range(c.nFrames)]
+            Rnn = [{
+                beta: c.randmat((c.M, c.M))
+                if l == 0 else None for beta in betas
+            } for l in range(c.nFrames)]
+            nSamples = int(c.frameLength * c.fs)
+            for l in tqdm(range(1, c.nFrames), desc=f"Online SCM estimation"):
+                idxBeg = l * nSamples
+                idxEnd = (l + 1) * nSamples
+                ssH = s[:, idxBeg:idxEnd] @ s[:, idxBeg:idxEnd].conj().T #/ nSamples ** 2
+                nnH = n[:, idxBeg:idxEnd] @ n[:, idxBeg:idxEnd].conj().T #/ nSamples ** 2
+                # Update the SCMs using the online estimation formula
+                for beta in betas:
+                    # Update the SCMs using the online estimation formula
+                    Rss[l][beta] = beta * Rss[l - 1][beta] + (1 - beta) * ssH
+                    Rnn[l][beta] = beta * Rnn[l - 1][beta] + (1 - beta) * nnH
+            Ryy = [
+                {beta: Rss[l][beta] + Rnn[l][beta] for beta in betas}
+                for l in range(c.nFrames)
+            ]
+            print(f"Online SCM estimation done in {time.time() - t0:.2f} s.")
+        else:
+            raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
 
         return Ryy, Rss, Rnn, s, n
     
@@ -554,6 +592,10 @@ class AcousticScenario:
             # Generate white noise signals
             return c.randmat((n, c.N), makeComplex=False)
         elif c.desSigType == 'speech':
+            if 'VCTK' in c.speechDatabasePath:
+                d = SPEECH_DATABASE_NAME_DELIMITER['VCTK']
+            else:
+                raise ValueError("Unknown speech database. Please specify the delimiter.")
             # Recursively search for all .wav files in the database path
             path = Path(c.speechDatabasePath)
             files = list(path.rglob("*.wav")) + list(path.rglob("*.flac"))
@@ -565,9 +607,9 @@ class AcousticScenario:
             for ii in range(n):
                 # Randomly select one file from the list
                 fr = files[np.random.randint(0, len(files), 1)[0]].name
-                while fr in alreadyUsed:
+                while fr[:d] in alreadyUsed:
                     fr = files[np.random.randint(0, len(files), 1)[0]].name
-                alreadyUsed.append(fr)
+                alreadyUsed.append(fr[:d])
                 if '-' in fr:
                     prefix = fr.split("-")[0]
                 elif '_' in fr:
@@ -582,7 +624,7 @@ class AcousticScenario:
                         print(f"No more files found with the same prefix as {fr}. Changing prefix at {len(speech)} samples (= {len(speech)/c.fs:.2f} s)...")
                         # Randomly select one file from the list
                         fr = files[np.random.randint(0, len(files), 1)[0]].name
-                        while fr in alreadyUsed:
+                        while fr[:d] in alreadyUsed:
                             fr = files[np.random.randint(0, len(files), 1)[0]].name
                         if '-' in fr:
                             prefix = fr.split("-")[0]
@@ -593,9 +635,9 @@ class AcousticScenario:
                     else:
                         # Randomly select one file from the list
                         fr = filesSamePrefix[np.random.randint(0, len(filesSamePrefix), 1)[0]].name
-                        while fr in alreadyUsed:
+                        while fr[:d] in alreadyUsed:
                             fr = filesSamePrefix[np.random.randint(0, len(filesSamePrefix), 1)[0]].name
-                    alreadyUsed.append(fr)
+                    alreadyUsed.append(fr[:d])
                     # Concat the file to the speech signal
                     newSig = load_sound_file(filesSamePrefix[idx], desFs=c.fs)
                     speech = np.concatenate((speech, newSig))
@@ -608,7 +650,10 @@ class AcousticScenario:
         c = self.cfg
         if c.noiseSigType == 'random':
             # Generate white noise signals
-            return c.randmat((n, c.N), makeComplex=False)
+            noise = c.randmat((n, c.N), makeComplex=False)
+            noise /= np.amax(np.abs(noise))  # Normalize
+            noise -= np.mean(noise)  # Remove DC offset
+            return noise
         elif c.noiseSigType in ['ssn', 'babble']:
             out = np.zeros((n, c.N), dtype='float32')
 
@@ -670,18 +715,48 @@ class AcousticScenario:
             self.nodes[k].td['s'] = np.sum(self.nodes[k].td['sIndiv'], axis=0)
             self.nodes[k].td['n'] = np.sum(self.nodes[k].td['nIndiv'], axis=0)
 
-    def define_static_scenario(self, room: pra.ShoeBox) -> StaticScenarioParameters:
-        c = self.cfg  # Configuration object
+    def define_layout(self):
+        """Define the layout of the acoustic scenario."""
+        c = self.cfg
         rd = [c.roomLength, c.roomWidth, c.roomHeight]
+        zPlane = 1.3 if c.roomHeight > 1.3 else c.roomHeight / 2.0
         # Generate node positions
-        nodesPos = np.random.rand(c.K, 3) *\
-            (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
+        nodesPos = np.zeros((c.K, 3))
+        for k in range(c.K):
+            tmp = np.random.rand(3) *\
+                (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
+            if c.onPlane:
+                tmp[2] = zPlane
+            while np.any(
+                np.linalg.norm(tmp - np.array(nodesPos[:k, :]), axis=1) < c.nodeRadius * 2.5
+            ):
+                # If the node is too close to another node, generate a new position
+                tmp = np.random.rand(3) *\
+                    (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
+                if c.onPlane:
+                    tmp[2] = zPlane
+            # Store the position of the node
+            nodesPos[k, :] = tmp
         
         # Generate sensor positions around node position
         sensorsPos = np.zeros((c.K, c.Mk, 3))
         for k in range(c.K):
-            sensorsPos[k, :, :] = nodesPos[k, :] +\
-                np.random.randn(c.Mk, 3) * (c.nodeRadius / 2)
+            sensors = np.vstack(
+                [nodesPos[k, :]] * c.Mk
+            )  # Start with the node position as the first sensor
+            for m in range(c.Mk):
+                # Generate a random position around the node position
+                tmp = nodesPos[k, :] + np.random.randn(3) * (c.nodeRadius / 2)
+                if c.onPlane:
+                    tmp[2] = zPlane
+                while np.any(np.linalg.norm(tmp - np.array(sensors), axis=1) < c.nodeRadius / c.Mk):
+                    # If the sensor is too close to another sensor, generate a new position
+                    tmp = nodesPos[k, :] + np.random.randn(3) * (c.nodeRadius / 2)
+                    if c.onPlane:
+                        tmp[2] = zPlane
+                # Store the position of the sensor
+                sensors[m, :] = tmp
+            sensorsPos[k, :, :] = np.array(sensors)
         # Flatten the sensor positions
         sensorsPos = sensorsPos.reshape(c.K * c.Mk, 3)
         
@@ -729,6 +804,15 @@ class AcousticScenario:
                 counter += 1
             # Store the position of the source
             noiseSourcesPos[ii, :] = attempt
+
+        return nodesPos, sensorsPos, speechSourcesPos, noiseSourcesPos
+
+    def define_static_scenario(self, room: pra.ShoeBox) -> StaticScenarioParameters:
+        c = self.cfg  # Configuration object
+
+        # Define the layout of the acoustic scenario
+        nodesPos, sensorsPos, speechSourcesPos, noiseSourcesPos =\
+            self.define_layout()
         
         # Create observability matrix based on the node and source positions
         obsMat = self.get_observability_matrix(
