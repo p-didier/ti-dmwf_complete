@@ -3,6 +3,7 @@
 #
 # (c) Paul Didier, SOUNDS ETN, KU Leuven ESAT STADIUS
 
+import copy
 import pickle
 from .base import *
 import numpy as np
@@ -58,12 +59,12 @@ class Run:
                 self.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
                 for _ in range(c.K)
             ],
-            'WkkPrev': [
+            'WkkPrev_rS': [
                 self.init_full((c.nPosFreqs, c.Mk, c.Qd))
                 for _ in range(c.K)
             ],
             'Wk': [
-                self.init_full((c.nPosFreqs, algDims[alg], c.D), random=True)
+                self.init_full((c.nPosFreqs, algDims[alg], algDims[alg]), random=True)
                 for _ in range(c.K)
             ],
             'u': 0,
@@ -241,8 +242,8 @@ class Run:
             elif 'danse' in alg:
                 # Extract the iterative variables
                 Pk = ivIn[alg]['Pk']
-                WkkPrev = ivIn[alg]['WkkPrev']
-                Wk_Prev = ivIn[alg]['Wk']
+                WkkPrev_rS = ivIn[alg]['WkkPrev_rS']
+                Wk = ivIn[alg]['Wk']
                 u = ivIn[alg]['u']
                 tRyyPrev = ivIn[alg]['tRyy']
                 tRnnPrev = ivIn[alg]['tRnn']
@@ -252,8 +253,11 @@ class Run:
                     frame_y = ivIn['frame_y']
                     onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
                 gamma = ivIn[alg]['gamma']  # normalization factor for TI-DANSE
+                # For TI-DANSE, take normalization factor into account
+                Nk = np.array([np.diag(
+                    [1] * c.Mk + [gamma[kappa]] * c.Qd
+                ) for kappa in range(c.nPosFreqs)])
 
-                # Wk = [[] for _ in range(c.K)]
                 W_netWide[alg] = [[] for _ in range(c.K)]
                 for i in range(c.maxDANSEiter):
                     if not silent:
@@ -277,11 +281,14 @@ class Run:
                                 # Time-domain-like processing
                                 zy[k] = frame_y[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
                                 zn[k] = frame_n[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
-                        # Apply normalization factor for TI-DANSE
-                        zy[k] *= np.conj(gamma)
-                        zn[k] *= np.conj(gamma)
+                            
+                            if alg.startswith("tidanse"):
+                                # Apply normalization factor for TI-DANSE
+                                zy[k] *= np.conj(gamma)
+                                zn[k] *= np.conj(gamma)
 
                     for k in range(c.K):
+                        # Compute C-matrix
                         if alg.startswith("tidanse"):
                             Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd))
                             Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
@@ -325,6 +332,11 @@ class Run:
                             else:
                                 yyH = ty.T @ ty.conj()
                                 nnH = tn.T @ tn.conj()
+                            
+                            if alg.startswith("tidanse"):
+                                tRyyPrev[k] = Nk.conj() @ tRyyPrev[k] @ Nk
+                                tRnnPrev[k] = Nk.conj() @ tRnnPrev[k] @ Nk
+
                             tRyy = c.beta[alg] * tRyyPrev[k] + (1 - c.beta[alg]) * yyH
                             tRnn = c.beta[alg] * tRnnPrev[k] + (1 - c.beta[alg]) * nnH
                             tRyyPrev[k] = tRyy
@@ -333,49 +345,54 @@ class Run:
                             tRyy = herm(Ck) @ Ryy @ Ck
                             tRnn = herm(Ck) @ Rnn @ Ck
                         
-                        # Update the filters and fusion matrices
+                        # Update the filters
                         if (k == u or alg.startswith("rsdanse")) and onlineModeCriterion:
-                            
                             # Compute the filter
-                            tW = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)
+                            Wk[k] = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)
+
                             if alg.startswith("rsdanse"):
                                 # For rS-DANSE, we apply a relaxation
                                 alpha = 1 / np.log10(i + 10)
-                                tW[..., :c.Mk, :c.Qd] = (1 - alpha) * WkkPrev[k] +\
-                                    alpha * tW[..., :c.Mk, :c.Qd]
-                                WkkPrev[k] = tW[..., :c.Mk, :c.Qd]
-
-                            if alg.startswith("tidanse"):
-                                try:
-                                    Pk[k] = tW[..., :c.Mk, :c.Qd] @\
-                                        np.linalg.inv(tW[..., c.Mk:, :c.Qd])
-                                except np.linalg.LinAlgError:
-                                    if not silent:
-                                        print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
-                                    Pk[k] = tW[..., :c.Mk, :c.Qd] @\
-                                        np.linalg.pinv(tW[..., c.Mk:, :c.Qd])
-                            else:
-                                Pk[k] = tW[..., :c.Mk, :c.Qd]
-
-                            # Wk[k].append(tW[..., :c.D])
-                            W_netWide[alg][k].append(Ck @ tW[..., :c.D])
-                            Wk_Prev[k] = tW[..., :c.D]  # Store the last filter for the next iteration
+                                Wk[k][..., :c.Mk, :c.Qd] = (1 - alpha) * WkkPrev_rS[k] +\
+                                    alpha * Wk[k][..., :c.Mk, :c.Qd]
+                                WkkPrev_rS[k] = Wk[k][..., :c.Mk, :c.Qd]
                         else:
-                            # Otherwise, we just store the previous filter
-                            # if alg.startswith("tidanse"):
-                            #     Nk = np.array([np.diag(
-                            #         [1] * c.Mk + [gamma[kappa]] * c.Qd
-                            #     ) for kappa in range(c.nPosFreqs)])
-                            #     W_netWide[alg][k].append(
-                            #         np.einsum(
-                            #             'ijk->kij',
-                            #             Nk,
-                            #             W_NW_Prev[k]
-                            #         )
-                            #     )
-                            # else:
-                            W_netWide[alg][k].append(Ck @ Wk_Prev[k])
-                    
+                            # No update for this node
+                            if alg.startswith("tidanse") and c.scmEstimation == 'online':
+                                # For TI-DANSE, apply the normalization factor
+                                Wk[k] = np.linalg.inv(Nk) @ Wk[k]  # loaded from previous iteration/frame
+                        
+                        # Compute the fusion matrix Pk
+                        if alg.startswith("tidanse"):
+                            try:
+                                Pk[k] = Wk[k][..., :c.Mk, :c.Qd] @\
+                                    np.linalg.inv(Wk[k][..., c.Mk:, :c.Qd])
+                            except np.linalg.LinAlgError:
+                                if not silent:
+                                    print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
+                                Pk[k] = Wk[k][..., :c.Mk, :c.Qd] @\
+                                    np.linalg.pinv(Wk[k][..., c.Mk:, :c.Qd])
+                        else:
+                            Pk[k] = Wk[k][..., :c.Mk, :c.Qd]
+
+                        if k == c.refNodeForTInorm and alg.startswith("tidanse"):
+                            # print('\nGamma: ', gamma[c.refNodeForTInorm])
+                            # print('Norm P_r: ', np.linalg.norm(Pk[c.refNodeForTInorm][0, ...], ord='fro'))
+                            pass
+
+                        # Store the network-wide filter
+                        W_netWide[alg][k].append(Ck @ Wk[k][..., :c.D])
+                        
+                    # Update the normalization factor for TI-DANSE
+                    if alg.startswith("tidanse"):
+                        # Update anyway, always, at the reference node
+                        r = c.refNodeForTInorm
+                        tWr = self.filtup(tRyyPrev[r], tRnnPrev[r], gevd=c.gevd, gevdRank=c.Qd)
+                        gamma = np.linalg.norm(
+                            tWr[:, c.Mk:, :c.Qd],
+                            axis=(1, 2), ord='fro'
+                        )
+                
                     # Update the updating node index for next iteration
                     if onlineModeCriterion:
                         u = (u + 1) % c.K
@@ -383,11 +400,13 @@ class Run:
                 # Store the iterative variables for the next frame
                 ivOut[alg] = {
                     'Pk': Pk,
-                    'WkkPrev': WkkPrev,
-                    'W_NW': Wk_Prev,  # Last filter for each node
+                    'WkkPrev_rS': WkkPrev_rS,
+                    'Wk': Wk,  # Last filter for each node
+                    # 'W_NW': [w[-1] for w in W_netWide[alg]],  # Last filter for each node
                     'u': u,
                     'tRyy': tRyyPrev,
                     'tRnn': tRnnPrev,
+                    'gamma': gamma,  # normalization factor for TI-DANSE
                 }
             else:
                 raise ValueError(f"Unknown algorithm: {alg}")
