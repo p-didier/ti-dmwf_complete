@@ -109,4 +109,5 @@ beta: {
 singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
-suffix: 'sanitycheck'  # output file suffix
+suffix: 'test'  # output file suffix
+# suffix: 'normalization_TI'  # output file suffix

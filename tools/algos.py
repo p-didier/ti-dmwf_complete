@@ -62,12 +62,12 @@ class Run:
                 self.init_full((c.nPosFreqs, c.Mk, c.Qd))
                 for _ in range(c.K)
             ],
-            'W_NW': [
-                self.init_full((c.nPosFreqs, c.M, c.D), random=True)
+            'Wk': [
+                self.init_full((c.nPosFreqs, algDims[alg], c.D), random=True)
                 for _ in range(c.K)
             ],
             'u': 0,
-            'gamma': 1,  # normalization factor for TI-DANSE
+            'gamma': np.ones(c.nPosFreqs),  # normalization factor for TI-DANSE
         }) for alg in c.algos if 'danse' in alg])  # iteration variable for DANSE algorithms
 
         if c.scmEstimation == 'online':
@@ -242,7 +242,7 @@ class Run:
                 # Extract the iterative variables
                 Pk = ivIn[alg]['Pk']
                 WkkPrev = ivIn[alg]['WkkPrev']
-                W_NW_Prev = ivIn[alg]['W_NW']
+                Wk_Prev = ivIn[alg]['Wk']
                 u = ivIn[alg]['u']
                 tRyyPrev = ivIn[alg]['tRyy']
                 tRnnPrev = ivIn[alg]['tRnn']
@@ -253,6 +253,7 @@ class Run:
                     onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
                 gamma = ivIn[alg]['gamma']  # normalization factor for TI-DANSE
 
+                # Wk = [[] for _ in range(c.K)]
                 W_netWide[alg] = [[] for _ in range(c.K)]
                 for i in range(c.maxDANSEiter):
                     if not silent:
@@ -277,8 +278,8 @@ class Run:
                                 zy[k] = frame_y[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
                                 zn[k] = frame_n[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
                         # Apply normalization factor for TI-DANSE
-                        # zy[k] *= np.conj(gamma)
-                        # zn[k] *= np.conj(gamma)
+                        zy[k] *= np.conj(gamma)
+                        zn[k] *= np.conj(gamma)
 
                     for k in range(c.K):
                         if alg.startswith("tidanse"):
@@ -356,11 +357,24 @@ class Run:
                             else:
                                 Pk[k] = tW[..., :c.Mk, :c.Qd]
 
+                            # Wk[k].append(tW[..., :c.D])
                             W_netWide[alg][k].append(Ck @ tW[..., :c.D])
-                            W_NW_Prev[k] = W_netWide[alg][k][-1]  # Store the last filter for the next iteration
+                            Wk_Prev[k] = tW[..., :c.D]  # Store the last filter for the next iteration
                         else:
                             # Otherwise, we just store the previous filter
-                            W_netWide[alg][k].append(W_NW_Prev[k])
+                            # if alg.startswith("tidanse"):
+                            #     Nk = np.array([np.diag(
+                            #         [1] * c.Mk + [gamma[kappa]] * c.Qd
+                            #     ) for kappa in range(c.nPosFreqs)])
+                            #     W_netWide[alg][k].append(
+                            #         np.einsum(
+                            #             'ijk->kij',
+                            #             Nk,
+                            #             W_NW_Prev[k]
+                            #         )
+                            #     )
+                            # else:
+                            W_netWide[alg][k].append(Ck @ Wk_Prev[k])
                     
                     # Update the updating node index for next iteration
                     if onlineModeCriterion:
@@ -370,7 +384,7 @@ class Run:
                 ivOut[alg] = {
                     'Pk': Pk,
                     'WkkPrev': WkkPrev,
-                    'W_NW': [w[-1] for w in W_netWide[alg]],  # Last filter for each node
+                    'W_NW': Wk_Prev,  # Last filter for each node
                     'u': u,
                     'tRyy': tRyyPrev,
                     'tRnn': tRnnPrev,
