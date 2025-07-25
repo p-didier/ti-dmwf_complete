@@ -68,7 +68,7 @@ class Run:
                 for _ in range(c.K)
             ],
             'u': 0,
-            'gamma': np.ones(c.nPosFreqs),  # normalization factor for TI-DANSE
+            'gamma': np.array([np.eye(c.Qd) for _ in range(c.nPosFreqs)]),  # normalization factor for TI-DANSE
         }) for alg in c.algos if 'danse' in alg])  # iteration variable for DANSE algorithms
 
         if c.scmEstimation == 'online':
@@ -254,9 +254,10 @@ class Run:
                     onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
                 gamma = ivIn[alg]['gamma']  # normalization factor for TI-DANSE
                 # For TI-DANSE, take normalization factor into account
-                Nk = np.array([np.diag(
-                    [1] * c.Mk + [gamma[kappa]] * c.Qd
-                ) for kappa in range(c.nPosFreqs)])
+                Nk = np.array([
+                    sla.block_diag(*(np.eye(c.Mk), gamma[kappa]))
+                    for kappa in range(c.nPosFreqs)
+                ])
 
                 W_netWide[alg] = [[] for _ in range(c.K)]
                 for i in range(c.maxDANSEiter):
@@ -284,8 +285,8 @@ class Run:
                             
                             if alg.startswith("tidanse"):
                                 # Apply normalization factor for TI-DANSE
-                                zy[k] *= np.conj(gamma)
-                                zn[k] *= np.conj(gamma)
+                                zy[k] = np.einsum('ijk,ik->ij', herm(gamma), zy[k])
+                                zn[k] = np.einsum('ijk,ik->ij', herm(gamma), zn[k])
 
                     for k in range(c.K):
                         # Compute C-matrix
@@ -375,10 +376,10 @@ class Run:
                         else:
                             Pk[k] = Wk[k][..., :c.Mk, :c.Qd]
 
-                        if k == c.refNodeForTInorm and alg.startswith("tidanse"):
+                        # if k == c.refNodeForTInorm and alg.startswith("tidanse"):
                             # print('\nGamma: ', gamma[c.refNodeForTInorm])
                             # print('Norm P_r: ', np.linalg.norm(Pk[c.refNodeForTInorm][0, ...], ord='fro'))
-                            pass
+                            # pass
 
                         # Store the network-wide filter
                         W_netWide[alg][k].append(Ck @ Wk[k][..., :c.D])
@@ -388,10 +389,11 @@ class Run:
                         # Update anyway, always, at the reference node
                         r = c.refNodeForTInorm
                         tWr = self.filtup(tRyyPrev[r], tRnnPrev[r], gevd=c.gevd, gevdRank=c.Qd)
-                        gamma = np.linalg.norm(
-                            tWr[:, c.Mk:, :c.Qd],
-                            axis=(1, 2), ord='fro'
-                        )
+                        # gamma = np.linalg.norm(
+                        #     tWr[:, c.Mk:, :c.Qd],
+                        #     axis=(1, 2), ord='fro'
+                        # )
+                        gamma = tWr[:, c.Mk:, :c.Qd]
                 
                     # Update the updating node index for next iteration
                     if onlineModeCriterion:
