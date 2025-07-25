@@ -15,8 +15,8 @@ possDiffuse: False  # if True and observability is 'foss', the
 domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
 # domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
 ##########################
-# TDsteeringMats: random  # type of steering matrices in time domain
-TDsteeringMats: anechoic  # type of steering matrices in time domain
+TDsteeringMats: random  # type of steering matrices in time domain
+# TDsteeringMats: anechoic  # type of steering matrices in time domain
 roomLength: 7.0  # length of the room in meters
 roomWidth: 7.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
@@ -89,8 +89,8 @@ algos:  # list of algorithms to run
 - danse
 - rsdanse
 - tidanse
-# maxDANSEiter: 50  # maximum number of iterations for DANSE
-maxDANSEiter: 10  # maximum number of iterations for DANSE
+maxDANSEiter: 100  # maximum number of iterations for DANSE
+# maxDANSEiter: 10  # maximum number of iterations for DANSE
 mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
 # gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
@@ -99,7 +99,7 @@ gevd: False  # if True, use GEV decomposition instead of regular MWF in estimati
 DANSEiterEveryXframes: 1  # DANSE iteration every X frames
 
 # Online mode parameters
-frameLength: 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
+# frameLength: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
     default: 0.99,
     # tidmwf: 0.999,
