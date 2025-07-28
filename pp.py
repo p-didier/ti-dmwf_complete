@@ -18,11 +18,10 @@ import matplotlib.pyplot as plt
 from mypystoi import stoi_any_fs
 from tools.base import Parameters
 from dataclasses import dataclass, field
-from tools.asc import butter_highpass_filter
 
-BASERESULTSDIR = f'{Path(__file__).parent}/out'  # Base directory for results
+baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-# resDir = f'{baseResultsDir}/res_20250716_1541_nb_wola_T30s'  # specific directory
+# resDir = f'{baseResultsDir}/res_20250728_0955_noTI_speech_babble_noise_WOLAnarrowband'  # specific directory
 resDir = 'latest'  # <-- pick the latest results directory
 
 EXPORT = False  # If True, export the figures to files
@@ -31,7 +30,7 @@ FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
 WHICH_NODES = 'all'  # 'all' or a list of node indices to process
-WHICH_NODES = [0]  # 'all' or a list of node indices to process
+# WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
 BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging)
 
@@ -40,7 +39,7 @@ def main(resDir=resDir):
     # Load the results from the directory
     if resDir == 'latest':
         # Find the latest results directory
-        listOfDirs = sorted(Path(BASERESULTSDIR).glob('res_*'), key=lambda x: x.stat().st_birthtime, reverse=True)
+        listOfDirs = sorted(Path(baseResultsDir).glob('res_*'), key=lambda x: x.stat().st_birthtime, reverse=True)
         if not listOfDirs:
             print("No results directories found.")
             sys.exit(1)
@@ -250,7 +249,7 @@ class PostProcessor:
             ax = axes[ii] if len(metrics.keys()) > 1 else axes
             if m == 'stoi':
                 ax.set_ylim(0, 1)
-            if any('danse' in alg for alg in c.algos):
+            if any('danse' in alg for alg in c.algos) or c.scmEstimation == 'online':
                 # Line plot when including iterative algorithms
                 if m in ['msew', 'msed']:
                     ax.set_yscale('log')
@@ -281,7 +280,17 @@ class PostProcessor:
                             color=colors[alg],
                             marker=markers[jj % len(markers)],
                         )
-                ax.set_xlim(0, c.nFrames - 1 if c.scmEstimation == 'online' else c.maxDANSEiter - 1)
+                maxX = c.nFrames if c.scmEstimation == 'online' else c.maxDANSEiter
+                # Format x-axis
+                ax.set_xlim(0, maxX)
+                if c.scmEstimation == 'online':
+                    ticksInterval = maxX / 5
+                    xTicks = np.arange(0, maxX, ticksInterval)
+                    ax.set_xticks(xTicks)
+                    ax.set_xticklabels(np.round(xTicks * c.frameLength, 2))
+                    ax.set_xlabel('Time [s]')
+                else:
+                    ax.set_xlabel('Iteration')
             else:
                 # Bar plot when in batch-mode and not including iterative algorithms
                 for jj, alg in enumerate(metrics[m].keys()):

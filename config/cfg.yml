@@ -21,8 +21,8 @@ roomLength: 7.0  # length of the room in meters
 roomWidth: 7.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.1  # radius of the node in meters
-t60: 0.          # reverberation time in seconds
-# t60: 0.2          # reverberation time in seconds
+# t60: 0.          # reverberation time in seconds
+t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
@@ -69,11 +69,11 @@ T: 30.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
-noiseSigType: random  # random, babble, or ssn
-# noiseSigType: babble  # random, babble, or ssn
+# noiseSigType: random  # random, babble, or ssn
+noiseSigType: babble  # random, babble, or ssn
 # noiseSigType: ssn  # random, babble, or ssn
-# desSigType: speech  # speech or noise
-desSigType: random  # speech or noise
+desSigType: speech  # speech or noise
+# desSigType: random  # speech or noise
 ssnDatabasePath: "C:/Users/pdidier/Dropbox/PC/Documents/sounds-phd/02_data/00_raw_signals/02_noise/ssn"  # path to the SSN database
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
@@ -85,11 +85,11 @@ algos:  # list of algorithms to run
 - centralized
 - local
 - dmwf
-- tidmwf
+# - tidmwf
 - danse
 - rsdanse
-- tidanse
-maxDANSEiter: 100  # maximum number of iterations for DANSE
+# - tidanse
+maxDANSEiter: 30  # maximum number of iterations for DANSE
 # maxDANSEiter: 10  # maximum number of iterations for DANSE
 mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
@@ -101,14 +101,15 @@ DANSEiterEveryXframes: 1  # DANSE iteration every X frames
 # Online mode parameters
 # frameLength: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
-    default: 0.99,
+    default: 0.975,
+    # default: 0.99,
     # tidmwf: 0.999,
 }  # forgetting factor for online processing
 
 # Debug
-# singleLine: null  # if not None, only process this frequency line in WOLA domain
-singleLine: 20  # if not None, only process this frequency line in WOLA domain
+singleLine: null  # if not None, only process this frequency line in WOLA domain
+# singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
 # suffix: 'test'  # output file suffix
-suffix: 'normalization_TI'  # output file suffix
+suffix: 'saa_beta_0p975_T60_200ms'  # output file suffix
