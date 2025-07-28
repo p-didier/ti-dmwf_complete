@@ -30,6 +30,9 @@ FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 # FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
+WHICH_NODES = 'all'  # 'all' or a list of node indices to process
+WHICH_NODES = [0]  # 'all' or a list of node indices to process
+
 BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging)
 
 def main(resDir=resDir):
@@ -256,7 +259,12 @@ class PostProcessor:
                         continue
                     if len(metrics[m][alg][0]) > 1:
                         if metrics[m][alg] is not None:
-                            data = np.mean(metrics[m][alg], axis=0)
+                            if WHICH_NODES == 'all':
+                                data = np.mean(metrics[m][alg], axis=0)
+                            else:
+                                data = np.mean([
+                                    m for i, m in enumerate(metrics[m][alg]) if i in WHICH_NODES
+                                ], axis=0)
                             ax.plot(data, label=alg, color=colors[alg],
                                     marker=markers[jj % len(markers)],
                                     markerfacecolor='none', markevery=0.1)
@@ -266,7 +274,9 @@ class PostProcessor:
                         # Non-iterative algorithms in batch-mode: horizontal lines
                         plot_h(
                             ax,
-                            np.mean(metrics[m][alg]),
+                            np.mean(metrics[m][alg]) if WHICH_NODES == 'all' else np.mean([
+                                m for i, m in enumerate(metrics[m][alg]) if i in WHICH_NODES
+                            ], axis=0),
                             label=alg,
                             color=colors[alg],
                             marker=markers[jj % len(markers)],
@@ -287,7 +297,7 @@ class PostProcessor:
             if m == 'msed':
                 ax.legend(loc='upper center')
             ax.set_title(m)
-        fig.suptitle(f'{c.observability}, {c.scmEstimation}')
+        fig.suptitle(f'{c.observability}, {c.scmEstimation}, node(s): {WHICH_NODES}')
         fig.tight_layout()
         plt.show(block=False)
 
