@@ -21,8 +21,8 @@ roomLength: 7.0  # length of the room in meters
 roomWidth: 7.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.1  # radius of the node in meters
-# t60: 0.          # reverberation time in seconds
-t60: 0.2          # reverberation time in seconds
+t60: 0.          # reverberation time in seconds
+# t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
@@ -65,8 +65,8 @@ movingEvery: 10.0  # time in seconds after which sources move in `moving` scenar
 # fs: 41000  # sampling frequency
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
-# T: 0.06  # duration of the signals in seconds
-# T: 4.0  # duration of the signals in seconds
+# T: 0.05  # duration of the signals in seconds
+# T: 1.0  # duration of the signals in seconds
 T: 30.0  # duration of the signals in seconds
 # T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
@@ -90,25 +90,25 @@ algos:  # list of algorithms to run
 - unprocessed
 - centralized
 - local
-# - dmwf
-# - danse
-# - rsdanse
+- dmwf
+- danse
+- rsdanse
 # - tidmwf
 # - tidanse
 maxDANSEiter: 30  # maximum number of iterations for DANSE
 # maxDANSEiter: 10  # maximum number of iterations for DANSE
 mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
-gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
-# gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
-DANSEiterEveryXframes: 20  # DANSE iteration every X frames
-# DANSEiterEveryXframes: 1  # DANSE iteration every X frames
+# gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
+gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
+# DANSEiterEveryXframes: 20  # DANSE iteration every X frames
+DANSEiterEveryXframes: 1  # DANSE iteration every X frames
 dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
 # dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 
 # VAD parameters
-useVAD: True  # if True, update the SCMs based on a VAD decision
-# useVAD: False  # if True, update the SCMs based on a VAD decision
+# useVAD: True  # if True, update the SCMs based on a VAD decision
+useVAD: False  # if True, update the SCMs based on a VAD decision
 noiseONOFFperiod: 1  # period of noise ON/OFF switching in seconds (only used if `useVAD` is True and desired signals are `random`)
 vadThreshold: 0.1  # threshold for VAD decision, relative to the energy of the latent desired signal
 vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
@@ -118,14 +118,16 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 beta: {
     # default: 0.975,
     # default: 0.985,
-    default: 0.995,
+    default: 0.99,
     # dmwf: 0.95,
 }  # forgetting factor for online processing
 
 # Debug
 # singleLine: null  # if not None, only process this frequency line in WOLA domain
 singleLine: 20  # if not None, only process this frequency line in WOLA domain
+unconstrainedRandomPositions: True  # if True, allow random positions for sources
+# unconstrainedRandomPositions: False  # if True, allow random positions for sources
 
 seed: 43  # random number generator seed
 # suffix: 'test'  # output file suffix
-suffix: 'test_usingVAD_onRandomSigs'  # output file suffix
+suffix: 'saa_no_padding'  # output file suffix

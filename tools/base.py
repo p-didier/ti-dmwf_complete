@@ -8,6 +8,8 @@ import pickle
 import numpy as np
 import scipy.signal as sig
 from dataclasses import dataclass, field
+from scipy.signal import get_window
+import unittest
 
 @dataclass
 class Parameters:
@@ -103,6 +105,7 @@ class Parameters:
 
     # Debug
     singleLine: int = None  # if not None, only process this frequency line in WOLA domain
+    unconstrainedRandomPositions: bool = False  # if True, allow random positions for sources
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
@@ -164,14 +167,21 @@ class Parameters:
             pickle.dump(self.__dict__, f)
     
     def get_stft(self, x):
-        tmp = sig.stft(
-            x,
-            fs=self.fs,
-            nperseg=self.nfft,
-            noverlap=self.nfft - self.nhop,
-            window=self.win,
-            return_onesided=True,
-        )[-1]
+        """Compute the STFT of the input signal."""
+        # Use MultichannelWOLA to compute STFT
+        wola = MultichannelWOLA(self.win, self.nfft, self.nhop, self.fs)
+        test = wola.forward(x)
+        nPf = int(self.nfft / 2) + 1
+        tmp = test[:, :nPf, :]  # keep only positive frequencies
+
+        # tmp = sig.stft(
+        #     x,
+        #     fs=self.fs,
+        #     nperseg=self.nfft,
+        #     noverlap=self.nfft - self.nhop,
+        #     window=self.win,
+        #     return_onesided=True,
+        # )[-1]
         if self.singleLine is not None:
             return tmp[..., [self.singleLine], :]
         else:
@@ -205,3 +215,79 @@ def herm(x: np.ndarray) -> np.ndarray:
         return x.conj().T
     elif x.ndim == 3:
         return x.conj().transpose(0, 2, 1)
+
+
+@dataclass
+class MultichannelWOLA:
+    win: np.ndarray | str
+    nfft: int
+    nhop: int
+    fs: float
+    normalize: bool = True
+    _win: np.ndarray = field(init=False, repr=False)
+
+    def __post_init__(self):
+        if isinstance(self.win, str):
+            self._win = get_window(self.win, self.nfft, fftbins=True)
+        else:
+            if len(self.win) != self.nfft:
+                raise ValueError("Window length must equal nfft.")
+            self._win = np.asarray(self.win)
+
+        if self.normalize:
+            self._win = self._win / np.sqrt(np.sum(self._win**2))
+
+        self._check_cola()
+
+    def _check_cola(self, tol=1e-3):
+        """
+        Check Constant OverLap-Add (COLA) condition.
+        """
+        acc = np.zeros(self.nfft + self.nhop * 2)
+        for i in range(0, len(acc) - self.nfft + 1, self.nhop):
+            acc[i:i + self.nfft] += self._win**2
+        acc = acc[self.nfft // 2: -self.nfft // 2]  # trim edges
+        if not np.allclose(acc, acc[0], rtol=tol):
+            print("Window may not satisfy COLA condition — inverse may be inaccurate.")
+        else:
+            print("Window satisfies COLA condition.")
+
+    def forward(self, x: np.ndarray) -> np.ndarray:
+        C, N = x.shape
+        nframes = 1 + (N - self.nfft) // self.nhop
+        X = np.zeros((C, self.nfft, nframes), dtype=np.complex64)
+
+        for c in range(C):
+            for t in range(nframes):
+                start = t * self.nhop
+                frame = x[c, start:start + self.nfft]
+                if len(frame) < self.nfft:
+                    frame = np.pad(frame, (0, self.nfft - len(frame)))
+                windowed = frame * self._win
+                X[c, :, t] = np.fft.fft(windowed, n=self.nfft) / self.nfft
+
+        return X
+
+    def inverse(self, X: np.ndarray) -> np.ndarray:
+        C, F, T = X.shape
+        N = T * self.nhop + (self.nfft - self.nhop)
+        x = np.zeros((C, N), dtype=np.float32)
+        wsum = np.zeros(N)
+
+        for c in range(C):
+            for t in range(T):
+                start = t * self.nhop
+                frame = np.fft.ifft(X[c, :, t] * self.nfft, n=self.nfft).real
+                x[c, start:start + self.nfft] += frame * self._win
+                if c == 0:
+                    wsum[start:start + self.nfft] += self._win**2
+
+        wsum[wsum == 0] = 1
+        return x / wsum
+
+    def freqs(self) -> np.ndarray:
+        return np.fft.fftfreq(self.nfft, d=1 / self.fs)
+
+    def times(self, nsamples: int) -> np.ndarray:
+        nframes = 1 + (nsamples - self.nfft) // self.nhop
+        return np.arange(nframes) * self.nhop / self.fs

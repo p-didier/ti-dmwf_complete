@@ -169,6 +169,14 @@ class Run:
             for _ in range(c.K)
         ]) for alg in c.algos])  # Initialize node-specific filters dictionary
         ivOut = dict([(alg, None) for alg in c.algos if 'danse' in alg])
+
+        if Ryy_dMWF_estAll is None:
+            Ryy_dMWF_estAll = RyyAll
+        if Rnn_dMWF_estAll is None:
+            Rnn_dMWF_estAll = RnnAll
+        if Ryy_dMWF_disAll is None:
+            Ryy_dMWF_disAll = RyyAll
+
         for alg in c.algos:
             if not silent:
                 print(f"Running algorithm: {alg}...")
@@ -176,13 +184,15 @@ class Run:
             if c.scmEstimation == 'online':
                 Ryy = RyyAll[c.beta[alg]]
                 Rnn = RnnAll[c.beta[alg]]
-                # The `else Ryy` part is used for the case where Ryy_dMWF_estAll, Rnn_dMWF_estAll, and Ryy_dMWF_disAll are None
-                Ryy_dMWF_est = Ryy_dMWF_estAll[c.beta[alg]] if Ryy_dMWF_estAll is not None else Ryy
-                Rnn_dMWF_est = Rnn_dMWF_estAll[c.beta[alg]] if Rnn_dMWF_estAll is not None else Rnn
-                Ryy_dMWF_dis = Ryy_dMWF_disAll[c.beta[alg]] if Ryy_dMWF_disAll is not None else Ryy
+                Ryy_dMWF_est = Ryy_dMWF_estAll[c.beta[alg]]
+                Rnn_dMWF_est = Rnn_dMWF_estAll[c.beta[alg]]
+                Ryy_dMWF_dis = Ryy_dMWF_disAll[c.beta[alg]]
             else:
                 Ryy = RyyAll
                 Rnn = RnnAll
+                Ryy_dMWF_est = Ryy_dMWF_estAll
+                Rnn_dMWF_est = Rnn_dMWF_estAll
+                Ryy_dMWF_dis = Ryy_dMWF_disAll
 
             if alg == 'unprocessed':
                 for k in range(c.K):
@@ -209,8 +219,8 @@ class Run:
                         if p == q:
                             continue
                         Eqps = self.init_full((c.Mk, scn.oQq[q]), selection_matrix=True)
+                        # Eqps[:scn.oQq[q], :scn.oQq[q]] = np.eye(scn.oQq[q])
                         Eqps[:scn.Qkq[q, p], :scn.Qkq[q, p]] = np.eye(scn.Qkq[q, p])
-                        # Pad with ones
                         Eqps[scn.Qkq[q, p]:, scn.Qkq[q, p]:] = np.ones((c.Mk - scn.Qkq[q, p], scn.oQq[q] - scn.Qkq[q, p]))
                         Ryqrhoq += Ryy_dMWF_dis[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
                     Pk[q] = self.filtup(Ryqyq, Rss=Ryqrhoq)

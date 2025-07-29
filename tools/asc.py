@@ -182,19 +182,22 @@ class AcousticScenario:
 
         def _get_Qdims(om):
             """Compute the number of sources in common between nodes."""
-            if c.observability == 'foss':
+            if c.observability == 'foss': # or 1:  # DEBUG: always use 'foss' for now
                 oQq = np.full(c.K, c.Q)
                 Qkq = np.full((c.K, c.K), c.Q)
             elif c.observability == 'poss':
                 # Number of sources useful for fusion matrix computation for node q
-                oQq = [0 for _ in range(c.K)]
-                for k in range(c.K):
-                    for ii in range(c.Q):
-                        if om[k, ii] != 0 and np.sum(om[:, ii]) > 1:
-                            # If node k does observes source ii, and it is observed
-                            # by at least one other node, then the number of sources
-                            # in common is increased by one
-                            oQq[k] += 1
+                if 0:
+                    oQq = np.sum(om, axis=1).tolist()  # Number of sources observed by each node
+                else:
+                    oQq = [0 for _ in range(c.K)]
+                    for k in range(c.K):
+                        for ii in range(c.Q):
+                            if om[k, ii] != 0 and np.sum(om[:, ii]) > 1:
+                                # If node k does observes source ii, and it is observed
+                                # by at least one other node, then the number of sources
+                                # in common is increased by one
+                                oQq[k] += 1
                 assert np.all(np.array(oQq) <= np.sum(om, axis=1)), \
                     "Number of sources in common exceeds number of sources observed by node."
                 # Compute the number of sources in common between nodes k and q
@@ -207,22 +210,21 @@ class AcousticScenario:
         # Setup the acoustic scenario
         if c.domain == 'wola':
             out = self.setup_wola_domain()
-            for s in self.scenarios:
-                s.oQq, s.Qkq = _get_Qdims(s.obsMat)
         if 'time' in c.domain:
             if c.dynamics != 'static':
                 raise ValueError(
                     "Dynamic scenarios are not supported in the time domain yet."
                 )
             out = self.setup_time_domain()
-            self.oQq, self.Qkq = _get_Qdims(self.obsMat)
             out = tuple(list(out) + [None, None, None])  # Add None for Ryy_dMWF_est, Rnn_dMWF_est, and Ryy_dMWF_dis, not used in time domain
+        
+        for s in self.scenarios:
+            s.oQq, s.Qkq = _get_Qdims(s.obsMat)
 
         return out
     
     def steermat_green_anechoic(self, sensorsPos: np.ndarray, sourcesPos: np.ndarray) -> np.ndarray:
         """Compute the steering matrix for the given sensors and sources positions."""
-        c = self.cfg
         # Compute the steering matrix
         Cmat = np.zeros((sensorsPos.shape[0], sourcesPos.shape[0]), dtype=complex)
         for ii in range(sourcesPos.shape[0]):
@@ -345,6 +347,19 @@ class AcousticScenario:
             print(f"Online SCM estimation done in {time.time() - t0:.2f} s.")
         else:
             raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
+        
+        self.scenarios = [StaticScenarioParameters(
+            nodesPos=np.zeros((c.K, 3)),  # Placeholder for nodes positions
+            sensorsPos=np.zeros((c.M, 3)),  # Placeholder for sensors positions
+            speechSourcesPos=np.zeros((c.Qd, 3)),  # Placeholder for speech sources positions
+            noiseSourcesPos=np.zeros((c.Qn, 3)),  # Placeholder for noise sources positions
+            obsMat=self.obsMat,
+            rirs=[],  # No RIRs in time domain
+            aMat=np.zeros((c.K, c.K)),  # Placeholder for adjacency matrix
+            trees=[],  # No trees in time domain
+            Qkq=self.Qkq,
+            oQq=self.oQq
+        )]
 
         return Ryy, Rnn, s, n
     
@@ -396,12 +411,14 @@ class AcousticScenario:
                 self.setup_wola_domain_static(idxStart, idxEnd)
         
         # Self-noise addition
+        pows = np.mean(np.abs(self.latentDesired) ** 2, axis=1)
         for k in range(c.K):
             # Generate self-noise at correct SNR
             sn = c.randmat((c.Mk, c.N), makeComplex=False)
-            snPower = np.mean(np.abs(sn) ** 2)
-            sPower = np.mean(np.abs(self.nodes[k].td['s']) ** 2)
-            sn *= np.sqrt(c.selfNoiseFactor * sPower / snPower)
+            # snPower = np.mean(np.abs(sn) ** 2)
+            # sPower = np.mean(np.abs(self.nodes[k].td['s']) ** 2)
+            # sn *= np.sqrt(c.selfNoiseFactor * sPower / snPower)
+            sn *= np.mean(pows) * c.selfNoiseFactor
             self.nodes[k].td['sn'] = sn
             self.nodes[k].td['n'] += self.nodes[k].td['sn']
             self.nodes[k].td['y'] = self.nodes[k].td['n'] + self.nodes[k].td['s']
@@ -449,17 +466,20 @@ class AcousticScenario:
             stack[st] = c.get_stft(tmp)
         print(f'{c.T} s of signals = {stack["y"].shape[-1]} STFT frames.')
 
+        Ryy_est, Rnn_est, Ryy_dis = None, None, None  # default -- no alternating dMWF
+
         if c.scmEstimation == 'oracle':
             # Compute FFT of RIRs
             Cmat = np.zeros((c.nPosFreqs, c.M, c.Q), dtype=complex)
+            scn = self.scenarios[0]  # Use the first scenario for oracle estimation
             for ii in range(c.Q):
-                rirs = np.array([self.rirs[m][ii] for m in range(c.M)])
+                rirs = np.array([scn.rirs[m][ii] for m in range(c.M)])
                 tmp = np.fft.rfft(rirs, n=c.nfft, axis=-1)   # RIRs FFT => transfer functions
                 if c.singleLine is not None:
                     # If singleLine is set, only use the specified frequency line
                     tmp = tmp[:, [c.singleLine]]
                 # Set the steering vectors of nodes that do not observe source ii to zero
-                for q in np.where(self.obsMat[:, ii] == 0)[0]:
+                for q in np.where(scn.obsMat[:, ii] == 0)[0]:
                     tmp[c.Mk * q:c.Mk * (q + 1), :] = 0
                 Cmat[..., ii] = tmp.T
             # Compute STFTs of latent signals
@@ -488,7 +508,6 @@ class AcousticScenario:
 
         elif c.scmEstimation == 'online':
             t0 = time.time()
-            Ryy_est, Rnn_est, Ryy_dis = None, None, None  # default -- no alternating dMWF
             # Online SCM estimation
             betas = list(set(c.beta.values()))
             Ryy = [{
@@ -850,6 +869,20 @@ class AcousticScenario:
         c = self.cfg
         rd = [c.roomLength, c.roomWidth, c.roomHeight]
         zPlane = 1.3 if c.roomHeight > 1.3 else c.roomHeight / 2.0
+
+        if c.unconstrainedRandomPositions:
+            nodePos = np.random.rand(c.K, 3) * np.array(rd)
+            sensorsPos = np.random.rand(c.K * c.Mk, 3) * np.array(rd)
+            speechSourcesPos = np.random.rand(c.Qd, 3) * np.array(rd)
+            noiseSourcesPos = np.random.rand(c.Qn, 3) * np.array(rd)
+            if c.onPlane:
+                # If the scenario is on a plane, set the z-coordinate to a fixed value
+                nodePos[:, 2] = zPlane
+                sensorsPos[:, 2] = zPlane
+                speechSourcesPos[:, 2] = zPlane
+                noiseSourcesPos[:, 2] = zPlane
+            return nodePos, sensorsPos, speechSourcesPos, noiseSourcesPos
+        
         # Generate node positions
         nodesPos = np.zeros((c.K, 3))
         for k in range(c.K):
