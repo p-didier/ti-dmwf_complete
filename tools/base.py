@@ -57,6 +57,11 @@ class Parameters:
     nfft: int = 1024  # number of FFT points
     nhop: int = 512  # number of samples in FFT hop
     win: str = 'hann'  # STFT window type
+    dynamics: str = 'static'  # type of acoustic scenario dynamics
+        # 'static' for static scenario,
+        # 'moving' for dynamic scenario with always-active sources and random source movements
+        # 'switching' for dynamic scenario with sources that can appear and disappear
+    movingEvery: float = 1.0  # time in seconds after which sources move in `moving` scenarios
 
     # Signals parameters
     fs: int = 16000  # sampling frequency
@@ -84,9 +89,10 @@ class Parameters:
     gevd: bool = False  # if True, use GEV decomposition instead of regular MWF in estimation filters
     DANSEiterEveryXframes: int = 1  # DANSE iteration every X frames
     refNodeForTInorm: int = 0  # reference node for TI normalization
+    dMWFalternating: bool = False  # if True, use alternating discovery/estimation steps in dMWF
 
     # Online mode parameters
-    frameLength: float = 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
+    frameDuration: float = 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
     beta: dict = field(default_factory=lambda: {'default': 0.99})  # forgetting factor for online SCM estimation
 
     # Debug
@@ -102,8 +108,8 @@ class Parameters:
         self.N = int(self.fs * self.T)
         if self.scmEstimation == 'online':
             if self.domain == 'wola':
-                self.frameLength = (self.nfft - self.nhop) / self.fs  # frame length in seconds
-            self.nFrames = int(np.floor(self.T / self.frameLength))  # number of frames for online processing
+                self.frameDuration = (self.nfft - self.nhop) / self.fs  # frame length in seconds
+            self.nFrames = int(np.floor(self.T / self.frameDuration))  # number of frames for online processing
             # TODO: improve that vvvv
             self.maxDANSEiter = 1  # one iteration per frame for online processing
         # Adjust beta's dictionary
@@ -135,7 +141,7 @@ class Parameters:
     
     def __str__(self):
         return str(self.__dict__)
-
+    
     def load_from_yaml(self, path: str):
         """Load parameters from a YAML file."""
         with open(path, 'r') as file:

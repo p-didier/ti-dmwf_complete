@@ -76,20 +76,27 @@ class Run:
             for l in tqdm(range(c.nFrames), desc="Processing frames"):
                 # Current frame information
                 iv['frameIdx'] = l
+                scenarioIdx = 0  # by default
                 if c.domain == 'wola':
                     iv['frame_n'] = n[..., l].T
                     iv['frame_y'] = s[..., l].T + n[..., l].T
+                    # Identify current acoustic scenario
+                    if c.dynamics == 'moving':
+                        scenarioIdx = int((l * (c.nfft - c.nhop) / c.fs) // c.movingEvery)
                 else:
-                    idxBeg = int(l * (c.frameLength * c.fs))
-                    idxEnd = int((l + 1) * (c.frameLength * c.fs))
+                    idxBeg = int(l * (c.frameDuration * c.fs))
+                    idxEnd = int((l + 1) * (c.frameDuration * c.fs))
                     iv['frame_n'] = n[..., idxBeg:idxEnd].T
                     iv['frame_y'] = s[..., idxBeg:idxEnd].T + n[..., idxBeg:idxEnd].T
+                    if c.dynamics == 'moving':
+                        scenarioIdx = int((l * c.frameDuration) // c.movingEvery)
                 # Launch algorithms for the current frame
                 W_netWide[l], ivOut = self.launch(
                     Ryy[l], Rss[l], Rnn[l],
                     asc, graph,
                     ivIn=iv,
-                    silent=True
+                    silent=True,
+                    scenarioIdx=scenarioIdx
                 )
                 # Feedback loop: update iterative variables for DANSE-like algorithms
                 for alg in ivOut.keys():
@@ -128,7 +135,9 @@ class Run:
             RyyAll, RssAll, RnnAll,
             asc: AcousticScenario, G,
             ivIn=None,
-            silent=False):
+            silent=False,
+            scenarioIdx=0
+        ):
         """
         Launch algorithms.
 
@@ -140,6 +149,7 @@ class Run:
             G (nx.Graph): Graph representing the network topology.
             ivDANSE (dict[str, dict]): Iterative variables for each DANSE algorithm.
             silent (bool): If True, suppress output messages.
+            scenarioIdx (int): Index of the current scenario (for dynamic scenarios).
         """
         c = self.cfg
         W_netWide = dict([(alg, [
@@ -175,45 +185,43 @@ class Run:
                     tmp = self.filtup(Rykyk, Rnknk, gevd=c.gevd, gevdRank=c.Qd)
                     W_netWide[alg][k][..., c.Mk * k:c.Mk * (k + 1), :] = tmp[..., :c.D]
             elif alg == "dmwf":
+                scn = asc.scenarios[scenarioIdx]  # Current acoustic scenario
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Ryqrhoq = self.init_full((c.nPosFreqs, c.Mk, asc.oQq[q]))
+                    Ryqrhoq = self.init_full((c.nPosFreqs, c.Mk, scn.oQq[q]))
                     for p in range(c.K):
                         if p == q:
                             continue
-                        Eqps = self.init_full((c.Mk, asc.oQq[q]), selection_matrix=True)
-                        Eqps[:asc.Qkq[q, p], :asc.Qkq[q, p]] = np.eye(asc.Qkq[q, p])
+                        Eqps = self.init_full((c.Mk, scn.oQq[q]), selection_matrix=True)
+                        Eqps[:scn.Qkq[q, p], :scn.Qkq[q, p]] = np.eye(scn.Qkq[q, p])
                         # Pad with ones
-                        Eqps[asc.Qkq[q, p]:, asc.Qkq[q, p]:] = np.ones((c.Mk - asc.Qkq[q, p], asc.oQq[q] - asc.Qkq[q, p]))
+                        Eqps[scn.Qkq[q, p]:, scn.Qkq[q, p]:] = np.ones((c.Mk - scn.Qkq[q, p], scn.oQq[q] - scn.Qkq[q, p]))
                         Ryqrhoq += Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
                     Pk[q] = self.filtup(Ryqyq, Rss=Ryqrhoq)
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
-                    QkqNeighs = np.delete(asc.oQq, k)  # Remove k
+                    QkqNeighs = np.delete(scn.oQq, k)  # Remove k
                     Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + int(np.sum(QkqNeighs))))
                     Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
                     for q in range(c.K):
                         if q != k:
                             idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
-                            idxEnd = idxBeg + asc.oQq[q]
+                            idxEnd = idxBeg + scn.oQq[q]
                             Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
                             idxNei += 1
                     # Compute the filters
                     tRyy = herm(Ck) @ Ryy @ Ck
-                    # tRnn = reg(herm(Ck) @ Rnn @ Ck)
                     tRnn = herm(Ck) @ Rnn @ Ck
                     tW = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)[..., :c.D]
                     W_netWide[alg][k] = Ck @ tW
-                    pass
 
             elif alg == "tidmwf":
                 for k in range(c.K):
                     _, upstreamNeighs = get_upstream_nodes(G, k)
-                    _, downstreamNeigh = get_downstream_nodes(G, k)
                     Cqk = [None for _ in range(c.K)]
                     for q in range(c.K):
                         dim = c.Mk + c.Q * len(upstreamNeighs[q])
@@ -235,7 +243,6 @@ class Run:
                             Pk[q] = self.filtup(Rhyqhyq, Rss=Rhyqyktq)
                     # Compute estimation filter
                     tRyy = herm(Cqk[k]) @ Ryy @ Cqk[k]
-                    # tRnn = reg(herm(Cqk[k]) @ Rnn @ Cqk[k])
                     tRnn = herm(Cqk[k]) @ Rnn @ Cqk[k]
                     W_netWide[alg][k] = Cqk[k] @ self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)[..., :c.D]
 
@@ -478,32 +485,3 @@ class Run:
 def flatten_list(l):
     """Flatten a list of lists."""
     return [item for sublist in l for item in sublist]
-
-
-def reg(B_batch, epsilon=1e-8):
-    """Check if a matrix is positive definite."""
-    # if not np.all(B == herm(B)):
-    #     B_reg = (B + herm(B)) / 2
-    #     assert np.all(B_reg == herm(B_reg)), "Matrix is not Hermitian after regularization."
-    # else:
-    #     B_reg = B
-
-    # if np.any(np.linalg.eigvals(B_reg) <= 0) or np.iscomplex(np.linalg.eigvals(B_reg)).any():
-    #     B_reg += 1e-8 * np.eye(B_reg.shape[-1])
-    #     assert np.all(np.linalg.eigvals(B_reg) > 0), "Matrix is not positive definite after regularization."
-
-    M, N, _ = B_batch.shape
-    B_psd = np.zeros_like(B_batch, dtype=np.complex128)
-
-    for m in range(M):
-        Bm = (B_batch[m] + B_batch[m].conj().T) / 2  # Symmetrize
-
-        evals, evecs = np.linalg.eigh(Bm)
-
-        evals_clipped = np.clip(evals, epsilon, None)
-
-        Bm_psd = (evecs @ np.diag(evals_clipped)) @ evecs.conj().T
-
-        B_psd[m] = Bm_psd
-
-    return B_psd

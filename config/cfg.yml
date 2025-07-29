@@ -54,6 +54,12 @@ nhop: 512  # number of samples in FFT hop
 # nhop: 256  # number of samples in FFT hop
 win: hann  # STFT window type
 # win: rect  # STFT window type
+# dynamics: static  # type of acoustic scenario dynamics
+dynamics: moving  # type of acoustic scenario dynamics
+    # 'static' for static scenario,
+    # 'moving' for dynamic scenario with always-active sources and random source movements
+    # 'switching' for dynamic scenario with sources that can appear and disappear
+movingEvery: 10.0  # time in seconds after which sources move in `moving` scenarios
 
 # Signals parameters
 # fs: 41000  # sampling frequency
@@ -97,19 +103,22 @@ mu: 1  # SDW-MWF factor
 gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 # DANSEiterEveryXframes: 10  # DANSE iteration every X frames
 DANSEiterEveryXframes: 1  # DANSE iteration every X frames
+dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
+# dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 
 # Online mode parameters
-# frameLength: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
+# frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
-    default: 0.975,
+    # default: 0.975,
+    default: 0.985,
     # default: 0.99,
     # tidmwf: 0.999,
 }  # forgetting factor for online processing
 
 # Debug
-singleLine: null  # if not None, only process this frequency line in WOLA domain
-# singleLine: 20  # if not None, only process this frequency line in WOLA domain
+# singleLine: null  # if not None, only process this frequency line in WOLA domain
+singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
 # suffix: 'test'  # output file suffix
-suffix: 'saa_beta_0p975_T60_200ms'  # output file suffix
+suffix: 'testing_dynamics'  # output file suffix

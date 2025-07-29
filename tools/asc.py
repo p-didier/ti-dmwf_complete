@@ -31,10 +31,11 @@ class StaticScenarioParameters:
     speechSourcesPos: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
     noiseSourcesPos: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
     obsMat: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
-    Qkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))
     rirs: list[np.ndarray] = field(default_factory=list)  # room impulse responses
     aMat: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # adjacency matrix
     trees: list = field(default_factory=list)  # list of TreeWASN objects
+    Qkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources in common between nodes
+    oQq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources observed by each node
 
 
 @dataclass
@@ -171,39 +172,48 @@ class AcousticScenario:
     nodes: list[Node] = field(default_factory=list)  # list of nodes
     obsMat: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # observability matrix
     Qkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources in common between nodes
-    oQkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources observed by each node
+    oQq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources observed by each node
+    scenarios: list[StaticScenarioParameters] = field(default_factory=list)  # list of static scenarios within the considered acoustic scenario
 
     def setup(self):
         c = self.cfg
 
+        def _get_Qdims(om):
+            """Compute the number of sources in common between nodes."""
+            if c.observability == 'foss':
+                oQq = np.full(c.K, c.Q)
+                Qkq = np.full((c.K, c.K), c.Q)
+            elif c.observability == 'poss':
+                # Number of sources useful for fusion matrix computation for node q
+                oQq = [0 for _ in range(c.K)]
+                for k in range(c.K):
+                    for ii in range(c.Q):
+                        if om[k, ii] != 0 and np.sum(om[:, ii]) > 1:
+                            # If node k does observes source ii, and it is observed
+                            # by at least one other node, then the number of sources
+                            # in common is increased by one
+                            oQq[k] += 1
+                assert np.all(np.array(oQq) <= np.sum(om, axis=1)), \
+                    "Number of sources in common exceeds number of sources observed by node."
+                # Compute the number of sources in common between nodes k and q
+                Qkq = np.zeros((c.K, c.K), dtype=int)
+                for k in range(c.K):
+                    for q in range(c.K):
+                        Qkq[k, q] = np.sum(om[k, :] * om[q, :])
+            return oQq, Qkq
+
         # Setup the acoustic scenario
         if c.domain == 'wola':
             out = self.setup_wola_domain()
+            for s in self.scenarios:
+                s.oQq, s.Qkq = _get_Qdims(s.obsMat)
         if 'time' in c.domain:
+            if c.dynamics != 'static':
+                raise ValueError(
+                    "Dynamic scenarios are not supported in the time domain yet."
+                )
             out = self.setup_time_domain()
-        
-        if c.observability == 'foss':
-            self.oQq = np.full(c.K, c.Q)
-            self.Qkq = np.full((c.K, c.K), c.Q)
-        elif c.observability == 'poss':
-            # Number of sources useful for fusion matrix computation for node q
-            self.oQq = [0 for _ in range(c.K)]
-            for k in range(c.K):
-                for ii in range(c.Q):
-                    if self.obsMat[k, ii] != 0 and np.sum(self.obsMat[:, ii]) > 1:
-                        # If node k does observes source ii, and it is observed
-                        # by at least one other node, then the number of sources
-                        # in common is increased by one
-                        self.oQq[k] += 1
-            assert np.all(np.array(self.oQq) <= np.sum(self.obsMat, axis=1)), \
-                "Number of sources in common exceeds number of sources observed by node."
-            # Compute the number of sources in common between nodes k and q
-            self.Qkq = np.zeros((c.K, c.K), dtype=int)
-            for k in range(c.K):
-                for q in range(c.K):
-                    self.Qkq[k, q] = np.sum(
-                        self.obsMat[k, :] * self.obsMat[q, :]
-                    )
+            self.oQq, self.Qkq = _get_Qdims(self.obsMat)
         
         return out
     
@@ -314,7 +324,7 @@ class AcousticScenario:
                 beta: c.randmat((c.M, c.M))
                 if l == 0 else None for beta in betas
             } for l in range(c.nFrames)]
-            nSamples = int(c.frameLength * c.fs)
+            nSamples = int(c.frameDuration * c.fs)
             for l in tqdm(range(1, c.nFrames), desc=f"Online SCM estimation"):
                 idxBeg = l * nSamples
                 idxEnd = (l + 1) * nSamples
@@ -336,7 +346,69 @@ class AcousticScenario:
         return Ryy, Rss, Rnn, s, n
     
     def setup_wola_domain(self):
-        """Setup the acoustic scenario in the WOLA domain."""
+        c = self.cfg
+
+        # Set up latent signals
+        self.latentSpeech = self.gen_latent_speech(n=c.Qd)
+        self.latentNoise = self.get_latent_noise(n=c.Qn)
+        # Scale the latent noise signals to match the target SNR
+        if c.latentSNR is not None:
+            # Scale the latent noise signals to match the target SNR
+            nPower = np.mean(np.abs(self.latentNoise) ** 2)
+            sPower = np.mean(np.abs(self.latentSpeech) ** 2)
+            if nPower > 0 and sPower > 0:
+                currentSNR = 10 * np.log10(sPower / nPower)
+                scalingFactor = 10 ** ((c.latentSNR - currentSNR) / 20)
+                self.latentNoise /= scalingFactor
+        
+        # Prepare containers
+        self.nodes = [
+            Node(
+                idx=k,
+                td={
+                    'y': np.zeros((c.Mk, c.N)),
+                    's': np.zeros((c.Mk, c.N)),
+                    'n': np.zeros((c.Mk, c.N)),
+                    'sn': np.zeros((c.Mk, c.N)),
+                    'sIndiv': np.zeros((c.Qd, c.Mk, c.N)),
+                    'nIndiv': np.zeros((c.Qn, c.Mk, c.N)),
+                }
+            )
+            for k in range(c.K)
+        ]
+
+        # Define the acoustic scenario
+        if c.dynamics == 'static' or c.scmEstimation != 'online':
+            return self.setup_wola_domain_static()
+        
+        elif c.dynamics == 'moving':
+            # Dynamic scenario with always-active sources and random source movements
+            nScenarios = np.floor(c.T / c.movingEvery).astype(int)
+            print(f"Setting up {nScenarios} dynamic scenarios with different sources/nodes positions.")
+            for ii in range(nScenarios):
+                print(f"Setting up scenario {ii + 1}/{nScenarios}...")
+                idxStart = ii * int(c.movingEvery * c.fs)
+                idxEnd = idxStart + int(c.movingEvery * c.fs) - 1
+                # Setup the static scenario
+                self.setup_wola_domain_static(idxStart, idxEnd)
+        
+        # Self-noise addition
+        for k in range(c.K):
+            # Generate self-noise at correct SNR
+            sn = c.randmat((c.Mk, c.N), makeComplex=False)
+            snPower = np.mean(np.abs(sn) ** 2)
+            sPower = np.mean(np.abs(self.nodes[k].td['s']) ** 2)
+            sn *= np.sqrt(c.selfNoiseFactor * sPower / snPower)
+            self.nodes[k].td['sn'] = sn
+            self.nodes[k].td['n'] += self.nodes[k].td['sn']
+            self.nodes[k].td['y'] = self.nodes[k].td['n'] + self.nodes[k].td['s']
+
+        print("Acoustic environment generated successfully, computing SCMs...")
+        # Compute SCMs (from steering matrices if oracle, from signals if batch)
+        return self.compute_scms()
+
+    def setup_wola_domain_static(self, idxStart=0, idxEnd=0):
+        """Setup a static acoustic scenario in the WOLA domain."""
         c = self.cfg
         # Compute material absorption coefficients from T60
         # using the Sabine formula
@@ -356,56 +428,12 @@ class AcousticScenario:
             use_rand_ism=False
         )
 
-        # Get latent signals
-        self.latentSpeech = self.gen_latent_speech(n=c.Qd)
-        self.latentNoise = self.get_latent_noise(n=c.Qn)
-        
-        # Scale the latent noise signals to match the target SNR
-        if c.latentSNR is not None:
-            # Scale the latent noise signals to match the target SNR
-            nPower = np.mean(np.abs(self.latentNoise) ** 2)
-            sPower = np.mean(np.abs(self.latentSpeech) ** 2)
-            if nPower > 0 and sPower > 0:
-                currentSNR = 10 * np.log10(sPower / nPower)
-                scalingFactor = 10 ** ((c.latentSNR - currentSNR) / 20)
-                self.latentNoise /= scalingFactor
-
-        # Prepare containers
-        self.nodes = [
-            Node(
-                idx=k,
-                td={
-                    'y': np.zeros((c.Mk, c.N)),
-                    's': np.zeros((c.Mk, c.N)),
-                    'n': np.zeros((c.Mk, c.N)),
-                    'sn': np.zeros((c.Mk, c.N)),
-                    'sIndiv': np.zeros((c.Qd, c.Mk, c.N)),
-                    'nIndiv': np.zeros((c.Qn, c.Mk, c.N)),
-                }
-            )
-            for k in range(c.K)
-        ]
-
         # Generate the WASN parameters
         p: StaticScenarioParameters = self.define_static_scenario(room)
-        self.apply_static_scenario(p)
+        self.apply_static_scenario(p, smIdx=[idxStart, idxEnd])
         # Store the parameters for later use
-        self.store_scenario_parameters(p)
-        
-        # Self-noise addition
-        for k in range(c.K):
-            # Generate self-noise at correct SNR
-            sn = c.randmat((c.Mk, c.N), makeComplex=False)
-            snPower = np.mean(np.abs(sn) ** 2)
-            sPower = np.mean(np.abs(self.nodes[k].td['s']) ** 2)
-            sn *= np.sqrt(c.selfNoiseFactor * sPower / snPower)
-            self.nodes[k].td['sn'] = sn
-            self.nodes[k].td['n'] += self.nodes[k].td['sn']
-            self.nodes[k].td['y'] = self.nodes[k].td['n'] + self.nodes[k].td['s']
-
-        print("Acoustic environment generated successfully, computing SCMs...")
-        # Compute SCMs (from steering matrices if oracle, from signals if batch)
-        return self.compute_scms()
+        self.scenarios.append(p)
+        # self.store_scenario_parameters(p)
 
     def compute_scms(self):
         """Compute the SCMs for the acoustic scenario."""
@@ -775,7 +803,7 @@ class AcousticScenario:
                 attempt[2] = zPlane
             counter = 0
             while np.linalg.norm(attempt - nodesPos, axis=1).min() < c.minDistNodeSource:
-                print(f"Desired source {ii + 1}/{c.Qd} too close to a node, generating a new position ({counter+1}-th trial)...", end='\r')
+                print(f"Desired source {ii + 1}/{c.Qd} too close to a node, generating a new position (trial #{counter+1})...", end='\r')
                 # If the source is too close to a node, generate a new position
                 attempt = np.random.rand(3) *\
                     (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall

@@ -25,8 +25,8 @@ baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 resDir = 'latest'  # <-- pick the latest results directory
 
 EXPORT = False  # If True, export the figures to files
-FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
-# FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
+# FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
+FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
 WHICH_NODES = 'all'  # 'all' or a list of node indices to process
@@ -254,8 +254,8 @@ class PostProcessor:
                         elif 'time' in c.domain:
                             # Get metrics signals for the current frame
                             yc, sc, nc, dkTD = _get_metrics_signals(
-                                startTime=np.amax((0, l * c.frameLength / c.fs - metricsOver)),
-                                endTime=(l + 1) * c.frameLength / c.fs
+                                startTime=np.amax((0, l * c.frameDuration / c.fs - metricsOver)),
+                                endTime=(l + 1) * c.frameDuration / c.fs
                             )
                     metricsCurrAlg = _processing_loop(k, w, dkTD, silent=True)
                     for alg in c.algos:
@@ -296,6 +296,11 @@ class PostProcessor:
             'dmwf': 'k',
             'tidmwf': 'm',
         }
+
+        if c.domain == 'wola':
+            frameLength = c.nfft - c.nhop
+        elif 'time' in c.domain:
+            frameLength = int(c.frameDuration * c.fs)
 
         fig, axes = plt.subplots(1, len(metrics.keys()), sharex=True)
         fig.set_size_inches(8.5, 3.5)
@@ -341,7 +346,7 @@ class PostProcessor:
                     ticksInterval = maxX / 5
                     xTicks = np.arange(0, maxX, ticksInterval)
                     ax.set_xticks(xTicks)
-                    ax.set_xticklabels(np.round(xTicks * c.frameLength, 2))
+                    ax.set_xticklabels(np.round(xTicks * c.frameDuration, 2))
                     ax.set_xlabel('Time [s]')
                 else:
                     ax.set_xlabel('Iteration')
@@ -359,8 +364,18 @@ class PostProcessor:
                 ax.legend(loc='lower center')
             if m == 'msed':
                 ax.legend(loc='upper center')
-            ax.set_title(m)
-        fig.suptitle(f'{c.observability}, {c.scmEstimation}, node(s): {WHICH_NODES}')
+            if c.dynamics == 'moving' and c.scmEstimation == 'online':
+                # Plot a vertical line every time the scenario changes
+                nChanges = int(c.T / c.movingEvery)
+                for i in range(nChanges):
+                    ax.axvline(x=i * c.movingEvery * c.fs / frameLength, color='0.5', linestyle='--')
+            ax.set_title(m.upper())
+            if m in ['snr', 'ser']:
+                ax.set_ylim(np.amax((-10, ax.get_ylim()[0])), None)  # Ensure y-axis starts at 0
+        supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES}'
+        if c.scmEstimation == 'online':
+            supti += f', $\\beta = {list(c.beta.values())[0]}$'
+        fig.suptitle(supti)
         fig.tight_layout()
         plt.show(block=False)
 
