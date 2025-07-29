@@ -373,8 +373,8 @@ class PostProcessor:
             if m in ['snr', 'ser']:
                 ax.set_ylim(np.amax((-10, ax.get_ylim()[0])), None)  # Ensure y-axis starts at 0
         supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES}'
-        if c.scmEstimation == 'online':
-            supti += f', $\\beta = {list(c.beta.values())[0]}$'
+        if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
+            supti += f', {c.betaString}'
         fig.suptitle(supti)
         fig.tight_layout()
         plt.show(block=False)

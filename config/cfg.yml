@@ -101,18 +101,18 @@ mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
 # gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
 gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
-DANSEiterEveryXframes: 10  # DANSE iteration every X frames
+DANSEiterEveryXframes: 20  # DANSE iteration every X frames
 # DANSEiterEveryXframes: 1  # DANSE iteration every X frames
-# dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
-dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
+dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
+# dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 
 # Online mode parameters
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
-    default: 0.975,
+    # default: 0.975,
     # default: 0.985,
-    # default: 0.99,
-    # tidmwf: 0.999,
+    default: 0.99,
+    # dmwf: 0.95,
 }  # forgetting factor for online processing
 
 # Debug
@@ -121,4 +121,4 @@ singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
 # suffix: 'test'  # output file suffix
-suffix: 'saa_withoutdMWFalternating'  # output file suffix
+suffix: 'saa_DANSEiterEvery20Frames'  # output file suffix

@@ -97,9 +97,9 @@ class Run:
                     ivIn=iv,
                     silent=True,
                     scenarioIdx=scenarioIdx,
-                    Ryy_dMWF_estAll=Ryy_dMWF_est[l],
-                    Rnn_dMWF_estAll=Rnn_dMWF_est[l],
-                    Ryy_dMWF_disAll=Ryy_dMWF_dis[l],
+                    Ryy_dMWF_estAll=Ryy_dMWF_est[l] if Ryy_dMWF_est is not None else None,
+                    Rnn_dMWF_estAll=Rnn_dMWF_est[l] if Rnn_dMWF_est is not None else None,
+                    Ryy_dMWF_disAll=Ryy_dMWF_dis[l] if Ryy_dMWF_dis is not None else None,
                 )
                 # Feedback loop: update iterative variables for DANSE-like algorithms
                 for alg in ivOut.keys():
