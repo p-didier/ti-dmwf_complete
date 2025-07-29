@@ -12,7 +12,7 @@ from tqdm import tqdm
 from .tree_utils import *
 import scipy.linalg as sla
 from dataclasses import dataclass
-from .asc import AcousticScenario
+from .asc import AcousticScenario, single_update_scm
 import matplotlib.pyplot as plt
 
 
@@ -34,7 +34,9 @@ class Run:
             graph = nx.minimum_spanning_tree(graph)
 
         # Launch algorithms
-        Ryy, Rss, Rnn, s, n, Ryy_dMWF_est, Rnn_dMWF_est, Ryy_dMWF_dis = asc.setup()
+        Ryy, Rnn, s, n, Ryy_dMWF_est, Rnn_dMWF_est, Ryy_dMWF_dis = asc.setup()
+        if c.useVAD:
+            vad, vadSTFT = asc.estimate_vad()
 
         # Iterative variables for DANSE-like algorithms
         algDims = {
@@ -76,11 +78,12 @@ class Run:
             for l in tqdm(range(c.nFrames), desc="Processing frames"):
                 # Current frame information
                 iv['frameIdx'] = l
+                iv['vad'] = vadSTFT[:, l] if c.useVAD else None
                 scenarioIdx = 0  # by default
                 if c.domain == 'wola':
                     iv['frame_n'] = n[..., l].T
                     iv['frame_y'] = s[..., l].T + n[..., l].T
-                    # Identify current acoustic scenario
+                    # Identify current acoustic scenario (for oQq and Qkq values in dMWF)
                     if c.dynamics == 'moving':
                         scenarioIdx = int((l * (c.nfft - c.nhop) / c.fs) // c.movingEvery)
                 else:
@@ -88,11 +91,12 @@ class Run:
                     idxEnd = int((l + 1) * (c.frameDuration * c.fs))
                     iv['frame_n'] = n[..., idxBeg:idxEnd].T
                     iv['frame_y'] = s[..., idxBeg:idxEnd].T + n[..., idxBeg:idxEnd].T
+                    # Identify current acoustic scenario (for oQq and Qkq values in dMWF)
                     if c.dynamics == 'moving':
                         scenarioIdx = int((l * c.frameDuration) // c.movingEvery)
                 # Launch algorithms for the current frame
                 W_netWide[l], ivOut = self.launch(
-                    Ryy[l], Rss[l], Rnn[l],
+                    Ryy[l], Rnn[l],
                     asc, graph,
                     ivIn=iv,
                     silent=True,
@@ -107,7 +111,7 @@ class Run:
                         iv[alg][key] = value
         else:
             W_netWide = self.launch(
-                Ryy, Rss, Rnn,
+                Ryy, Rnn,
                 asc, graph,
                 ivIn=iv
             )[0]
@@ -135,7 +139,7 @@ class Run:
 
     def launch(
             self,
-            RyyAll, RssAll, RnnAll,
+            RyyAll, RnnAll,
             asc: AcousticScenario, G,
             ivIn=None,
             silent=False,
@@ -149,7 +153,6 @@ class Run:
 
         Parameters:
             RyyAll (dict[float, np.ndarray]): Full signal covariance matrix, for all beta values.
-            RssAll (dict[float, np.ndarray]): Desired signal covariance matrix, for all beta values.
             RnnAll (dict[float, np.ndarray]): Noise signal covariance matrix, for all beta values.
             asc (AcousticScenario): Acoustic scenario object.
             G (nx.Graph): Graph representing the network topology.
@@ -172,7 +175,6 @@ class Run:
 
             if c.scmEstimation == 'online':
                 Ryy = RyyAll[c.beta[alg]]
-                Rss = RssAll[c.beta[alg]]
                 Rnn = RnnAll[c.beta[alg]]
                 # The `else Ryy` part is used for the case where Ryy_dMWF_estAll, Rnn_dMWF_estAll, and Ryy_dMWF_disAll are None
                 Ryy_dMWF_est = Ryy_dMWF_estAll[c.beta[alg]] if Ryy_dMWF_estAll is not None else Ryy
@@ -180,7 +182,6 @@ class Run:
                 Ryy_dMWF_dis = Ryy_dMWF_disAll[c.beta[alg]] if Ryy_dMWF_disAll is not None else Ryy
             else:
                 Ryy = RyyAll
-                Rss = RssAll
                 Rnn = RnnAll
 
             if alg == 'unprocessed':
@@ -365,8 +366,13 @@ class Run:
                                 tRyyPrev[k] = herm(Nk) @ tRyyPrev[k] @ Nk
                                 tRnnPrev[k] = herm(Nk) @ tRnnPrev[k] @ Nk
 
-                            tRyy = c.beta[alg] * tRyyPrev[k] + (1 - c.beta[alg]) * yyH
-                            tRnn = c.beta[alg] * tRnnPrev[k] + (1 - c.beta[alg]) * nnH
+                            tRyy, tRnn = single_update_scm(
+                                tRyyPrev[k], tRnnPrev[k],
+                                yyH, nnH, c.beta[alg],
+                                vad=ivIn['vad']
+                            )
+                            # tRyy = c.beta[alg] * tRyyPrev[k] + (1 - c.beta[alg]) * yyH
+                            # tRnn = c.beta[alg] * tRnnPrev[k] + (1 - c.beta[alg]) * nnH
                         else:
                             tRyy = herm(Ck) @ Ryy @ Ck
                             tRnn = herm(Ck) @ Rnn @ Ck

@@ -54,8 +54,8 @@ nhop: 512  # number of samples in FFT hop
 # nhop: 256  # number of samples in FFT hop
 win: hann  # STFT window type
 # win: rect  # STFT window type
-# dynamics: static  # type of acoustic scenario dynamics
-dynamics: moving  # type of acoustic scenario dynamics
+dynamics: static  # type of acoustic scenario dynamics
+# dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
@@ -90,17 +90,17 @@ algos:  # list of algorithms to run
 - unprocessed
 - centralized
 - local
-- dmwf
+# - dmwf
+# - danse
+# - rsdanse
 # - tidmwf
-- danse
-- rsdanse
 # - tidanse
 maxDANSEiter: 30  # maximum number of iterations for DANSE
 # maxDANSEiter: 10  # maximum number of iterations for DANSE
 mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
-# gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
-gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
+gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
+# gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 DANSEiterEveryXframes: 20  # DANSE iteration every X frames
 # DANSEiterEveryXframes: 1  # DANSE iteration every X frames
 dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
@@ -109,7 +109,7 @@ dMWFalternating: True  # if True, use alternating discovery/estimation steps in 
 # VAD parameters
 useVAD: True  # if True, update the SCMs based on a VAD decision
 # useVAD: False  # if True, update the SCMs based on a VAD decision
-noiseONOFFperiod: 0.5  # period of noise ON/OFF switching in seconds (only used if `useVAD` is True and desired signals are `random`)
+noiseONOFFperiod: 1  # period of noise ON/OFF switching in seconds (only used if `useVAD` is True and desired signals are `random`)
 vadThreshold: 0.1  # threshold for VAD decision, relative to the energy of the latent desired signal
 vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 
@@ -118,7 +118,7 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 beta: {
     # default: 0.975,
     # default: 0.985,
-    default: 0.99,
+    default: 0.995,
     # dmwf: 0.95,
 }  # forgetting factor for online processing
 
@@ -128,4 +128,4 @@ singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
 # suffix: 'test'  # output file suffix
-suffix: 'saa_DANSEiterEvery20Frames'  # output file suffix
+suffix: 'test_usingVAD_onRandomSigs'  # output file suffix
