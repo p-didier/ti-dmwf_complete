@@ -170,6 +170,8 @@ class AcousticScenario:
     """A dataclass for the acoustic scenario parameters."""
     cfg: Parameters
     nodes: list[Node] = field(default_factory=list)  # list of nodes
+    latentDesired: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # latent desired signals
+    latentNoise: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # latent noise signals
     obsMat: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # observability matrix
     Qkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources in common between nodes
     oQq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources observed by each node
@@ -250,7 +252,7 @@ class AcousticScenario:
                 Bmat = np.abs(Bmat)
         # slat = c.randmat((c.Qd, c.N))
         # nlat = c.randmat((c.Qn, c.N))
-        slat = self.gen_latent_speech(n=c.Qd)
+        slat = self.gen_latent_desired(n=c.Qd)
         nlat = self.get_latent_noise(n=c.Qn)
         pows = np.mean(np.abs(slat) ** 2, axis=1)
         pown = np.mean(np.abs(nlat) ** 2, axis=1)
@@ -350,13 +352,13 @@ class AcousticScenario:
         c = self.cfg
 
         # Set up latent signals
-        self.latentSpeech = self.gen_latent_speech(n=c.Qd)
+        self.latentDesired = self.gen_latent_desired(n=c.Qd)
         self.latentNoise = self.get_latent_noise(n=c.Qn)
         # Scale the latent noise signals to match the target SNR
         if c.latentSNR is not None:
             # Scale the latent noise signals to match the target SNR
             nPower = np.mean(np.abs(self.latentNoise) ** 2)
-            sPower = np.mean(np.abs(self.latentSpeech) ** 2)
+            sPower = np.mean(np.abs(self.latentDesired) ** 2)
             if nPower > 0 and sPower > 0:
                 currentSNR = 10 * np.log10(sPower / nPower)
                 scalingFactor = 10 ** ((c.latentSNR - currentSNR) / 20)
@@ -461,7 +463,7 @@ class AcousticScenario:
                     tmp[c.Mk * q:c.Mk * (q + 1), :] = 0
                 Cmat[..., ii] = tmp.T
             # Compute STFTs of latent signals
-            slatSTFT = c.get_stft(self.latentSpeech)
+            slatSTFT = c.get_stft(self.latentDesired)
             nlatSTFT = c.get_stft(self.latentNoise)
             power_s = np.mean(np.abs(slatSTFT) ** 2, axis=-1)
             power_n = np.mean(np.abs(nlatSTFT) ** 2, axis=-1)
@@ -509,6 +511,9 @@ class AcousticScenario:
                 Rnn_est[1] = {beta: Rnn[0][beta] for beta in betas}
                 Rss_dis = copy.deepcopy(Rss)
                 Rnn_dis = copy.deepcopy(Rnn)
+            if c.useVAD:
+                # Estimate VAD
+                vad = self.estimate_vad()
             for l in tqdm(range(1, c.nFrames), desc=f"Online SCM estimation"):
                 ssH = np.einsum('ji,ki->ijk', stack['s'][..., l], stack['s'][..., l].conj())
                 nnH = np.einsum('ji,ki->ijk', stack['n'][..., l], stack['n'][..., l].conj())
@@ -550,6 +555,25 @@ class AcousticScenario:
             raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
 
         return Ryy, Rss, Rnn, stack['s'], stack['n'], Ryy_est, Rnn_est, Ryy_dis
+
+    def estimate_vad(self):
+        """Estimate the VAD for the latent desired signal."""
+        c = self.cfg
+        smoothingLength = int(c.vadSmoothingPeriod * c.fs)
+        vad = np.zeros((c.Qd, c.N), dtype=bool)
+        for ii in range(c.Qd):
+            # Compute the energy of the signal
+            energy = np.mean(np.abs(self.latentDesired[ii, :]) ** 2)
+            # Compute the threshold for VAD
+            threshold = c.vadThreshold * energy
+            # Smooth the VAD: avoid abrupt changes between 1 and 0
+            vad[ii, :] = np.convolve(
+                np.abs(self.latentDesired[ii, :]) ** 2 > threshold,
+                np.ones(smoothingLength) / smoothingLength,
+                mode='same'
+            ) > 0.5
+        
+        return vad
 
     def plot(self):
         """Export the environment to a TXT file and to a plot."""
@@ -647,12 +671,22 @@ class AcousticScenario:
         if p.aMat is not None:
             self.trees = p.trees
 
-    def gen_latent_speech(self, n: int) -> list[str]:
+    def gen_latent_desired(self, n: int) -> list[str]:
         """Generate speech signals using files from the database."""
         c = self.cfg
         if c.desSigType == 'random':
             # Generate white noise signals
-            return c.randmat((n, c.N), makeComplex=False)
+            randsigs = c.randmat((n, c.N), makeComplex=False)
+            if c.useVAD:
+                # Add pauses to the random signals
+                pauseLength = int(c.fs * c.noiseONOFFperiod)
+                for ii in range(n):
+                    # Randomly select a start index for the pause
+                    start = np.random.randint(0, pauseLength)
+                    starts = np.arange(start, c.N - pauseLength + 1, 2 * pauseLength)
+                    for s in starts:
+                        randsigs[ii, s:s + pauseLength] = 0
+            return randsigs
         elif c.desSigType == 'speech':
             if 'VCTK' in c.speechDatabasePath:
                 d = SPEECH_DATABASE_NAME_DELIMITER['VCTK']
@@ -757,7 +791,7 @@ class AcousticScenario:
                 # ---------------------------------------
                 for jj, m in enumerate(micIdx):
                     tmp = sig.fftconvolve(
-                        self.latentSpeech[ii, smIdx[0]:smIdx[1]],
+                        self.latentDesired[ii, smIdx[0]:smIdx[1]],
                         p.rirs[m][ii],
                     )
                     self.nodes[k].td['sIndiv'][ii, jj, smIdx[0]:smIdx[1]] = tmp[

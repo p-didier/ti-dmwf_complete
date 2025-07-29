@@ -106,6 +106,13 @@ DANSEiterEveryXframes: 20  # DANSE iteration every X frames
 dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
 # dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 
+# VAD parameters
+useVAD: True  # if True, update the SCMs based on a VAD decision
+# useVAD: False  # if True, update the SCMs based on a VAD decision
+noiseONOFFperiod: 0.5  # period of noise ON/OFF switching in seconds (only used if `useVAD` is True and desired signals are `random`)
+vadThreshold: 0.1  # threshold for VAD decision, relative to the energy of the latent desired signal
+vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
+
 # Online mode parameters
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {

@@ -91,6 +91,12 @@ class Parameters:
     refNodeForTInorm: int = 0  # reference node for TI normalization
     dMWFalternating: bool = False  # if True, use alternating discovery/estimation steps in dMWF
 
+    # VAD parameters
+    useVAD: bool = False  # if True, update the SCMs based on a VAD decision
+    noiseONOFFperiod: float = 0.5  # period of noise ON/OFF switching in seconds (only used if `useVAD` is True and desired signals are `random`)
+    vadThreshold: float = 0.1  # threshold for VAD decision, relative to the energy of the latent desired signal
+    vadSmoothingPeriod: float = 0.2  # smoothing period for VAD decision [s]
+
     # Online mode parameters
     frameDuration: float = 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
     beta: dict = field(default_factory=lambda: {'default': 0.99})  # forgetting factor for online SCM estimation
