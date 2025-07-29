@@ -32,9 +32,21 @@ METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-bas
 WHICH_NODES = 'all'  # 'all' or a list of node indices to process
 # WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
+# Metrics computation method:
+# - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
+#   seconds of signal using the filter at the frame considered
+#   (STOI is computed).
+# - 'recent_seconds' to compute metrics over the most recent `METRICS_OVER_FIRST_SECONDS`
+#   seconds of signal using the filter at the frame considered
+#   (STOI is not computed).
+METRICS_METHOD = 'entire_signal'
+METRICS_METHOD = 'recent_seconds'
+# NB: 'recent_seconds' can only be meaningfully used for online processing.
+#   For batch processing, we use 'entire_signal' by default.
+
 BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging)
 
-def main(resDir=resDir):
+def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPASS_STOI):
     """Main function (called by default when running script)."""
     # Load the results from the directory
     if resDir == 'latest':
@@ -63,10 +75,16 @@ def main(resDir=resDir):
         c: Parameters = results['cfg']  # Configuration parameters
         
         # Compute metrics over the first seconds of the signal
-        if c.desSigType == 'speech':
-            metricsOver = 10000 / c.fs  # First 10000 samples
+        # if c.desSigType == 'speech':
+        #     metricsOver = 10000 / c.fs  # First 10000 samples
+        # else:
+        #     metricsOver = METRICS_OVER_FIRST_SECONDS
+        if c.scmEstimation != 'online':
+            metricsMethod = 'entire_signal'  # Use entire signal for batch processing
         else:
-            metricsOver = METRICS_OVER_FIRST_SECONDS
+            metricsMethod = METRICS_METHOD  # Use the specified method for online processing
+        if metricsMethod == 'recent_seconds':
+            bypassStoi = True  # Bypass STOI computation for 'recent_seconds' method
 
         pp = PostProcessor(cfg=c)
         
@@ -80,7 +98,7 @@ def main(resDir=resDir):
         else:
             # Metrics to compute
             metricsToCompute = ['msew', 'msed', 'snr', 'ser']
-            if not BYPASS_STOI and c.domain == 'wola' and\
+            if not bypassStoi and c.domain == 'wola' and\
                 c.singleLine is None and c.desSigType == 'speech':  # speech enhancement scenario
                 metricsToCompute += ['stoi']
             if c.scmEstimation == 'online':
@@ -93,7 +111,13 @@ def main(resDir=resDir):
 
             print("\nComputing metrics...")
             t0 = time.time()
-            metrics = pp.get_metrics(results['W_netWide'], y, d, n, s, metricsToCompute, metricsOver)
+            metrics = pp.get_metrics(
+                results['W_netWide'],
+                y, d, n, s,
+                metricsToCompute,
+                metricsOver,
+                metricsMethod
+            )
             print(f"\nMetrics computed in {time.time() - t0:.2f} seconds.")
 
             # Export metrics to file
@@ -112,7 +136,14 @@ def main(resDir=resDir):
 class PostProcessor:
     cfg: Parameters = field(default_factory=lambda: Parameters())
 
-    def get_metrics(self, W_netWide, y, d, n=None, s=None, metricsToCompute=[], metricsOver=None):
+    def get_metrics(
+            self,
+            W_netWide,
+            y, d, n=None, s=None,
+            metricsToCompute=[],
+            metricsOver=None,
+            metricsMethod=None
+        ):
         c = self.cfg
 
         # Initialize `metrics` dictionary
@@ -127,7 +158,6 @@ class PostProcessor:
             metrics = dict([(metric, dict([
                 (alg, [None for _ in range(c.K)]) for alg in c.algos
             ])) for metric in metricsToCompute])
-
 
         def _apply_filter(Wk, x):
             if c.domain == 'wola':
@@ -156,22 +186,6 @@ class PostProcessor:
                     metrics_curr['stoi'] = stoi_any_fs(dk, dhatk, fs_sig=c.fs)
             return metrics_curr
         
-        # Get signals
-        if c.domain == 'wola':
-            msedOverFrames = int(c.fs * metricsOver / (c.nfft - c.nhop))
-            yc = y[..., :msedOverFrames]  # Centralized signal for MSEd computation
-            if 'snr' in metricsToCompute:
-                sc = s[..., :msedOverFrames]  # Centralized signal for MSEd computation
-                nc = n[..., :msedOverFrames]  # Centralized signal for MSEd computation
-            dkTD = [
-                c.get_istft(d[k, ..., :msedOverFrames])
-                for k in range(c.K)
-            ]  # Desired signal for node k
-        elif 'time' in c.domain:
-            samples = int(c.fs * metricsOver)
-            yc, sc, nc, dkTD = y[:, :samples], s[:, :samples], n[:, :samples], [d[k, :, :samples] for k in range(c.K)]
-
-        
         def _processing_loop(k, WcurrFrame, dkTD, silent=False):
             hWk = WcurrFrame['centralized'][k]
             basekwargs = dict(hWk=hWk, dk=dkTD[k])  # Common arguments for metric computation
@@ -196,6 +210,33 @@ class PostProcessor:
                     metricsCurrAlg[alg].append(_process(wCurr, **kwargs[alg]))
                     
             return metricsCurrAlg
+        
+        def _get_metrics_signals(startTime=0, endTime=None):
+            """Get metrics signals based on the processing domain."""
+            # Get metrics signals to be used for all frames
+            if endTime is None:
+                raise ValueError("endTime must be specified for metrics computation.")
+            if c.domain == 'wola':
+                idxBeg = int(startTime * c.fs / (c.nfft - c.nhop))
+                idxEnd = int(endTime * c.fs / (c.nfft - c.nhop))
+                yc = y[..., idxBeg:idxEnd]  # Centralized signal for MSEd computation
+                if 'snr' in metricsToCompute:
+                    sc = s[..., idxBeg:idxEnd]  # Centralized signal for MSEd computation
+                    nc = n[..., idxBeg:idxEnd]  # Centralized signal for MSEd computation
+                dkTD = [
+                    c.get_istft(d[k, ..., idxBeg:idxEnd])
+                    for k in range(c.K)
+                ]  # Desired signal for node k
+            elif 'time' in c.domain:
+                idxBeg = int(startTime * c.fs)
+                idxEnd = int(endTime * c.fs)
+                yc, sc, nc,  = y[:, idxBeg:idxEnd], s[:, idxBeg:idxEnd], n[:, idxBeg:idxEnd]
+                dkTD = [d[k, :, idxBeg:idxEnd] for k in range(c.K)]
+            return yc, sc, nc, dkTD
+
+        if metricsMethod == 'entire_signal':
+            # Get metrics signals to be used for all frames
+            yc, sc, nc, dkTD = _get_metrics_signals(endTime=metricsOver)
 
         # Process data for each node and each algorithm (and each time frame if online mode)
         for k in range(c.K):
@@ -203,6 +244,19 @@ class PostProcessor:
                 # Online-mode processing
                 for l, w in enumerate(W_netWide):
                     print(f"Computing metrics at node {k}, frame {l + 1}/{len(W_netWide)}...", end='\r')
+                    if metricsMethod == 'recent_seconds':
+                        if c.domain == 'wola':
+                            # Get metrics signals for the current frame
+                            yc, sc, nc, dkTD = _get_metrics_signals(
+                                startTime=np.amax((0, l * (c.nfft - c.nhop) / c.fs - metricsOver)),
+                                endTime=(l + 1) * (c.nfft - c.nhop) / c.fs
+                            )
+                        elif 'time' in c.domain:
+                            # Get metrics signals for the current frame
+                            yc, sc, nc, dkTD = _get_metrics_signals(
+                                startTime=np.amax((0, l * c.frameLength / c.fs - metricsOver)),
+                                endTime=(l + 1) * c.frameLength / c.fs
+                            )
                     metricsCurrAlg = _processing_loop(k, w, dkTD, silent=True)
                     for alg in c.algos:
                         for m in metricsToCompute:
