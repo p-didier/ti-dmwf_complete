@@ -25,8 +25,8 @@ baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 resDir = 'latest'  # <-- pick the latest results directory
 
 EXPORT = False  # If True, export the figures to files
-# FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
-FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
+FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
+# FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
 WHICH_NODES = 'all'  # 'all' or a list of node indices to process

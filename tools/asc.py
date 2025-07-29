@@ -214,7 +214,8 @@ class AcousticScenario:
                 )
             out = self.setup_time_domain()
             self.oQq, self.Qkq = _get_Qdims(self.obsMat)
-        
+            out = tuple(list(out) + [None, None, None])  # Add None for Ryy_dMWF_est, Rnn_dMWF_est, and Ryy_dMWF_dis, not used in time domain
+
         return out
     
     def steermat_green_anechoic(self, sensorsPos: np.ndarray, sourcesPos: np.ndarray) -> np.ndarray:
@@ -379,7 +380,7 @@ class AcousticScenario:
 
         # Define the acoustic scenario
         if c.dynamics == 'static' or c.scmEstimation != 'online':
-            return self.setup_wola_domain_static()
+            self.setup_wola_domain_static()
         
         elif c.dynamics == 'moving':
             # Dynamic scenario with always-active sources and random source movements
@@ -407,7 +408,7 @@ class AcousticScenario:
         # Compute SCMs (from steering matrices if oracle, from signals if batch)
         return self.compute_scms()
 
-    def setup_wola_domain_static(self, idxStart=0, idxEnd=0):
+    def setup_wola_domain_static(self, idxStart=0, idxEnd=-1):
         """Setup a static acoustic scenario in the WOLA domain."""
         c = self.cfg
         # Compute material absorption coefficients from T60
@@ -433,7 +434,6 @@ class AcousticScenario:
         self.apply_static_scenario(p, smIdx=[idxStart, idxEnd])
         # Store the parameters for later use
         self.scenarios.append(p)
-        # self.store_scenario_parameters(p)
 
     def compute_scms(self):
         """Compute the SCMs for the acoustic scenario."""
@@ -489,6 +489,7 @@ class AcousticScenario:
 
         elif c.scmEstimation == 'online':
             t0 = time.time()
+            Ryy_est, Rnn_est, Ryy_dis = None, None, None  # default -- no alternating dMWF
             # Online SCM estimation
             betas = list(set(c.beta.values()))
             Rss = [{
@@ -499,6 +500,15 @@ class AcousticScenario:
                 beta: 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
                 if l == 0 else None for beta in betas
             } for l in range(c.nFrames)]
+            flagAlternating = np.any('dmwf' in alg for alg in c.algos) and c.dMWFalternating
+            if flagAlternating:
+                # For alternating dMWF, we compute SCMs using every other frame
+                Rss_est = copy.deepcopy(Rss)
+                Rnn_est = copy.deepcopy(Rnn)
+                Rss_est[1] = {beta: Rss[0][beta] for beta in betas}
+                Rnn_est[1] = {beta: Rnn[0][beta] for beta in betas}
+                Rss_dis = copy.deepcopy(Rss)
+                Rnn_dis = copy.deepcopy(Rnn)
             for l in tqdm(range(1, c.nFrames), desc=f"Online SCM estimation"):
                 ssH = np.einsum('ji,ki->ijk', stack['s'][..., l], stack['s'][..., l].conj())
                 nnH = np.einsum('ji,ki->ijk', stack['n'][..., l], stack['n'][..., l].conj())
@@ -507,15 +517,39 @@ class AcousticScenario:
                     # Update the SCMs using the online estimation formula
                     Rss[l][beta] = beta * Rss[l - 1][beta] + (1 - beta) * ssH
                     Rnn[l][beta] = beta * Rnn[l - 1][beta] + (1 - beta) * nnH
+                    if l % 2 == 0 and flagAlternating:
+                        # If alternating dMWF, update the even frames only
+                        Rss_est[l][beta] = beta * Rss_est[l - 1][beta] + (1 - beta) * ssH
+                        Rnn_est[l][beta] = beta * Rnn_est[l - 1][beta] + (1 - beta) * nnH
+                        if l < c.nFrames - 1:
+                            Rss_est[l + 1][beta] = copy.deepcopy(Rss_est[l][beta])  # no update at the next frame
+                            Rnn_est[l + 1][beta] = copy.deepcopy(Rnn_est[l][beta])  # no update at the next frame
+                    elif l % 2 == 1 and flagAlternating:
+                        # If alternating dMWF, update the odd frames only
+                        Rss_dis[l][beta] = beta * Rss_dis[l - 1][beta] + (1 - beta) * ssH
+                        Rnn_dis[l][beta] = beta * Rnn_dis[l - 1][beta] + (1 - beta) * nnH
+                        if l < c.nFrames - 1:
+                            Rss_dis[l + 1][beta] = copy.deepcopy(Rss_dis[l][beta])  # no update at the next frame
+                            Rnn_dis[l + 1][beta] = copy.deepcopy(Rnn_dis[l][beta])  # no update at the next frame
             Ryy = [
                 {beta: Rss[l][beta] + Rnn[l][beta] for beta in betas}
                 for l in range(c.nFrames)
             ]
+            if flagAlternating:
+                # If alternating dMWF, combine the even and odd frames
+                Ryy_est = [
+                    {beta: Rss_est[l][beta] + Rnn_est[l][beta] for beta in betas}
+                    for l in range(c.nFrames)
+                ]
+                Ryy_dis = [
+                    {beta: Rss_dis[l][beta] + Rnn_dis[l][beta] for beta in betas}
+                    for l in range(c.nFrames)
+                ]
             print(f"Online SCM estimation done in {time.time() - t0:.2f} s.")
         else:
             raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
 
-        return Ryy, Rss, Rnn, stack['s'], stack['n']
+        return Ryy, Rss, Rnn, stack['s'], stack['n'], Ryy_est, Rnn_est, Ryy_dis
 
     def plot(self):
         """Export the environment to a TXT file and to a plot."""
@@ -709,6 +743,8 @@ class AcousticScenario:
         c = self.cfg  # Configuration object
         if smIdx is None:
             smIdx = np.array([0, c.N - 1], dtype=int)  # Default indices for the whole signal
+        if smIdx[-1] == -1:
+            smIdx[-1] = c.N - 1
         # Apply the room impulse responses to the latent signals
         for k in range(c.K):
             # Get the indices of the microphones for this node

@@ -75,11 +75,11 @@ T: 30.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
-# noiseSigType: random  # random, babble, or ssn
-noiseSigType: babble  # random, babble, or ssn
+noiseSigType: random  # random, babble, or ssn
+# noiseSigType: babble  # random, babble, or ssn
 # noiseSigType: ssn  # random, babble, or ssn
-desSigType: speech  # speech or noise
-# desSigType: random  # speech or noise
+# desSigType: speech  # speech or noise
+desSigType: random  # speech or noise
 ssnDatabasePath: "C:/Users/pdidier/Dropbox/PC/Documents/sounds-phd/02_data/00_raw_signals/02_noise/ssn"  # path to the SSN database
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
@@ -101,16 +101,16 @@ mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
 # gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
 gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
-# DANSEiterEveryXframes: 10  # DANSE iteration every X frames
-DANSEiterEveryXframes: 1  # DANSE iteration every X frames
-dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
-# dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
+DANSEiterEveryXframes: 10  # DANSE iteration every X frames
+# DANSEiterEveryXframes: 1  # DANSE iteration every X frames
+# dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
+dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 
 # Online mode parameters
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
-    # default: 0.975,
-    default: 0.985,
+    default: 0.975,
+    # default: 0.985,
     # default: 0.99,
     # tidmwf: 0.999,
 }  # forgetting factor for online processing
@@ -121,4 +121,4 @@ singleLine: 20  # if not None, only process this frequency line in WOLA domain
 
 seed: 43  # random number generator seed
 # suffix: 'test'  # output file suffix
-suffix: 'testing_dynamics'  # output file suffix
+suffix: 'saa_withoutdMWFalternating'  # output file suffix

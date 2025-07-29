@@ -34,8 +34,8 @@ class Run:
             graph = nx.minimum_spanning_tree(graph)
 
         # Launch algorithms
-        Ryy, Rss, Rnn, s, n = asc.setup()
-        
+        Ryy, Rss, Rnn, s, n, Ryy_dMWF_est, Rnn_dMWF_est, Ryy_dMWF_dis = asc.setup()
+
         # Iterative variables for DANSE-like algorithms
         algDims = {
             'danse': c.Mk + c.Qd * (c.K - 1),
@@ -96,7 +96,10 @@ class Run:
                     asc, graph,
                     ivIn=iv,
                     silent=True,
-                    scenarioIdx=scenarioIdx
+                    scenarioIdx=scenarioIdx,
+                    Ryy_dMWF_estAll=Ryy_dMWF_est[l],
+                    Rnn_dMWF_estAll=Rnn_dMWF_est[l],
+                    Ryy_dMWF_disAll=Ryy_dMWF_dis[l],
                 )
                 # Feedback loop: update iterative variables for DANSE-like algorithms
                 for alg in ivOut.keys():
@@ -136,7 +139,10 @@ class Run:
             asc: AcousticScenario, G,
             ivIn=None,
             silent=False,
-            scenarioIdx=0
+            scenarioIdx=0,
+            Ryy_dMWF_estAll=None,
+            Rnn_dMWF_estAll=None,
+            Ryy_dMWF_disAll=None,
         ):
         """
         Launch algorithms.
@@ -150,6 +156,9 @@ class Run:
             ivDANSE (dict[str, dict]): Iterative variables for each DANSE algorithm.
             silent (bool): If True, suppress output messages.
             scenarioIdx (int): Index of the current scenario (for dynamic scenarios).
+            Ryy_dMWF_estAll (dict[float, np.ndarray]): Full signal covariance matrix for dMWF estimation step with alternating discovery and estimation steps.
+            Rnn_dMWF_estAll (dict[float, np.ndarray]): Noise signal covariance matrix for dMWF estimation step with alternating discovery and estimation steps.
+            Ryy_dMWF_disAll (dict[float, np.ndarray]): Full signal covariance matrix for dMWF discovery step with alternating discovery and estimation steps.
         """
         c = self.cfg
         W_netWide = dict([(alg, [
@@ -165,6 +174,10 @@ class Run:
                 Ryy = RyyAll[c.beta[alg]]
                 Rss = RssAll[c.beta[alg]]
                 Rnn = RnnAll[c.beta[alg]]
+                # The `else Ryy` part is used for the case where Ryy_dMWF_estAll, Rnn_dMWF_estAll, and Ryy_dMWF_disAll are None
+                Ryy_dMWF_est = Ryy_dMWF_estAll[c.beta[alg]] if Ryy_dMWF_estAll is not None else Ryy
+                Rnn_dMWF_est = Rnn_dMWF_estAll[c.beta[alg]] if Rnn_dMWF_estAll is not None else Rnn
+                Ryy_dMWF_dis = Ryy_dMWF_disAll[c.beta[alg]] if Ryy_dMWF_disAll is not None else Ryy
             else:
                 Ryy = RyyAll
                 Rss = RssAll
@@ -189,7 +202,7 @@ class Run:
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
-                    Ryqyq = Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
+                    Ryqyq = Ryy_dMWF_dis[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
                     Ryqrhoq = self.init_full((c.nPosFreqs, c.Mk, scn.oQq[q]))
                     for p in range(c.K):
                         if p == q:
@@ -198,7 +211,7 @@ class Run:
                         Eqps[:scn.Qkq[q, p], :scn.Qkq[q, p]] = np.eye(scn.Qkq[q, p])
                         # Pad with ones
                         Eqps[scn.Qkq[q, p]:, scn.Qkq[q, p]:] = np.ones((c.Mk - scn.Qkq[q, p], scn.oQq[q] - scn.Qkq[q, p]))
-                        Ryqrhoq += Ryy[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
+                        Ryqrhoq += Ryy_dMWF_dis[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
                     Pk[q] = self.filtup(Ryqyq, Rss=Ryqrhoq)
                 # Estimation filters
                 for k in range(c.K):
@@ -214,8 +227,8 @@ class Run:
                             Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
                             idxNei += 1
                     # Compute the filters
-                    tRyy = herm(Ck) @ Ryy @ Ck
-                    tRnn = herm(Ck) @ Rnn @ Ck
+                    tRyy = herm(Ck) @ Ryy_dMWF_est @ Ck
+                    tRnn = herm(Ck) @ Rnn_dMWF_est @ Ck
                     tW = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)[..., :c.D]
                     W_netWide[alg][k] = Ck @ tW
 
