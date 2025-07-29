@@ -252,8 +252,7 @@ class AcousticScenario:
             if c.domain == 'time':
                 Amat = np.abs(Amat)
                 Bmat = np.abs(Bmat)
-        # slat = c.randmat((c.Qd, c.N))
-        # nlat = c.randmat((c.Qn, c.N))
+        
         slat = self.gen_latent_desired(n=c.Qd)
         nlat = self.get_latent_noise(n=c.Qn)
         pows = np.mean(np.abs(slat) ** 2, axis=1)
@@ -298,6 +297,57 @@ class AcousticScenario:
         n = Bmat @ nlat
         v = c.randmat((c.M, c.N)) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         n += v  # add self-noise to noise signal
+
+        if 1:
+            self.latentDesired = slat
+            self.latentNoise = nlat
+            rd = [c.roomLength, c.roomWidth, c.roomHeight]
+            if c.t60 == 0:
+                maxOrd = 0
+                eAbs = 0.5  # <-- arbitrary
+            else:
+                eAbs, maxOrd = pra.inverse_sabine(c.t60, rd)
+            room = pra.ShoeBox(
+                rd,
+                fs=c.fs,
+                max_order=maxOrd,
+                air_absorption=True if c.t60 > 0 else False,
+                materials=pra.Material(eAbs),
+                use_rand_ism=False
+            )
+            # Generate the WASN parameters
+            p: StaticScenarioParameters = self.define_static_scenario(room)
+            for m in range(c.M):
+                for ii in range(c.Q):
+                    tmp = np.zeros(c.nfft)
+                    tmp[np.random.randint(0, 100)] = 1  # Randomly place a single impulse
+                    p.rirs[m][ii] = tmp
+            self.nodes = [
+                Node(
+                    idx=k,
+                    td={
+                        'y': np.zeros((c.Mk, c.N)),
+                        's': np.zeros((c.Mk, c.N)),
+                        'n': np.zeros((c.Mk, c.N)),
+                        'sn': np.zeros((c.Mk, c.N)),
+                        'sIndiv': np.zeros((c.Qd, c.Mk, c.N)),
+                        'nIndiv': np.zeros((c.Qn, c.Mk, c.N)),
+                    }
+                )
+                for k in range(c.K)
+            ]
+            self.apply_static_scenario(p, smIdx=[0, -1])
+            s = np.vstack([
+                node.td['s'] for node in self.nodes
+            ])
+            n = np.vstack([
+                node.td['n'] for node in self.nodes
+            ])
+            n += np.real(v)
+
+        s = c.get_stft(s)[..., 0, :]  # STFT of the desired signals
+        n = c.get_stft(n)[..., 0, :]  # STFT of the desired signals
+        v = c.get_stft(np.real(v))[..., 0, :]  # STFT of the desired signals
 
         # Compute the SCMs
         if c.scmEstimation == 'oracle':
@@ -628,6 +678,7 @@ class AcousticScenario:
     def plot(self):
         """Export the environment to a TXT file and to a plot."""
         c = self.cfg
+        scn = self.scenarios[0]  # Use the first scenario for plotting
         # Make a plot of the environment
         if c.onPlane:
             figObs, axes = plt.subplots(1, 1)
@@ -639,20 +690,26 @@ class AcousticScenario:
             axes.plot([0, c.roomLength], [c.roomWidth, c.roomWidth], 'k-')
             # Plot the nodes
             for k in range(c.K):
-                # axes.plot(self.nodesPos[k, 0], self.nodesPos[k, 1], 'ro', markersize=2)
-                axes.text(self.nodesPos[k, 0] + c.nodeRadius, self.nodesPos[k, 1] + c.nodeRadius, str(k+1))
+                # axes.plot(scn.nodesPos[k, 0], scn.nodesPos[k, 1], 'ro', markersize=2)
+                axes.text(scn.nodesPos[k, 0] + c.nodeRadius, scn.nodesPos[k, 1] + c.nodeRadius, str(k+1))
             # Plot the sensors
             for k in range(c.K):
                 for m in range(c.Mk):
                     axes.plot(
-                        self.sensorsPos[k * c.Mk + m, 0],
-                        self.sensorsPos[k * c.Mk + m, 1],
+                        scn.sensorsPos[k * c.Mk + m, 0],
+                        scn.sensorsPos[k * c.Mk + m, 1],
                         'ko', markersize=2
+                    )
+                    # Add text
+                    axes.text(
+                        scn.sensorsPos[k * c.Mk + m, 0] + c.nodeRadius,
+                        scn.sensorsPos[k * c.Mk + m, 1] + c.nodeRadius,
+                        f'{k+1}.{m+1}'
                     )
             # Add circle around the nodes 
             for k in range(c.K):
                 circle = plt.Circle(
-                    (self.nodesPos[k, 0], self.nodesPos[k, 1]),
+                    (scn.nodesPos[k, 0], scn.nodesPos[k, 1]),
                     c.nodeRadius * 1.2,
                     color='k',
                     fill=True,
@@ -664,18 +721,18 @@ class AcousticScenario:
             # Plot the sources
             for ii in range(c.Qd):
                 axes.plot(
-                    self.speechSourcesPos[ii, 0],
-                    self.speechSourcesPos[ii, 1], 'go')
+                    scn.speechSourcesPos[ii, 0],
+                    scn.speechSourcesPos[ii, 1], 'go')
                 axes.text(
-                    self.speechSourcesPos[ii, 0],
-                    self.speechSourcesPos[ii, 1], f'S{ii+1}')
+                    scn.speechSourcesPos[ii, 0],
+                    scn.speechSourcesPos[ii, 1], f'S{ii+1}')
             for ii in range(c.Qn):
                 axes.plot(
-                    self.noiseSourcesPos[ii, 0],
-                    self.noiseSourcesPos[ii, 1], 'rd')
+                    scn.noiseSourcesPos[ii, 0],
+                    scn.noiseSourcesPos[ii, 1], 'rd')
                 axes.text(
-                    self.noiseSourcesPos[ii, 0],
-                    self.noiseSourcesPos[ii, 1], f'N{ii+1}')
+                    scn.noiseSourcesPos[ii, 0],
+                    scn.noiseSourcesPos[ii, 1], f'N{ii+1}')
             # Plot the observability matrix
             axes.grid()
             axes.set_aspect('equal')
@@ -688,18 +745,18 @@ class AcousticScenario:
             # Add lines between nodes and sources to indicate observability
             for k in range(c.K):
                 for ii in range(c.Qd + c.Qn):
-                    if self.obsMat[k, ii] == 1:
+                    if scn.obsMat[k, ii] == 1:
                         if ii < c.Qd:
                             axes.plot(
-                                [self.nodesPos[k, 0], self.speechSourcesPos[ii, 0]],
-                                [self.nodesPos[k, 1], self.speechSourcesPos[ii, 1]],
+                                [scn.nodesPos[k, 0], scn.speechSourcesPos[ii, 0]],
+                                [scn.nodesPos[k, 1], scn.speechSourcesPos[ii, 1]],
                                 'g:',
                                 alpha=0.5
                             )
                         else:
                             axes.plot(
-                                [self.nodesPos[k, 0], self.noiseSourcesPos[ii - c.Qd, 0]],
-                                [self.nodesPos[k, 1], self.noiseSourcesPos[ii - c.Qd, 1]],
+                                [scn.nodesPos[k, 0], scn.noiseSourcesPos[ii - c.Qd, 0]],
+                                [scn.nodesPos[k, 1], scn.noiseSourcesPos[ii - c.Qd, 1]],
                                 'r:',
                                 alpha=0.5
                             )
@@ -863,6 +920,7 @@ class AcousticScenario:
                     ]
             self.nodes[k].td['s'] = np.sum(self.nodes[k].td['sIndiv'], axis=0)
             self.nodes[k].td['n'] = np.sum(self.nodes[k].td['nIndiv'], axis=0)
+        pass
 
     def define_layout(self):
         """Define the layout of the acoustic scenario."""

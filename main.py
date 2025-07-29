@@ -29,10 +29,10 @@ TEST_SET = [
     #     'scmEstimation': 'oracle',
     #     'observability': 'foss',
     # },
-    {
-        'scmEstimation': 'oracle',
-        'observability': 'poss',
-    },
+    # {
+    #     'scmEstimation': 'oracle',
+    #     'observability': 'poss',
+    # },
     # {
     #     'scmEstimation': 'batch',
     #     'observability': 'foss',

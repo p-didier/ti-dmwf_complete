@@ -285,7 +285,6 @@ class Run:
                     onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
                 gamma = ivIn[alg]['gamma']  # normalization factor for TI-DANSE
 
-
                 W_netWide[alg] = [[] for _ in range(c.K)]
                 for i in range(c.maxDANSEiter):
                     if not silent:
@@ -389,6 +388,22 @@ class Run:
                         
                         tRyyPrev[k] = tRyy
                         tRnnPrev[k] = tRnn
+                        
+                        # print(np.linalg.cond(Ryy[..., :, :]))
+
+                        if np.linalg.matrix_rank(tRyy) < c.Mk + c.Qd * (c.K - 1):
+                            def find_dependent_columns(A, tol=1e-10):
+                                Q, R = np.linalg.qr(A)
+                                # Look at the diagonal of R — near-zero values indicate linear dependence
+                                diag_R = np.abs(np.diag(R))
+                                independent = diag_R > tol
+                                dependent_indices = [i for i, x in enumerate(independent) if not x]
+                                return dependent_indices
+
+                            # Example
+                            # print(find_dependent_columns(np.concatenate(tuple(Pk), axis=1)))  # Output: [2]
+
+                            pass
                         
                         # Update the filters
                         if (k == u or alg.startswith("rsdanse")) and onlineModeCriterion:

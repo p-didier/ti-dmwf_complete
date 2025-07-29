@@ -12,8 +12,8 @@ possDiffuse: False  # if True and observability is 'foss', the
     # noise sources are assumed only local, i.e., uncorrelated across nodes
 ###########################
 # domain: time  # domain of the signals, 'time', or 'time_complex', or 'wola'
-domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
-# domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
+# domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
+domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
 ##########################
 TDsteeringMats: random  # type of steering matrices in time domain
 # TDsteeringMats: anechoic  # type of steering matrices in time domain
