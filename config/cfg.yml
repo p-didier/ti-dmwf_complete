@@ -17,10 +17,12 @@ domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
 ##########################
 TDsteeringMats: random  # type of steering matrices in time domain
 # TDsteeringMats: anechoic  # type of steering matrices in time domain
-roomLength: 7.0  # length of the room in meters
-roomWidth: 7.0   # width of the room in meters
+roomLength: 5.0  # length of the room in meters
+roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.1  # radius of the node in meters
+onPlane: True  # if True, all elements are on the same plane
+# onPlane: False  # if True, all elements are on the same plane
 # t60: 0.          # reverberation time in seconds
 t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
@@ -117,20 +119,20 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
     # default: 0.975,
-    # default: 0.985,
-    default: 0.99,
+    default: 0.985,
+    # default: 0.999,
     # dmwf: 0.95,
 }  # forgetting factor for online processing
 
 # Debug
 # singleLine: null  # if not None, only process this frequency line in WOLA domain
 singleLine: 20  # if not None, only process this frequency line in WOLA domain
-unconstrainedRandomPositions: True  # if True, allow random positions for sources
-# unconstrainedRandomPositions: False  # if True, allow random positions for sources
+# unconstrainedRandomPositions: True  # if True, allow random positions for sources
+unconstrainedRandomPositions: False  # if True, allow random positions for sources
 wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 # wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 
 seed: 43  # random number generator seed
-# suffix: 'test'  # output file suffix
-suffix: 'saa_reverb_randomSensorPos'  # output file suffix
+suffix: 'test'  # output file suffix
+# suffix: 'saa_reverb_randomSensorPos'  # output file suffix
 # suffix: 'wideband_speech_testrun'  # output file suffix

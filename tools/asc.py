@@ -77,12 +77,10 @@ class Node(SignalContainer):
         }
         if c.domain == 'wola':
             self.wd = {
-                'y': np.zeros((c.nPosFreqs, c.Mk, c.N), dtype=complex),
-                's': np.zeros((c.nPosFreqs, c.Mk, c.N), dtype=complex),
-                'n': np.zeros((c.nPosFreqs, c.Mk, c.N), dtype=complex),
-                'sn': np.zeros((c.nPosFreqs, c.Mk, c.N), dtype=complex),
-                'sIndiv': np.zeros((c.nPosFreqs, c.Qd, c.Mk, c.N), dtype=complex),
-                'nIndiv': np.zeros((c.nPosFreqs, c.Qn, c.Mk, c.N), dtype=complex),
+                'y': np.zeros((c.Mk, c.nPosFreqs, c.nFrames), dtype=complex),
+                's': np.zeros((c.Mk, c.nPosFreqs, c.nFrames), dtype=complex),
+                'n': np.zeros((c.Mk, c.nPosFreqs, c.nFrames), dtype=complex),
+                'sn': np.zeros((c.Mk, c.nPosFreqs, c.nFrames), dtype=complex)
             }
 
 @dataclass
@@ -236,6 +234,8 @@ class AcousticScenario:
         
         for s in self.scenarios:
             s.oQq, s.Qkq = _get_Qdims(s.obsMat)
+
+        # self.plot()
 
         return out
     
@@ -609,12 +609,14 @@ class AcousticScenario:
 
             for l in tqdm(range(1, c.nFrames), desc=f"Online SCM estimation"):
                 yyH = np.einsum('ji,ki->ijk', stack['y'][..., l], stack['y'][..., l].conj())
+                # ssH = np.einsum('ji,ki->ijk', stack['s'][..., l], stack['s'][..., l].conj())
                 nnH = np.einsum('ji,ki->ijk', stack['n'][..., l], stack['n'][..., l].conj())
                 # Update the SCMs using the online estimation formula
                 for beta in betas:
                     kwargs = {
                         'beta': beta,
-                        'yyH': yyH,
+                        # 'yyH': yyH,
+                        'ssH': ssH,
                         'nnH': nnH,
                         'vad': vadSTFT[:, l] if c.useVAD else None
                     }
@@ -726,12 +728,12 @@ class AcousticScenario:
                         scn.sensorsPos[k * c.Mk + m, 1],
                         'ko', markersize=2
                     )
-                    # Add text
-                    axes.text(
-                        scn.sensorsPos[k * c.Mk + m, 0] + c.nodeRadius,
-                        scn.sensorsPos[k * c.Mk + m, 1] + c.nodeRadius,
-                        f'{k+1}.{m+1}'
-                    )
+                    # # Add text
+                    # axes.text(
+                    #     scn.sensorsPos[k * c.Mk + m, 0] + c.nodeRadius,
+                    #     scn.sensorsPos[k * c.Mk + m, 1] + c.nodeRadius,
+                    #     f'{k+1}.{m+1}'
+                    # )
             # Add circle around the nodes 
             for k in range(c.K):
                 circle = plt.Circle(
@@ -788,7 +790,69 @@ class AcousticScenario:
                             )
             axes.set_title(f"Observabilities")
         else:
-            print("Plotting not implemented for 3D environments.")
+            # Plot in a 3D space
+            figObs = plt.figure()
+            figObs.set_size_inches(5.5, 5.5)
+            ax = figObs.add_subplot(111, projection='3d')
+            # Plot the room
+            if 1:
+                ax.plot([0, c.roomLength], [0, 0], [0, 0], 'k-', alpha=0.5)
+                ax.plot([0, 0], [0, c.roomWidth], [0, 0], 'k-', alpha=0.5)
+                ax.plot([c.roomLength, c.roomLength], [0, c.roomWidth], [0, 0], 'k-', alpha=0.5)
+                ax.plot([0, c.roomLength], [c.roomWidth, c.roomWidth], [0, 0], 'k-', alpha=0.5)
+                ax.plot([0, 0], [0, 0], [0, c.roomHeight], 'k-', alpha=0.5)
+                ax.plot([0, 0], [c.roomWidth, c.roomWidth], [0, c.roomHeight], 'k-', alpha=0.5)
+                ax.plot([c.roomLength, c.roomLength], [0, 0], [0, c.roomHeight], 'k-', alpha=0.5)
+                ax.plot([c.roomLength, c.roomLength], [c.roomWidth, c.roomWidth], [0, c.roomHeight], 'k-', alpha=0.5)
+                ax.plot([0, c.roomLength], [0, 0], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+                ax.plot([0, 0], [0, c.roomWidth], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+                ax.plot([c.roomLength, c.roomLength], [0, 0], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+                ax.plot([0, c.roomLength], [c.roomWidth, c.roomWidth], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+                ax.plot([c.roomLength, c.roomLength], [0, c.roomWidth], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+            # Plot the nodes
+            for k in range(c.K):
+                ax.plot(
+                    scn.nodesPos[k, 0], scn.nodesPos[k, 1], scn.nodesPos[k, 2],
+                    'bo', markersize=2 * 50 * c.nodeRadius, alpha=0.5
+                )
+                ax.text(scn.nodesPos[k, 0] + c.nodeRadius, scn.nodesPos[k, 1] + c.nodeRadius, scn.nodesPos[k, 2] + c.nodeRadius, str(k+1))
+                # Add vertical line from node to the floor
+                ax.plot(
+                    [scn.nodesPos[k, 0], scn.nodesPos[k, 0]],
+                    [scn.nodesPos[k, 1], scn.nodesPos[k, 1]],
+                    [0, scn.nodesPos[k, 2]], 'k--', alpha=0.5
+                )
+            # Plot the sensors
+            for k in range(c.K):
+                for m in range(c.Mk):
+                    ax.plot(
+                        scn.sensorsPos[k * c.Mk + m, 0],
+                        scn.sensorsPos[k * c.Mk + m, 1],
+                        scn.sensorsPos[k * c.Mk + m, 2],
+                        'ko', markersize=2
+                    )
+            # Plot the sources
+            for ii in range(c.Qd):
+                ax.plot(
+                    scn.speechSourcesPos[ii, 0],
+                    scn.speechSourcesPos[ii, 1],
+                    scn.speechSourcesPos[ii, 2], 'go')
+                ax.text(
+                    scn.speechSourcesPos[ii, 0],
+                    scn.speechSourcesPos[ii, 1],
+                    scn.speechSourcesPos[ii, 2], f'S{ii+1}')
+            for ii in range(c.Qn):
+                ax.plot(
+                    scn.noiseSourcesPos[ii, 0],
+                    scn.noiseSourcesPos[ii, 1],
+                    scn.noiseSourcesPos[ii, 2], 'rd')
+                ax.text(
+                    scn.noiseSourcesPos[ii, 0],
+                    scn.noiseSourcesPos[ii, 1],
+                    scn.noiseSourcesPos[ii, 2], f'N{ii+1}')
+            ax.set_xlabel('Length [m]')
+            ax.set_ylabel('Width [m]')
+            ax.set_zlabel('Height [m]')
         return fig, figObs
 
     def store_scenario_parameters(self, p: StaticScenarioParameters):

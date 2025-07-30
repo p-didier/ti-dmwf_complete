@@ -114,10 +114,12 @@ class Parameters:
     def __post_init__(self):
         np.random.seed(self.seed)
         self.N = int(self.fs * self.T)
+
+        if self.domain == 'wola':
+            self.frameDuration = (self.nfft - self.nhop) / self.fs  # frame length in seconds
+        self.nFrames = int(np.ceil(self.T / self.frameDuration)) + 1  # number of frames for online processing
+        
         if self.scmEstimation == 'online':
-            if self.domain == 'wola':
-                self.frameDuration = (self.nfft - self.nhop) / self.fs  # frame length in seconds
-            self.nFrames = int(np.floor(self.T / self.frameDuration))  # number of frames for online processing
             # TODO: improve that vvvv
             self.maxDANSEiter = 1  # one iteration per frame for online processing
         # Adjust beta's dictionary

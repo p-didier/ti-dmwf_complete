@@ -76,6 +76,45 @@ class Run:
         if c.scmEstimation == 'online':
             W_netWide = [None for _ in range(c.nFrames)]
             for l in tqdm(range(c.nFrames), desc="Processing frames"):
+                if 0:
+                    # New SCM estimates
+                    yyH = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())
+                    nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
+                    # Update the SCMs using the online estimation formula
+                    for beta in betas:
+                        kwargs = {
+                            'beta': beta,
+                            'yyH': yyH,
+                            'nnH': nnH,
+                            'vad': vadSTFT[:, l] if c.useVAD else None
+                        }
+                        # Update the SCMs using the online estimation formula
+                        Ryy[l][beta], Rnn[l][beta] = single_update_scm(
+                            Ryy[l - 1][beta],
+                            Rnn[l - 1][beta],
+                            **kwargs
+                        )
+                        if l % 2 == 0 and flagAlternating:
+                            # If alternating dMWF, update the dMWF estimation SCMs
+                            # using the even frames only
+                            Ryy_est[l][beta], Rnn_est[l][beta] = single_update_scm(
+                                Ryy_est[l - 1][beta],
+                                Rnn_est[l - 1][beta],
+                                **kwargs
+                            )
+                            if l < c.nFrames - 1:
+                                Ryy_est[l + 1][beta] = copy.deepcopy(Ryy_est[l][beta])  # no update at the next frame
+                                Rnn_est[l + 1][beta] = copy.deepcopy(Rnn_est[l][beta])  # no update at the next frame
+                        elif l % 2 == 1 and flagAlternating:
+                            # If alternating dMWF, update the dMWF discovery SCMs
+                            # using the odd frames only
+                            Ryy_dis[l][beta], _ = single_update_scm(
+                                Ryy_dis[l - 1][beta],
+                                None,
+                                **kwargs
+                            )
+                            if l < c.nFrames - 1:
+                                Ryy_dis[l + 1][beta] = copy.deepcopy(Ryy_dis[l][beta])  # no update at the next frame
                 # Current frame information
                 iv['frameIdx'] = l
                 iv['vad'] = vadSTFT[:, l] if c.useVAD else None
@@ -388,23 +427,7 @@ class Run:
                         
                         tRyyPrev[k] = tRyy
                         tRnnPrev[k] = tRnn
-                        
-                        # print(np.linalg.cond(Ryy[..., :, :]))
 
-                        if np.linalg.matrix_rank(tRyy) < c.Mk + c.Qd * (c.K - 1):
-                            def find_dependent_columns(A, tol=1e-10):
-                                Q, R = np.linalg.qr(A)
-                                # Look at the diagonal of R — near-zero values indicate linear dependence
-                                diag_R = np.abs(np.diag(R))
-                                independent = diag_R > tol
-                                dependent_indices = [i for i, x in enumerate(independent) if not x]
-                                return dependent_indices
-
-                            # Example
-                            # print(find_dependent_columns(np.concatenate(tuple(Pk), axis=1)))  # Output: [2]
-
-                            pass
-                        
                         # Update the filters
                         if (k == u or alg.startswith("rsdanse")) and onlineModeCriterion:
                             # Compute the filter
@@ -438,10 +461,8 @@ class Run:
                     if alg.startswith("tidanse"): # and c.scmEstimation == 'online':
                         # Update anyway, always, at the reference node
                         r = c.refNodeForTInorm
-                        # r = u
                         tWr = self.filtup(tRyyPrev[r], tRnnPrev[r], gevd=c.gevd, gevdRank=c.Qd)
                         gamma = tWr[..., c.Mk:, :c.Qd]
-                        # gamma = np.array([np.eye(c.Qd) for _ in range(c.nPosFreqs)]) if c.domain == 'wola' else np.eye(c.Qd)
                 
                     # Update the updating node index for next iteration
                     if onlineModeCriterion:
@@ -452,7 +473,6 @@ class Run:
                     'Pk': Pk,
                     'WkkPrev_rS': WkkPrev_rS,
                     'Wk': Wk,  # Last filter for each node
-                    # 'W_NW': [w[-1] for w in W_netWide[alg]],  # Last filter for each node
                     'u': u,
                     'tRyy': tRyyPrev,
                     'tRnn': tRnnPrev,

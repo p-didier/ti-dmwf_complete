@@ -25,26 +25,26 @@ plt.ion()  # interactive mode on
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
 TEST_SET = [
-    # {
-    #     'scmEstimation': 'oracle',
-    #     'observability': 'foss',
-    # },
-    # {
-    #     'scmEstimation': 'oracle',
-    #     'observability': 'poss',
-    # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'foss',
-    # },
+    {
+        'scmEstimation': 'oracle',
+        'observability': 'foss',
+    },
+    {
+        'scmEstimation': 'oracle',
+        'observability': 'poss',
+    },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'foss',
+    },
     {
         'scmEstimation': 'batch',
         'observability': 'poss',
     },
-    # {
-    #     'scmEstimation': 'online',
-    #     'observability': 'foss',
-    # },
+    {
+        'scmEstimation': 'online',
+        'observability': 'foss',
+    },
     {
         'scmEstimation': 'online',
         'observability': 'poss',
