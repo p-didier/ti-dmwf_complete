@@ -17,7 +17,11 @@ from tools.algos import herm
 import matplotlib.pyplot as plt
 from mypystoi import stoi_any_fs
 from tools.base import Parameters
+from screeninfo import get_monitors
 from dataclasses import dataclass, field
+
+import matplotlib
+# matplotlib.use('TkAgg')  # or 'Qt5Agg' (must be set before importing pyplot)
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
@@ -25,8 +29,8 @@ baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 resDir = 'latest'  # <-- pick the latest results directory
 
 EXPORT = False  # If True, export the figures to files
-FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
-# FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
+# FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
+FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
 WHICH_NODES = 'all'  # 'all' or a list of node indices to process
@@ -46,6 +50,9 @@ METRICS_METHOD = 'recent_seconds'
 
 BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging)
 
+n_per_col = 2  # Number of figures per column
+margin = 100  # Margin between figures in pixels
+
 def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPASS_STOI):
     """Main function (called by default when running script)."""
     # Load the results from the directory
@@ -64,8 +71,21 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
     if not listOfFiles:
         print(f"No results found in {resDir}. Please run main.py first.")
         sys.exit(1)
+
+    # Derive appropriate figure size and position based on screen resolution
+    screen_index = get_largest_screen_index()
+    monitors = get_monitors()
+    if screen_index >= len(monitors):
+        raise ValueError(f"Invalid screen_index {screen_index}. Only {len(monitors)} screens detected.")
+    screen = monitors[screen_index]
+    screen_x, screen_y = screen.x, screen.y
+    screen_w, screen_h = screen.width, screen.height
+    num_rows = n_per_col
+    num_cols = np.ceil(len(listOfFiles) / num_rows)
+    fig_w = (screen_w - (num_cols + 1) * margin) // num_cols
+    fig_h = (screen_h - (num_rows + 1) * margin) // num_rows
     
-    for file in listOfFiles:
+    for i, file in enumerate(listOfFiles):
 
         print(f"Loading results from {file}...")
         with open(file, 'rb') as f:
@@ -124,12 +144,20 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
             with open(metricsFile, 'wb') as f:
                 pickle.dump(metrics, f)
 
+        # Derive figure positioning parameters
+        col = i // num_rows
+        row = i % num_rows
+        pos_x = screen_x + margin + col * (fig_w + 10)
+        pos_y = screen_y + margin + row * (fig_h + 10)
         # Post-process results
-        fig = pp.plot_metrics(metrics)
+        fig = pp.plot_metrics(metrics, placement=[pos_x, pos_y, fig_w, fig_h])
         if EXPORT:
             fig.savefig(f"{c.outputDir}/metrics_{file.stem}.svg", dpi=300)
             fig.savefig(f"{c.outputDir}/metrics_{file.stem}.png", dpi=300)
-    
+
+    plt.show(block=False)  # Show all figures
+    print("Post-processing completed.")
+
     return 0
 
 @dataclass
@@ -271,7 +299,7 @@ class PostProcessor:
         
         return metrics
     
-    def plot_metrics(self, metrics: dict):
+    def plot_metrics(self, metrics: dict, placement: list):
         c = self.cfg
 
         def plot_h(ax, val, label, color='C0', marker='o'):
@@ -303,7 +331,7 @@ class PostProcessor:
             frameLength = int(c.frameDuration * c.fs)
 
         fig, axes = plt.subplots(1, len(metrics.keys()), sharex=True)
-        fig.set_size_inches(8.5, 3.5)
+        # Convert size from pixels to inches
         for ii, m in enumerate(metrics.keys()):
             ax = axes[ii] if len(metrics.keys()) > 1 else axes
             if m == 'stoi':
@@ -377,10 +405,36 @@ class PostProcessor:
             supti += f', {c.betaString}'
         fig.suptitle(supti)
         fig.tight_layout()
-        plt.show(block=False)
+        # plt.show(block=False)
 
+        backend = matplotlib.get_backend().lower()
+        manager = fig.canvas.manager
+        # Set position
+        fig_w, fig_h = placement[2], placement[3]
+        if 'tkagg' in backend:
+            manager.window.wm_geometry(f"{int(fig_w)}x{int(fig_h)}+{int(placement[0])}+{int(placement[1])}")
+        elif 'qt' in backend:
+            manager.window.setGeometry(placement[0], placement[1], fig_w, fig_h)
+        else:
+            print(f"Unsupported backend '{backend}' for window positioning.")
+
+        # plt.show(block=False)
         return fig
 
+
+def get_largest_screen_index():
+    """Returns the index of the largest screen."""
+    monitors = get_monitors()
+    # Fallback: return largest screen by area
+    largest_index = 0
+    largest_area = 0
+    for i, monitor in enumerate(monitors):
+        area = monitor.width * monitor.height
+        if area > largest_area:
+            largest_area = area
+            largest_index = i
+
+    return largest_index
 
 
 if __name__ == '__main__':
