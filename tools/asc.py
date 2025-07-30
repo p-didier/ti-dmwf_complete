@@ -317,11 +317,6 @@ class AcousticScenario:
             )
             # Generate the WASN parameters
             p: StaticScenarioParameters = self.define_static_scenario(room)
-            for m in range(c.M):
-                for ii in range(c.Q):
-                    tmp = np.zeros(c.nfft)
-                    tmp[np.random.randint(0, 100)] = 1  # Randomly place a single impulse
-                    p.rirs[m][ii] = tmp
             self.nodes = [
                 Node(
                     idx=k,
@@ -336,18 +331,35 @@ class AcousticScenario:
                 )
                 for k in range(c.K)
             ]
-            self.apply_static_scenario(p, smIdx=[0, -1])
-            s = np.vstack([
-                node.td['s'] for node in self.nodes
-            ])
-            n = np.vstack([
-                node.td['n'] for node in self.nodes
-            ])
-            n += np.real(v)
+            # self.apply_static_scenario(p, smIdx=[0, -1])
+            ## MANUALLY apply static scenario
+            fLineIdx = c.singleLine
+            Cmat = np.zeros((c.M, c.Q), dtype=complex)
+            for ii in range(c.Q):
+                rirs = np.array([p.rirs[m][ii] for m in range(c.M)])
+                tmp = np.fft.rfft(rirs, n=c.nfft, axis=-1)   # RIRs FFT => transfer functions
+                # Only use one frequency line
+                tmp = tmp[:, fLineIdx]
+                # Set the steering vectors of nodes that do not observe source ii to zero
+                for q in np.where(p.obsMat[:, ii] == 0)[0]:
+                    tmp[c.Mk * q:c.Mk * (q + 1)] = 0
+                Cmat[..., ii] = tmp
+            s = Cmat[..., :c.Qd] @ c.get_stft(slat)[..., 0, :]
+            n = Cmat[..., c.Qd:] @ c.get_stft(nlat)[..., 0, :]
+            v = c.get_stft(np.real(v))[..., 0, :]
+            n += v  # add self-noise to noise signal
 
-        s = c.get_stft(s)[..., 0, :]  # STFT of the desired signals
-        n = c.get_stft(n)[..., 0, :]  # STFT of the desired signals
-        v = c.get_stft(np.real(v))[..., 0, :]  # STFT of the desired signals
+        #     s = np.vstack([
+        #         node.td['s'] for node in self.nodes
+        #     ])
+        #     n = np.vstack([
+        #         node.td['n'] for node in self.nodes
+        #     ])
+        #     n += np.real(v)
+
+        # s = c.get_stft(s)[..., 0, :]  # STFT of the desired signals
+        # n = c.get_stft(n)[..., 0, :]  # STFT of the desired signals
+        # v = c.get_stft(np.real(v))[..., 0, :]  # STFT of the desired signals
 
         # Compute the SCMs
         if c.scmEstimation == 'oracle':
@@ -550,6 +562,36 @@ class AcousticScenario:
                 Rnn[f, ...] += np.diag(power_v[:, f])
             # Complete signal SCM
             Ryy = Rss + Rnn
+
+            if 0:
+                nFrames = stack['y'].shape[-1]
+                RyyBatch = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj()) / nFrames
+                RnnBatch = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
+                fig, axes = plt.subplots(2, 3)
+                fig.set_size_inches(8.5, 3.5)
+                mapp = axes[0, 0].imshow(np.abs(RyyBatch[0, ...]), aspect='auto')
+                fig.colorbar(mapp, ax=axes[0, 0])
+                axes[0, 0].set_title('RyyBatch')
+                mapp = axes[0, 1].imshow(np.abs(Ryy[0, ...]), aspect='auto')
+                fig.colorbar(mapp, ax=axes[0, 1])
+                axes[0, 1].set_title('RyyOracle')
+                mapp = axes[0, 2].imshow(np.abs(RyyBatch[0, ...] - Ryy[0, ...]), aspect='auto')
+                fig.colorbar(mapp, ax=axes[0, 2])
+                axes[0, 2].set_title('RyyDiff')
+                mapp = axes[1, 0].imshow(np.abs(RnnBatch[0, ...]), aspect='auto')
+                fig.colorbar(mapp, ax=axes[1, 0])
+                axes[1, 0].set_title('RnnBatch')
+                mapp = axes[1, 1].imshow(np.abs(Rnn[0, ...]), aspect='auto')
+                fig.colorbar(mapp, ax=axes[1, 1])
+                axes[1, 1].set_title('RnnOracle')
+                mapp = axes[1, 2].imshow(np.abs(RnnBatch[0, ...] - Rnn[0, ...]), aspect='auto')
+                fig.colorbar(mapp, ax=axes[1, 2])
+                axes[1, 2].set_title('RnnDiff')
+                for ax in axes.flatten():
+                    ax.set_aspect('equal')
+                fig.tight_layout()
+                plt.show()
+            pass
 
         elif c.scmEstimation == 'batch':
             nFrames = stack['y'].shape[-1]
