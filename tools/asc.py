@@ -230,12 +230,9 @@ class AcousticScenario:
                     "Dynamic scenarios are not supported in the time domain yet."
                 )
             out = self.setup_time_domain()
-            out = tuple(list(out) + [None, None, None])  # Add None for Ryy_dMWF_est, Rnn_dMWF_est, and Ryy_dMWF_dis, not used in time domain
         
         for s in self.scenarios:
             s.oQq, s.Qkq = _get_Qdims(s.obsMat)
-
-        # self.plot()
 
         return out
     
@@ -510,8 +507,6 @@ class AcousticScenario:
                 stack[st] = np.vstack([self.nodes[k].wd[st] for k in range(c.K)])
         print(f'{c.T} s of signals = {stack["y"].shape[-1]} STFT frames.')
 
-        Ryy_est, Rnn_est, Ryy_dis = None, None, None  # default -- no alternating dMWF
-
         if c.scmEstimation == 'oracle':
             # Compute FFT of RIRs
             Cmat = np.zeros((c.nPosFreqs, c.M, c.Q), dtype=complex)
@@ -545,36 +540,6 @@ class AcousticScenario:
             # Complete signal SCM
             Ryy = Rss + Rnn
 
-            if 0:
-                nFrames = stack['y'].shape[-1]
-                RyyBatch = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj()) / nFrames
-                RnnBatch = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
-                fig, axes = plt.subplots(2, 3)
-                fig.set_size_inches(8.5, 3.5)
-                mapp = axes[0, 0].imshow(np.abs(RyyBatch[0, ...]), aspect='auto')
-                fig.colorbar(mapp, ax=axes[0, 0])
-                axes[0, 0].set_title('RyyBatch')
-                mapp = axes[0, 1].imshow(np.abs(Ryy[0, ...]), aspect='auto')
-                fig.colorbar(mapp, ax=axes[0, 1])
-                axes[0, 1].set_title('RyyOracle')
-                mapp = axes[0, 2].imshow(np.abs(RyyBatch[0, ...] - Ryy[0, ...]), aspect='auto')
-                fig.colorbar(mapp, ax=axes[0, 2])
-                axes[0, 2].set_title('RyyDiff')
-                mapp = axes[1, 0].imshow(np.abs(RnnBatch[0, ...]), aspect='auto')
-                fig.colorbar(mapp, ax=axes[1, 0])
-                axes[1, 0].set_title('RnnBatch')
-                mapp = axes[1, 1].imshow(np.abs(Rnn[0, ...]), aspect='auto')
-                fig.colorbar(mapp, ax=axes[1, 1])
-                axes[1, 1].set_title('RnnOracle')
-                mapp = axes[1, 2].imshow(np.abs(RnnBatch[0, ...] - Rnn[0, ...]), aspect='auto')
-                fig.colorbar(mapp, ax=axes[1, 2])
-                axes[1, 2].set_title('RnnDiff')
-                for ax in axes.flatten():
-                    ax.set_aspect('equal')
-                fig.tight_layout()
-                plt.show()
-            pass
-
         elif c.scmEstimation == 'batch':
             nFrames = stack['y'].shape[-1]
             Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
@@ -583,71 +548,7 @@ class AcousticScenario:
             Ryy = Rss + Rnn
 
         elif c.scmEstimation == 'online':
-            t0 = time.time()
-            # Online SCM estimation
-            betas = list(set(c.beta.values()))
-            Ryy = [{
-                beta: 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
-                if l == 0 else None for beta in betas
-            } for l in range(c.nFrames)]
-            Rnn = [{
-                beta: 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
-                if l == 0 else None for beta in betas
-            } for l in range(c.nFrames)]
-
-            flagAlternating = np.any('dmwf' in alg for alg in c.algos) and c.dMWFalternating
-            if flagAlternating:
-                # For alternating dMWF, we compute SCMs using every other frame
-                Ryy_est = copy.deepcopy(Ryy)
-                Rnn_est = copy.deepcopy(Rnn)
-                Ryy_est[1] = {beta: Ryy[0][beta] for beta in betas}
-                Rnn_est[1] = {beta: Rnn[0][beta] for beta in betas}
-                Ryy_dis = copy.deepcopy(Ryy)
-            
-            if c.useVAD:
-                _, vadSTFT = self.estimate_vad()
-
-            for l in tqdm(range(1, c.nFrames), desc=f"Online SCM estimation"):
-                yyH = np.einsum('ji,ki->ijk', stack['y'][..., l], stack['y'][..., l].conj())
-                # ssH = np.einsum('ji,ki->ijk', stack['s'][..., l], stack['s'][..., l].conj())
-                nnH = np.einsum('ji,ki->ijk', stack['n'][..., l], stack['n'][..., l].conj())
-                # Update the SCMs using the online estimation formula
-                for beta in betas:
-                    kwargs = {
-                        'beta': beta,
-                        # 'yyH': yyH,
-                        'ssH': ssH,
-                        'nnH': nnH,
-                        'vad': vadSTFT[:, l] if c.useVAD else None
-                    }
-                    # Update the SCMs using the online estimation formula
-                    Ryy[l][beta], Rnn[l][beta] = single_update_scm(
-                        Ryy[l - 1][beta],
-                        Rnn[l - 1][beta],
-                        **kwargs
-                    )
-                    if l % 2 == 0 and flagAlternating:
-                        # If alternating dMWF, update the dMWF estimation SCMs
-                        # using the even frames only
-                        Ryy_est[l][beta], Rnn_est[l][beta] = single_update_scm(
-                            Ryy_est[l - 1][beta],
-                            Rnn_est[l - 1][beta],
-                            **kwargs
-                        )
-                        if l < c.nFrames - 1:
-                            Ryy_est[l + 1][beta] = copy.deepcopy(Ryy_est[l][beta])  # no update at the next frame
-                            Rnn_est[l + 1][beta] = copy.deepcopy(Rnn_est[l][beta])  # no update at the next frame
-                    elif l % 2 == 1 and flagAlternating:
-                        # If alternating dMWF, update the dMWF discovery SCMs
-                        # using the odd frames only
-                        Ryy_dis[l][beta], _ = single_update_scm(
-                            Ryy_dis[l - 1][beta],
-                            None,
-                            **kwargs
-                        )
-                        if l < c.nFrames - 1:
-                            Ryy_dis[l + 1][beta] = copy.deepcopy(Ryy_dis[l][beta])  # no update at the next frame
-            print(f"Online SCM estimation done in {time.time() - t0:.2f} s.")
+            Ryy, Rnn = None, None # nothing to do -- done in `algos.py`
         else:
             raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
         
@@ -673,7 +574,7 @@ class AcousticScenario:
             fig.tight_layout()
             plt.show()
 
-        return Ryy, Rnn, stack['s'], stack['n'], Ryy_est, Rnn_est, Ryy_dis
+        return Ryy, Rnn, stack['s'], stack['n']
 
     def estimate_vad(self):
         """Estimate the VAD for the latent desired signal."""
@@ -1616,22 +1517,23 @@ def get_upstream_nodes(G: nx.Graph, root):
     return upstreamNodes, upstreamNeighbors
 
 
-def single_update_scm(RyyPrev, RnnPrev, yyH, nnH, beta, vad=None):
+def single_update_scm(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
     """Update the SCMs using the online estimation formula."""
-    Ryy = copy.deepcopy(RyyPrev)  # by default, copy the previous SCM
+    Rss = copy.deepcopy(RssPrev)  # by default, copy the previous SCM
     Rnn = copy.deepcopy(RnnPrev)  # by default, copy the previous SCM
     if vad is not None:
+        raise NotImplementedError("VAD functionality is not correctly implemented.")
     # if 0:  # DEBUG: use this to test the VAD functionality
         if any(vad):
-            Ryy = beta * RyyPrev + (1 - beta) * yyH
+            Rss = beta * RssPrev + (1 - beta) * ssH
             # no update for noise SCM if VAD is False
         else:
-            Ryy = beta * RyyPrev + (1 - beta) * yyH
+            Rss = beta * RssPrev + (1 - beta) * ssH
             if RnnPrev is not None:
                 # Rnn = beta * RnnPrev + (1 - beta) * yyH
                 Rnn = beta * RnnPrev + (1 - beta) * nnH
     else:
-        Ryy = beta * RyyPrev + (1 - beta) * yyH
+        Rss = beta * RssPrev + (1 - beta) * ssH
         if RnnPrev is not None:
             Rnn = beta * RnnPrev + (1 - beta) * nnH
-    return Ryy, Rnn
+    return Rss, Rnn

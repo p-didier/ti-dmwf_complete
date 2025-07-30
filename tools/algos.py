@@ -34,7 +34,7 @@ class Run:
             graph = nx.minimum_spanning_tree(graph)
 
         # Launch algorithms
-        Ryy, Rnn, s, n, Ryy_dMWF_est, Rnn_dMWF_est, Ryy_dMWF_dis = asc.setup()
+        Ryy, Rnn, s, n = asc.setup()
         if c.useVAD:
             vad, vadSTFT = asc.estimate_vad()
 
@@ -75,46 +75,68 @@ class Run:
 
         if c.scmEstimation == 'online':
             W_netWide = [None for _ in range(c.nFrames)]
+            betas = list(set(c.beta.values()))
+
+            Ryy = {
+                beta: 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
+                for beta in betas
+            }
+            Rss = copy.deepcopy(Ryy)  # Initialize Rss with the same structure as Ryy
+            Rnn = copy.deepcopy(Ryy)  # Initialize Rnn with the same structure as Ryy
+
+            flagAlternating = np.any('dmwf' in alg for alg in c.algos) and c.dMWFalternating
+            if flagAlternating:
+                # For alternating dMWF, we compute SCMs using every other frame
+                Ryy_est = copy.deepcopy(Ryy)
+                Rss_est = copy.deepcopy(Ryy)
+                Rnn_est = copy.deepcopy(Ryy)
+                Ryy_dis = copy.deepcopy(Ryy)
+                Rss_dis = copy.deepcopy(Ryy)
+                Rnn_dis = copy.deepcopy(Ryy)
+            else:
+                Ryy_est, Rss_est, Rnn_est, Ryy_dis, Rss_dis, Rnn_dis = None, None, None, None, None, None  # default -- no alternating dMWF
+
             for l in tqdm(range(c.nFrames), desc="Processing frames"):
-                if 0:
-                    # New SCM estimates
-                    yyH = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())
-                    nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
+                # New SCM estimates
+                ssH = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())
+                nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
+                # Update the SCMs using the online estimation formula
+                for beta in betas:
+                    kwargs = {
+                        'beta': beta,
+                        'ssH': ssH,
+                        'nnH': nnH,
+                        'vad': vadSTFT[:, l] if c.useVAD else None
+                    }
                     # Update the SCMs using the online estimation formula
-                    for beta in betas:
-                        kwargs = {
-                            'beta': beta,
-                            'yyH': yyH,
-                            'nnH': nnH,
-                            'vad': vadSTFT[:, l] if c.useVAD else None
-                        }
-                        # Update the SCMs using the online estimation formula
-                        Ryy[l][beta], Rnn[l][beta] = single_update_scm(
-                            Ryy[l - 1][beta],
-                            Rnn[l - 1][beta],
+                    Rss[beta], Rnn[beta] = single_update_scm(
+                        Rss[beta],
+                        Rnn[beta],
+                        **kwargs
+                    )
+                    if l % 2 == 0 and flagAlternating:
+                        # If alternating dMWF, update the dMWF estimation SCMs
+                        # using the even frames only
+                        Rss_est[beta], Rnn_est[beta] = single_update_scm(
+                            Rss_est[beta],
+                            Rnn_est[beta],
                             **kwargs
                         )
-                        if l % 2 == 0 and flagAlternating:
-                            # If alternating dMWF, update the dMWF estimation SCMs
-                            # using the even frames only
-                            Ryy_est[l][beta], Rnn_est[l][beta] = single_update_scm(
-                                Ryy_est[l - 1][beta],
-                                Rnn_est[l - 1][beta],
-                                **kwargs
-                            )
-                            if l < c.nFrames - 1:
-                                Ryy_est[l + 1][beta] = copy.deepcopy(Ryy_est[l][beta])  # no update at the next frame
-                                Rnn_est[l + 1][beta] = copy.deepcopy(Rnn_est[l][beta])  # no update at the next frame
-                        elif l % 2 == 1 and flagAlternating:
-                            # If alternating dMWF, update the dMWF discovery SCMs
-                            # using the odd frames only
-                            Ryy_dis[l][beta], _ = single_update_scm(
-                                Ryy_dis[l - 1][beta],
-                                None,
-                                **kwargs
-                            )
-                            if l < c.nFrames - 1:
-                                Ryy_dis[l + 1][beta] = copy.deepcopy(Ryy_dis[l][beta])  # no update at the next frame
+                    elif l % 2 == 1 and flagAlternating:
+                        # If alternating dMWF, update the dMWF discovery SCMs
+                        # using the odd frames only
+                        Rss_dis[beta], Rnn_dis[beta] = single_update_scm(
+                            Rss_dis[beta],
+                            Rnn_dis[beta],
+                            **kwargs
+                        )
+                    
+                    # Complete signal SCM
+                    Ryy[beta] = Rss[beta] + Rnn[beta]
+                    if flagAlternating:
+                        Ryy_est[beta] = Rss_est[beta] + Rnn_est[beta]
+                        Ryy_dis[beta] = Rss_dis[beta] + Rnn_dis[beta]
+
                 # Current frame information
                 iv['frameIdx'] = l
                 iv['vad'] = vadSTFT[:, l] if c.useVAD else None
@@ -133,17 +155,19 @@ class Run:
                     # Identify current acoustic scenario (for oQq and Qkq values in dMWF)
                     if c.dynamics == 'moving':
                         scenarioIdx = int((l * c.frameDuration) // c.movingEvery)
+                
                 # Launch algorithms for the current frame
                 W_netWide[l], ivOut = self.launch(
-                    Ryy[l], Rnn[l],
+                    Ryy, Rnn,
                     asc, graph,
                     ivIn=iv,
                     silent=True,
                     scenarioIdx=scenarioIdx,
-                    Ryy_dMWF_estAll=Ryy_dMWF_est[l] if Ryy_dMWF_est is not None else None,
-                    Rnn_dMWF_estAll=Rnn_dMWF_est[l] if Rnn_dMWF_est is not None else None,
-                    Ryy_dMWF_disAll=Ryy_dMWF_dis[l] if Ryy_dMWF_dis is not None else None,
+                    Ryy_dMWF_estAll=Ryy_est,
+                    Rnn_dMWF_estAll=Rnn_est,
+                    Ryy_dMWF_disAll=Ryy_dis,
                 )
+                
                 # Feedback loop: update iterative variables for DANSE-like algorithms
                 for alg in ivOut.keys():
                     for key, value in ivOut[alg].items():

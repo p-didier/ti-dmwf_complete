@@ -243,7 +243,7 @@ class PostProcessor:
             if isinstance(W_netWide, list) and c.scmEstimation == 'online':
                 # Online-mode processing
                 for l, w in enumerate(W_netWide):
-                    print(f"Computing metrics at node {k}, frame {l + 1}/{len(W_netWide)}...", end='\r')
+                    print(f"Computing metrics at node {k+1}, frame {l + 1}/{len(W_netWide)}...", end='\r')
                     if metricsMethod == 'recent_seconds':
                         if c.domain == 'wola':
                             # Get metrics signals for the current frame
