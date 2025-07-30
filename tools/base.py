@@ -104,6 +104,7 @@ class Parameters:
     # Debug
     singleLine: int = None  # if not None, only process this frequency line in WOLA domain
     unconstrainedRandomPositions: bool = False  # if True, allow random positions for sources
+    wolaMixtures_viaTD: bool = False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
@@ -165,7 +166,20 @@ class Parameters:
             pickle.dump(self.__dict__, f)
     
     def get_stft(self, x):
-        """Compute the STFT of the input signal."""
+        """
+        Compute the STFT of the input signal.
+        
+        Parameters
+        ----------
+        x : np.ndarray
+            Input signal, shape (N,) or (M, N) where N is the number of samples
+            and M is the number of channels.
+
+        Returns
+        -------
+        np.ndarray
+            STFT of the input signal, shape (M, nPosFreqs, nFrames).
+        """
         tmp = sig.stft(
             x,
             fs=self.fs,

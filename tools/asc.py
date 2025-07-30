@@ -65,9 +65,25 @@ class SignalContainer:
 class Node(SignalContainer):
     """A dataclass for the node."""
     idx: int = None  # index of the node
-    td: dict[np.ndarray] = field(default_factory=dict)
-    wd: dict[np.ndarray] = field(default_factory=dict)
 
+    def init_signal_vectors(self, c: Parameters):
+        self.td = {
+            'y': np.zeros((c.Mk, c.N)),
+            's': np.zeros((c.Mk, c.N)),
+            'n': np.zeros((c.Mk, c.N)),
+            'sn': np.zeros((c.Mk, c.N)),
+            'sIndiv': np.zeros((c.Qd, c.Mk, c.N)),
+            'nIndiv': np.zeros((c.Qn, c.Mk, c.N)),
+        }
+        if c.domain == 'wola':
+            self.wd = {
+                'y': np.zeros((c.nPosFreqs, c.Mk, c.N), dtype=complex),
+                's': np.zeros((c.nPosFreqs, c.Mk, c.N), dtype=complex),
+                'n': np.zeros((c.nPosFreqs, c.Mk, c.N), dtype=complex),
+                'sn': np.zeros((c.nPosFreqs, c.Mk, c.N), dtype=complex),
+                'sIndiv': np.zeros((c.nPosFreqs, c.Qd, c.Mk, c.N), dtype=complex),
+                'nIndiv': np.zeros((c.nPosFreqs, c.Qn, c.Mk, c.N), dtype=complex),
+            }
 
 @dataclass
 class TreeWASN:
@@ -298,7 +314,7 @@ class AcousticScenario:
         v = c.randmat((c.M, c.N)) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         n += v  # add self-noise to noise signal
 
-        if 1:
+        if 0:
             self.latentDesired = slat
             self.latentNoise = nlat
             rd = [c.roomLength, c.roomWidth, c.roomHeight]
@@ -317,21 +333,6 @@ class AcousticScenario:
             )
             # Generate the WASN parameters
             p: StaticScenarioParameters = self.define_static_scenario(room)
-            self.nodes = [
-                Node(
-                    idx=k,
-                    td={
-                        'y': np.zeros((c.Mk, c.N)),
-                        's': np.zeros((c.Mk, c.N)),
-                        'n': np.zeros((c.Mk, c.N)),
-                        'sn': np.zeros((c.Mk, c.N)),
-                        'sIndiv': np.zeros((c.Qd, c.Mk, c.N)),
-                        'nIndiv': np.zeros((c.Qn, c.Mk, c.N)),
-                    }
-                )
-                for k in range(c.K)
-            ]
-            # self.apply_static_scenario(p, smIdx=[0, -1])
             ## MANUALLY apply static scenario
             fLineIdx = c.singleLine
             Cmat = np.zeros((c.M, c.Q), dtype=complex)
@@ -348,18 +349,6 @@ class AcousticScenario:
             n = Cmat[..., c.Qd:] @ c.get_stft(nlat)[..., 0, :]
             v = c.get_stft(np.real(v))[..., 0, :]
             n += v  # add self-noise to noise signal
-
-        #     s = np.vstack([
-        #         node.td['s'] for node in self.nodes
-        #     ])
-        #     n = np.vstack([
-        #         node.td['n'] for node in self.nodes
-        #     ])
-        #     n += np.real(v)
-
-        # s = c.get_stft(s)[..., 0, :]  # STFT of the desired signals
-        # n = c.get_stft(n)[..., 0, :]  # STFT of the desired signals
-        # v = c.get_stft(np.real(v))[..., 0, :]  # STFT of the desired signals
 
         # Compute the SCMs
         if c.scmEstimation == 'oracle':
@@ -441,21 +430,10 @@ class AcousticScenario:
                 scalingFactor = 10 ** ((c.latentSNR - currentSNR) / 20)
                 self.latentNoise /= scalingFactor
         
-        # Prepare containers
-        self.nodes = [
-            Node(
-                idx=k,
-                td={
-                    'y': np.zeros((c.Mk, c.N)),
-                    's': np.zeros((c.Mk, c.N)),
-                    'n': np.zeros((c.Mk, c.N)),
-                    'sn': np.zeros((c.Mk, c.N)),
-                    'sIndiv': np.zeros((c.Qd, c.Mk, c.N)),
-                    'nIndiv': np.zeros((c.Qn, c.Mk, c.N)),
-                }
-            )
-            for k in range(c.K)
-        ]
+        # Prepare Node containers
+        self.nodes = [Node(idx=k) for k in range(c.K)]
+        for node in self.nodes:
+            node.init_signal_vectors(c)
 
         # Define the acoustic scenario
         if c.dynamics == 'static' or c.scmEstimation != 'online':
@@ -472,19 +450,21 @@ class AcousticScenario:
                 # Setup the static scenario
                 self.setup_wola_domain_static(idxStart, idxEnd)
         
-        # Self-noise addition
+        # Self-noise addition (constant, independent of dynamics)
         pows = np.mean(np.abs(self.latentDesired) ** 2, axis=1)
         for k in range(c.K):
             # Generate self-noise at correct SNR
-            sn = c.randmat((c.Mk, c.N), makeComplex=False)
-            # snPower = np.mean(np.abs(sn) ** 2)
-            # sPower = np.mean(np.abs(self.nodes[k].td['s']) ** 2)
-            # sn *= np.sqrt(c.selfNoiseFactor * sPower / snPower)
-            sn *= np.mean(pows) * c.selfNoiseFactor
-            self.nodes[k].td['sn'] = sn
-            self.nodes[k].td['n'] += self.nodes[k].td['sn']
-            self.nodes[k].td['y'] = self.nodes[k].td['n'] + self.nodes[k].td['s']
-
+            sn = c.randmat((c.Mk, c.N), makeComplex=False) * np.mean(pows) * c.selfNoiseFactor
+            if c.wolaMixtures_viaTD:
+                self.nodes[k].td['sn'] = sn
+                self.nodes[k].td['n'] += self.nodes[k].td['sn']
+                self.nodes[k].td['y'] = self.nodes[k].td['n'] + self.nodes[k].td['s']
+            else:
+                snSTFT = c.get_stft(sn)
+                self.nodes[k].wd['sn'] = snSTFT
+                self.nodes[k].wd['n'] += self.nodes[k].wd['sn']
+                self.nodes[k].wd['y'] = self.nodes[k].wd['n'] + self.nodes[k].wd['s']
+        
         print("Acoustic environment generated successfully, computing SCMs...")
         # Compute SCMs (from steering matrices if oracle, from signals if batch)
         return self.compute_scms()
@@ -519,13 +499,15 @@ class AcousticScenario:
     def compute_scms(self):
         """Compute the SCMs for the acoustic scenario."""
         c = self.cfg
+
         # Compute centralized signals STFT
         stack = dict()
         for st in ['y', 's', 'n', 'sn']:
-            tmp = np.vstack(
-                [self.nodes[k].td[st] for k in range(c.K)]
-            )
-            stack[st] = c.get_stft(tmp)
+            if c.wolaMixtures_viaTD:
+                tmp = np.vstack([self.nodes[k].td[st] for k in range(c.K)])
+                stack[st] = c.get_stft(tmp)
+            else:
+                stack[st] = np.vstack([self.nodes[k].wd[st] for k in range(c.K)])
         print(f'{c.T} s of signals = {stack["y"].shape[-1]} STFT frames.')
 
         Ryy_est, Rnn_est, Ryy_dis = None, None, None  # default -- no alternating dMWF
@@ -595,8 +577,10 @@ class AcousticScenario:
 
         elif c.scmEstimation == 'batch':
             nFrames = stack['y'].shape[-1]
-            Ryy = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj()) / nFrames
+            Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
             Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
+            # Complete signal SCM
+            Ryy = Rss + Rnn
 
         elif c.scmEstimation == 'online':
             t0 = time.time()
@@ -925,10 +909,34 @@ class AcousticScenario:
 
     def apply_static_scenario(self, p: StaticScenarioParameters, smIdx: list[int] = None):
         c = self.cfg  # Configuration object
+
         if smIdx is None:
             smIdx = np.array([0, c.N - 1], dtype=int)  # Default indices for the whole signal
         if smIdx[-1] == -1:
-            smIdx[-1] = c.N - 1
+            smIdx[-1] = c.N
+
+        if c.wolaMixtures_viaTD:
+            # Apply RIRs via fftconvolve, returning time domain signals
+            self.apply_static_scenario_viaTD(p, smIdx)
+        else:
+            # Apply FFT of RIRs in the STFT domain, returning STFT signals
+            self.apply_static_scenario_viaSTFT(p, smIdx)
+
+    def apply_static_scenario_viaTD(self, p: StaticScenarioParameters, smIdx: list[int]):
+        """
+        Apply the static scenario in the time domain using room impulse responses.
+        This method applies the RIRs to the latent signals via fftconvolve
+        and computes the time domain signals for each node, taking the 
+        observability matrix into account.
+        
+        Parameters
+        ----------
+        p : StaticScenarioParameters
+            The static scenario parameters.
+        smIdx : list[int], optional
+            The indices of the signal segments to process (default is the whole signal).
+        """
+        c = self.cfg  # Configuration object
         # Apply the room impulse responses to the latent signals
         for k in range(c.K):
             # Get the indices of the microphones for this node
@@ -962,7 +970,55 @@ class AcousticScenario:
                     ]
             self.nodes[k].td['s'] = np.sum(self.nodes[k].td['sIndiv'], axis=0)
             self.nodes[k].td['n'] = np.sum(self.nodes[k].td['nIndiv'], axis=0)
-        pass
+
+    def apply_static_scenario_viaSTFT(self, p: StaticScenarioParameters, smIdx: list[int]):
+        """
+        Apply the static scenario in the STFT domain using room impulse responses.
+        This method applies the FFT of RIRs to the STFT of latent signals, taking
+        the observability matrix into account, and computes the resulting STFT
+        signals for each node.
+
+        Parameters
+        ----------
+        p : StaticScenarioParameters
+            The static scenario parameters.
+        smIdx : list[int], optional
+            The indices of the signal segments to process (default is the whole signal).
+            This is used to determine the frames to process.
+        """
+        c = self.cfg
+        # Cmat = [A | B], where A is the steering matrix for desired sources
+        # and B is the steering matrix for noise sources.
+        Cmat = np.zeros((c.nPosFreqs, c.M, c.Q), dtype=complex)
+        for ii in range(c.Q):
+            rirs = np.array([p.rirs[m][ii] for m in range(c.M)])
+            tmp = np.fft.rfft(rirs, n=c.nfft, axis=-1)   # RIRs FFT (= transfer functions)
+            if c.singleLine is not None:
+                # Only use one frequency line
+                tmp = tmp[:, [c.singleLine]]
+            # Set the steering vectors of nodes that do not observe source ii to zero
+            for q in np.where(p.obsMat[:, ii] == 0)[0]:
+                tmp[c.Mk * q:c.Mk * (q + 1), :] = 0
+            Cmat[..., ii] = tmp.T
+        slatSTFT = c.get_stft(self.latentDesired)
+        nlatSTFT = c.get_stft(self.latentNoise)
+        idxFrameBeg = int(np.ceil(smIdx[0] / (c.nfft - c.nhop)))
+        idxFrameEnd = int(np.ceil(smIdx[1] / (c.nfft - c.nhop))) + 1
+        s = np.einsum(
+            'ijk,kil->jil',
+            Cmat[..., :c.Qd],  # Desired sources steering matrix
+            slatSTFT[..., idxFrameBeg:idxFrameEnd]
+        )
+        n = np.einsum(
+            'ijk,kil->jil',
+            Cmat[..., c.Qd:],  # Noise sources steering matrix
+            nlatSTFT[..., idxFrameBeg:idxFrameEnd]
+        )
+
+        # Store the STFT signals in the nodes
+        for k in range(c.K):
+            self.nodes[k].wd['s'] = s[k * c.Mk:(k + 1) * c.Mk, ...]
+            self.nodes[k].wd['n'] = n[k * c.Mk:(k + 1) * c.Mk, ...]
 
     def define_layout(self):
         """Define the layout of the acoustic scenario."""

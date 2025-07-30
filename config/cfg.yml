@@ -12,8 +12,8 @@ possDiffuse: False  # if True and observability is 'foss', the
     # noise sources are assumed only local, i.e., uncorrelated across nodes
 ###########################
 # domain: time  # domain of the signals, 'time', or 'time_complex', or 'wola'
-# domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
-domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
+domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
+# domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
 ##########################
 TDsteeringMats: random  # type of steering matrices in time domain
 # TDsteeringMats: anechoic  # type of steering matrices in time domain
@@ -21,8 +21,8 @@ roomLength: 7.0  # length of the room in meters
 roomWidth: 7.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.1  # radius of the node in meters
-t60: 0.          # reverberation time in seconds
-# t60: 0.2          # reverberation time in seconds
+# t60: 0.          # reverberation time in seconds
+t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
@@ -127,7 +127,10 @@ beta: {
 singleLine: 20  # if not None, only process this frequency line in WOLA domain
 unconstrainedRandomPositions: True  # if True, allow random positions for sources
 # unconstrainedRandomPositions: False  # if True, allow random positions for sources
+wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
+# wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 
 seed: 43  # random number generator seed
 # suffix: 'test'  # output file suffix
-suffix: 'saa_no_padding'  # output file suffix
+suffix: 'saa_reverb_randomSensorPos'  # output file suffix
+# suffix: 'wideband_speech_testrun'  # output file suffix
