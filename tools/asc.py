@@ -238,7 +238,18 @@ class AcousticScenario:
         
         for s in self.scenarios:
             s.get_Qdims(c)
-        
+
+        # Print SNR at each node
+        for k, node in enumerate(self.nodes):
+            if c.domain == 'wola' and not c.wolaMixtures_viaTD:
+                snr = 10 * np.log10(
+                    np.mean(np.abs(node.wd['s']) ** 2) / np.mean(np.abs(node.wd['n']) ** 2)
+                )
+            else:
+                snr = 10 * np.log10(
+                    np.mean(np.abs(node.td['s']) ** 2) / np.mean(np.abs(node.td['n']) ** 2)
+                )
+            print(f"Node {k}: SNR = {snr:.2f} dB")
 
         return out
     
@@ -986,6 +997,8 @@ class AcousticScenario:
             nlatSTFT[..., idxFrameBeg:idxFrameEnd]
         )
 
+        pass
+
         # Store the STFT signals in the nodes
         for k in range(c.K):
             self.nodes[k].wd['s'] = s[k * c.Mk:(k + 1) * c.Mk, ...]
@@ -1191,8 +1204,8 @@ class AcousticScenario:
                     observedNoise = np.sum(om[:, c.Qd:], axis=1) > 0
                     oneObserver = np.sum(om, axis=0) > 0
                     return not np.all(observedDesired) or\
-                        not np.all(oneObserver)
-                        # not np.all(observedNoise) or not np.all(oneObserver)
+                        not np.all(observedNoise) or not np.all(oneObserver)
+                        # not np.all(oneObserver)
                 # Criterion for adequacy: at least one desired source and one noise
                 # source must be observed by each node, and each source must be
                 # observed by at least one node.

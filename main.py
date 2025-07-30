@@ -17,10 +17,10 @@ from tools.base import *
 from tools.algos import *
 from pp import main as main_pp
 
-import matplotlib as mpl
-mpl.use('TkAgg')  # use TkAgg backend to avoid issues when plotting
-import matplotlib.pyplot as plt
-plt.ion()  # interactive mode on
+# import matplotlib as mpl
+# mpl.use('TkAgg')  # use TkAgg backend to avoid issues when plotting
+# import matplotlib.pyplot as plt
+# plt.ion()  # interactive mode on
 
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
@@ -37,14 +37,14 @@ TEST_SET = [
     #     'scmEstimation': 'batch',
     #     'observability': 'foss',
     # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'poss',
-    # },
     {
-        'scmEstimation': 'online',
-        'observability': 'foss',
+        'scmEstimation': 'batch',
+        'observability': 'poss',
     },
+    # {
+    #     'scmEstimation': 'online',
+    #     'observability': 'foss',
+    # },
     {
         'scmEstimation': 'online',
         'observability': 'poss',

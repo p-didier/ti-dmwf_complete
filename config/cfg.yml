@@ -38,8 +38,8 @@ hierarchicalObsPruningThrs: 1  # for 'hierarchical' `observabilityCriterion`, th
     # intermediate values stop the pruning between 0 and 1.
 # maxDistForObservability: 0.05  # minimum distance for observability in meters
 maxDistForObservability: null  # minimum distance for observability in meters
-latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
-# latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
+# latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
+latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
 commDist: 1.5  # communication distance [m] (used at ad-hoc topology initialization, but `connectivity` plays a role)
 connectivity: 0.5  # amount of ad-hoc topology connectivity
 # pruningStrategy: star  # tree-pruning strategy
@@ -68,7 +68,8 @@ movingEvery: 10.0  # time in seconds after which sources move in `moving` scenar
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
-# T: 1.0  # duration of the signals in seconds
+# T: 10.0  # duration of the signals in seconds
+# T: 15.0  # duration of the signals in seconds
 T: 30.0  # duration of the signals in seconds
 # T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
@@ -78,10 +79,10 @@ T: 30.0  # duration of the signals in seconds
 selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
 # noiseSigType: ssn  # random, babble, or ssn
-# noiseSigType: random  # random, babble, or ssn
-# desSigType: random  # speech or noise
-noiseSigType: babble  # random, babble, or ssn
-desSigType: speech  # speech or noise
+noiseSigType: random  # random, babble, or ssn
+desSigType: random  # speech or noise
+# noiseSigType: babble  # random, babble, or ssn
+# desSigType: speech  # speech or noise
 ssnDatabasePath: "C:/Users/pdidier/Dropbox/PC/Documents/sounds-phd/02_data/00_raw_signals/02_noise/ssn"  # path to the SSN database
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
@@ -125,14 +126,14 @@ beta: {
 }  # forgetting factor for online processing
 
 # Debug
-singleLine: null  # if not None, only process this frequency line in WOLA domain
-# singleLine: 20  # if not None, only process this frequency line in WOLA domain
+# singleLine: null  # if not None, only process this frequency line in WOLA domain
+singleLine: 20  # if not None, only process this frequency line in WOLA domain
 # unconstrainedRandomPositions: True  # if True, allow random positions for sources
 unconstrainedRandomPositions: False  # if True, allow random positions for sources
 wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 # wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 
 seed: 43  # random number generator seed
-suffix: 'test'  # output file suffix
-# suffix: 'saa_reverb_randomSensorPos'  # output file suffix
+# suffix: 'test_changed_obsMat'  # output file suffix
+suffix: 'saa_wSpeech'  # output file suffix
 # suffix: 'wideband_speech_testrun'  # output file suffix

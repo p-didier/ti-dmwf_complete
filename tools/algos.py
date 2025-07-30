@@ -75,7 +75,7 @@ class Run:
         }) for alg in c.algos if 'danse' in alg])  # iteration variable for DANSE algorithms
 
         if c.scmEstimation == 'online':
-            W_netWide = [None for _ in range(c.nFrames)]
+            W_netWide = []
             betas = list(set(c.beta.values()))
 
             Ryy = {
@@ -97,7 +97,7 @@ class Run:
             else:
                 Ryy_est, Rss_est, Rnn_est, Ryy_dis, Rss_dis, Rnn_dis = None, None, None, None, None, None  # default -- no alternating dMWF
 
-            for l in tqdm(range(c.nFrames), desc="Processing frames"):
+            for l in tqdm(range(c.nFrames), desc=f"Processing frames ({len(c.algos)} algorithms)"):
                 # New SCM estimates
                 ssH = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())
                 nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
@@ -158,9 +158,9 @@ class Run:
                         scenarioIdx = int((l * c.frameDuration) // c.movingEvery)
                 
                 # Launch algorithms for the current frame
-                profile = Profiler()
-                profile.start()
-                W_netWide[l], ivOut = self.launch(
+                # profile = Profiler()
+                # profile.start()
+                tmp, ivOut = self.launch(
                     Ryy, Rnn,
                     asc, graph,
                     ivIn=iv,
@@ -170,8 +170,9 @@ class Run:
                     Rnn_dMWF_estAll=Rnn_est,
                     Ryy_dMWF_disAll=Ryy_dis,
                 )
-                profile.stop()
-                print(profile.output_text(unicode=True, color=True, show_all=True))
+                W_netWide.append(tmp)
+                # profile.stop()
+                # print(profile.output_text(unicode=True, color=True, show_all=True))
 
                 # Feedback loop: update iterative variables for DANSE-like algorithms
                 for alg in ivOut.keys():

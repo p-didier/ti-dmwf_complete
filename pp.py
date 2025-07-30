@@ -25,18 +25,19 @@ import matplotlib
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-# resDir = f'{baseResultsDir}/res_20250728_0955_noTI_speech_babble_noise_WOLAnarrowband'  # specific directory
+# resDir = f'{baseResultsDir}/res_20250730_1306_wideband_speech_testrun'  # specific directory
 resDir = 'latest'  # <-- pick the latest results directory
 
 EXPORT = False  # If True, export the figures to files
-# FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
-FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
-METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
+FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
+# FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
+# METRICS_OVER_FIRST_SECONDS = None  # Number of seconds to consider for waveform-based metrics computation
+METRICS_OVER_FIRST_SECONDS = 5  # Number of seconds to consider for waveform-based metrics computation
 
 WHICH_NODES = 'all'  # 'all' or a list of node indices to process
 # WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
-# Metrics computation method:
+# Metrics computation method for online mode:
 # - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
 #   seconds of signal using the filter at the frame considered
 #   (STOI is computed).
@@ -44,7 +45,7 @@ WHICH_NODES = 'all'  # 'all' or a list of node indices to process
 #   seconds of signal using the filter at the frame considered
 #   (STOI is not computed).
 METRICS_METHOD = 'entire_signal'
-METRICS_METHOD = 'recent_seconds'
+# METRICS_METHOD = 'recent_seconds'
 # NB: 'recent_seconds' can only be meaningfully used for online processing.
 #   For batch processing, we use 'entire_signal' by default.
 
@@ -80,11 +81,12 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
     screen = monitors[screen_index]
     screen_x, screen_y = screen.x, screen.y
     screen_w, screen_h = screen.width, screen.height
-    num_rows = n_per_col
-    num_cols = np.ceil(len(listOfFiles) / num_rows)
+    num_cols = n_per_col
+    num_rows = np.ceil(len(listOfFiles) / num_cols)
+    # num_cols = np.ceil(len(listOfFiles) / num_rows)
     fig_w = (screen_w - (num_cols + 1) * margin) // num_cols
-    fig_h = (screen_h - (num_rows + 1) * margin) // num_rows
-    
+    fig_h = np.amin([(screen_h - (num_rows + 1) * margin) // num_rows, fig_w / 2])
+
     for i, file in enumerate(listOfFiles):
 
         print(f"Loading results from {file}...")
@@ -236,6 +238,30 @@ class PostProcessor:
                         kwargs[alg]['nhatk'] = _apply_filter(wCurr, nc)
                     # Compute metrics for the current filter
                     metricsCurrAlg[alg].append(_process(wCurr, **kwargs[alg]))
+
+                    if 0 and ii == len(WcurrFrame[alg][k]) - 1:
+                        fig, axes = plt.subplots(1, 3)
+                        fig.set_size_inches(8.5, 3.5)
+                        # Ensure all axes have the same color scale
+                        vmin = np.amin([
+                            np.amin(20 * np.log10(np.abs((herm(wCurr) @ yc.transpose(1, 0, 2)).transpose(1, 0, 2)[0, ...]))),
+                            np.amin(20 * np.log10(np.abs(yc[k * c.Mk, ...]))),
+                            np.amin(20 * np.log10(np.abs(sc[k * c.Mk, ...])))
+                        ])
+                        vmax = np.amax([
+                            np.amax(20 * np.log10(np.abs((herm(wCurr) @ yc.transpose(1, 0, 2)).transpose(1, 0, 2)[0, ...]))),
+                            np.amax(20 * np.log10(np.abs(yc[k * c.Mk, ...]))),
+                            np.amax(20 * np.log10(np.abs(sc[k * c.Mk, ...])))
+                        ])
+                        axes[0].imshow(20*np.log10(np.abs((herm(wCurr) @ yc.transpose(1, 0, 2)).transpose(1, 0, 2)[0, ...])), vmin=vmin, vmax=vmax)
+                        axes[0].set_xlabel('Filtered')
+                        axes[1].imshow(20*np.log10(np.abs(yc[k * c.Mk, ...])), vmin=vmin, vmax=vmax)
+                        axes[1].set_xlabel('Unprocessed')
+                        axes[2].imshow(20*np.log10(np.abs(sc[k * c.Mk, ...])), vmin=vmin, vmax=vmax)
+                        axes[2].set_xlabel('Target')
+                        fig.suptitle(f"STFTs for {alg}, node {k}, frame {ii + 1}/{len(WcurrFrame[alg][k])}")
+                        fig.tight_layout()
+                        plt.show(block=False)
                     
             return metricsCurrAlg
         
@@ -243,10 +269,11 @@ class PostProcessor:
             """Get metrics signals based on the processing domain."""
             # Get metrics signals to be used for all frames
             if endTime is None:
-                raise ValueError("endTime must be specified for metrics computation.")
+                idxEnd = -1
             if c.domain == 'wola':
                 idxBeg = int(startTime * c.fs / (c.nfft - c.nhop))
-                idxEnd = int(endTime * c.fs / (c.nfft - c.nhop))
+                if endTime is not None:
+                    idxEnd = int(endTime * c.fs / (c.nfft - c.nhop))
                 yc = y[..., idxBeg:idxEnd]  # Centralized signal for MSEd computation
                 if 'snr' in metricsToCompute:
                     sc = s[..., idxBeg:idxEnd]  # Centralized signal for MSEd computation
@@ -257,7 +284,8 @@ class PostProcessor:
                 ]  # Desired signal for node k
             elif 'time' in c.domain:
                 idxBeg = int(startTime * c.fs)
-                idxEnd = int(endTime * c.fs)
+                if endTime is not None:
+                    idxEnd = int(endTime * c.fs)
                 yc, sc, nc,  = y[:, idxBeg:idxEnd], s[:, idxBeg:idxEnd], n[:, idxBeg:idxEnd]
                 dkTD = [d[k, :, idxBeg:idxEnd] for k in range(c.K)]
             return yc, sc, nc, dkTD
@@ -265,6 +293,8 @@ class PostProcessor:
         if metricsMethod == 'entire_signal':
             # Get metrics signals to be used for all frames
             yc, sc, nc, dkTD = _get_metrics_signals(endTime=metricsOver)
+
+        pass
 
         # Process data for each node and each algorithm (and each time frame if online mode)
         for k in range(c.K):
@@ -285,6 +315,8 @@ class PostProcessor:
                                 startTime=np.amax((0, l * c.frameDuration / c.fs - metricsOver)),
                                 endTime=(l + 1) * c.frameDuration / c.fs
                             )
+                    if l == 100:
+                        pass
                     metricsCurrAlg = _processing_loop(k, w, dkTD, silent=True)
                     for alg in c.algos:
                         for m in metricsToCompute:
@@ -399,7 +431,10 @@ class PostProcessor:
                     ax.axvline(x=i * c.movingEvery * c.fs / frameLength, color='0.5', linestyle='--')
             ax.set_title(m.upper())
             if m in ['snr', 'ser']:
-                ax.set_ylim(np.amax((-10, ax.get_ylim()[0])), None)  # Ensure y-axis starts at 0
+                ax.set_ylim(np.amin([
+                    np.amax((-10, ax.get_ylim()[0])),
+                    np.amin(metrics[m]['unprocessed'])
+                ]), None)  # Ensure y-axis starts at 0
         supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES}'
         if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
             supti += f', {c.betaString}'
