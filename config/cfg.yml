@@ -77,11 +77,11 @@ T: 30.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
-noiseSigType: random  # random, babble, or ssn
-# noiseSigType: babble  # random, babble, or ssn
 # noiseSigType: ssn  # random, babble, or ssn
-# desSigType: speech  # speech or noise
-desSigType: random  # speech or noise
+# noiseSigType: random  # random, babble, or ssn
+# desSigType: random  # speech or noise
+noiseSigType: babble  # random, babble, or ssn
+desSigType: speech  # speech or noise
 ssnDatabasePath: "C:/Users/pdidier/Dropbox/PC/Documents/sounds-phd/02_data/00_raw_signals/02_noise/ssn"  # path to the SSN database
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
@@ -125,8 +125,8 @@ beta: {
 }  # forgetting factor for online processing
 
 # Debug
-# singleLine: null  # if not None, only process this frequency line in WOLA domain
-singleLine: 20  # if not None, only process this frequency line in WOLA domain
+singleLine: null  # if not None, only process this frequency line in WOLA domain
+# singleLine: 20  # if not None, only process this frequency line in WOLA domain
 # unconstrainedRandomPositions: True  # if True, allow random positions for sources
 unconstrainedRandomPositions: False  # if True, allow random positions for sources
 wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.

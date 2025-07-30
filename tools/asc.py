@@ -37,6 +37,38 @@ class StaticScenarioParameters:
     Qkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources in common between nodes
     oQq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources observed by each node
 
+    def get_Qdims(self, c: Parameters):
+        """Compute the number of sources in common between nodes."""
+        if c.observability == 'foss': # or 1:  # DEBUG: always use 'foss' for now
+            self.oQq = np.full(c.K, c.Q)
+            self.Qkq = np.full((c.K, c.K), c.Q)
+        elif c.observability == 'poss':
+            # Number of sources useful for fusion matrix computation for node q
+            self.oQq = [0 for _ in range(c.K)]
+            for k in range(c.K):
+                for ii in range(c.Q):
+                    if self.obsMat[k, ii] != 0 and np.sum(self.obsMat[:, ii]) > 1:
+                        # If node k does observes source ii, and it is observed
+                        # by at least one other node, then the number of sources
+                        # in common is increased by one
+                        self.oQq[k] += 1
+            assert np.all(np.array(self.oQq) <= np.sum(self.obsMat, axis=1)), \
+                "Number of sources in common exceeds number of sources observed by node."
+            # Compute the number of sources in common between nodes k and q
+            self.Qkq = np.zeros((c.K, c.K), dtype=int)
+            for k in range(c.K):
+                for q in range(c.K):
+                    self.Qkq[k, q] = np.sum(self.obsMat[k, :] * self.obsMat[q, :])
+        
+        # Cache pre-computed selection matrices for dMWF
+        self.Eqps = [[None for _ in range(c.K)] for _ in range(c.K)]
+        for q in range(c.K):
+            for p in range(c.K):
+                if p == q:
+                    continue
+                self.Eqps[q][p] = c.init_full((c.Mk, self.oQq[q]), selection_matrix=True)
+                self.Eqps[q][p][:self.Qkq[q, p], :self.Qkq[q, p]] = np.eye(self.Qkq[q, p])
+                self.Eqps[q][p][self.Qkq[q, p]:, self.Qkq[q, p]:] = np.ones((c.Mk - self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
 
 @dataclass
 class SignalContainer:
@@ -194,33 +226,6 @@ class AcousticScenario:
     def setup(self):
         c = self.cfg
 
-        def _get_Qdims(om):
-            """Compute the number of sources in common between nodes."""
-            if c.observability == 'foss': # or 1:  # DEBUG: always use 'foss' for now
-                oQq = np.full(c.K, c.Q)
-                Qkq = np.full((c.K, c.K), c.Q)
-            elif c.observability == 'poss':
-                # Number of sources useful for fusion matrix computation for node q
-                if 0:
-                    oQq = np.sum(om, axis=1).tolist()  # Number of sources observed by each node
-                else:
-                    oQq = [0 for _ in range(c.K)]
-                    for k in range(c.K):
-                        for ii in range(c.Q):
-                            if om[k, ii] != 0 and np.sum(om[:, ii]) > 1:
-                                # If node k does observes source ii, and it is observed
-                                # by at least one other node, then the number of sources
-                                # in common is increased by one
-                                oQq[k] += 1
-                assert np.all(np.array(oQq) <= np.sum(om, axis=1)), \
-                    "Number of sources in common exceeds number of sources observed by node."
-                # Compute the number of sources in common between nodes k and q
-                Qkq = np.zeros((c.K, c.K), dtype=int)
-                for k in range(c.K):
-                    for q in range(c.K):
-                        Qkq[k, q] = np.sum(om[k, :] * om[q, :])
-            return oQq, Qkq
-
         # Setup the acoustic scenario
         if c.domain == 'wola':
             out = self.setup_wola_domain()
@@ -232,7 +237,8 @@ class AcousticScenario:
             out = self.setup_time_domain()
         
         for s in self.scenarios:
-            s.oQq, s.Qkq = _get_Qdims(s.obsMat)
+            s.get_Qdims(c)
+        
 
         return out
     

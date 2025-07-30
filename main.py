@@ -37,14 +37,14 @@ TEST_SET = [
     #     'scmEstimation': 'batch',
     #     'observability': 'foss',
     # },
-    {
-        'scmEstimation': 'batch',
-        'observability': 'poss',
-    },
     # {
-    #     'scmEstimation': 'online',
-    #     'observability': 'foss',
+    #     'scmEstimation': 'batch',
+    #     'observability': 'poss',
     # },
+    {
+        'scmEstimation': 'online',
+        'observability': 'foss',
+    },
     {
         'scmEstimation': 'online',
         'observability': 'poss',

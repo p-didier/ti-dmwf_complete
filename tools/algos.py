@@ -14,6 +14,7 @@ import scipy.linalg as sla
 from dataclasses import dataclass
 from .asc import AcousticScenario, single_update_scm
 import matplotlib.pyplot as plt
+from pyinstrument import Profiler
 
 
 @dataclass
@@ -58,15 +59,15 @@ class Run:
                 ) for _ in range(c.K)
             ],
             'Pk': [
-                self.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
+                c.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
                 for _ in range(c.K)
             ],
             'WkkPrev_rS': [
-                self.init_full((c.nPosFreqs, c.Mk, c.Qd))
+                c.init_full((c.nPosFreqs, c.Mk, c.Qd))
                 for _ in range(c.K)
             ],
             'Wk': [
-                self.init_full((c.nPosFreqs, algDims[alg], algDims[alg]), random=True)
+                c.init_full((c.nPosFreqs, algDims[alg], algDims[alg]), random=True)
                 for _ in range(c.K)
             ],
             'u': 0,
@@ -157,6 +158,8 @@ class Run:
                         scenarioIdx = int((l * c.frameDuration) // c.movingEvery)
                 
                 # Launch algorithms for the current frame
+                profile = Profiler()
+                profile.start()
                 W_netWide[l], ivOut = self.launch(
                     Ryy, Rnn,
                     asc, graph,
@@ -167,7 +170,9 @@ class Run:
                     Rnn_dMWF_estAll=Rnn_est,
                     Ryy_dMWF_disAll=Ryy_dis,
                 )
-                
+                profile.stop()
+                print(profile.output_text(unicode=True, color=True, show_all=True))
+
                 # Feedback loop: update iterative variables for DANSE-like algorithms
                 for alg in ivOut.keys():
                     for key, value in ivOut[alg].items():
@@ -228,7 +233,7 @@ class Run:
         """
         c = self.cfg
         W_netWide = dict([(alg, [
-            self.init_full((c.nPosFreqs, c.M, c.D))
+            c.init_full((c.nPosFreqs, c.M, c.D))
             for _ in range(c.K)
         ]) for alg in c.algos])  # Initialize node-specific filters dictionary
         ivOut = dict([(alg, None) for alg in c.algos if 'danse' in alg])
@@ -277,21 +282,21 @@ class Run:
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
                     Ryqyq = Ryy_dMWF_dis[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Ryqrhoq = self.init_full((c.nPosFreqs, c.Mk, scn.oQq[q]))
+                    Ryqrhoq = c.init_full((c.nPosFreqs, c.Mk, scn.oQq[q]))
                     for p in range(c.K):
                         if p == q:
                             continue
-                        Eqps = self.init_full((c.Mk, scn.oQq[q]), selection_matrix=True)
-                        # Eqps[:scn.oQq[q], :scn.oQq[q]] = np.eye(scn.oQq[q])
-                        Eqps[:scn.Qkq[q, p], :scn.Qkq[q, p]] = np.eye(scn.Qkq[q, p])
-                        Eqps[scn.Qkq[q, p]:, scn.Qkq[q, p]:] = np.ones((c.Mk - scn.Qkq[q, p], scn.oQq[q] - scn.Qkq[q, p]))
-                        Ryqrhoq += Ryy_dMWF_dis[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ Eqps
+                        # Eqps = c.init_full((c.Mk, scn.oQq[q]), selection_matrix=True)
+                        # # Eqps[:scn.oQq[q], :scn.oQq[q]] = np.eye(scn.oQq[q])
+                        # Eqps[:scn.Qkq[q, p], :scn.Qkq[q, p]] = np.eye(scn.Qkq[q, p])
+                        # Eqps[scn.Qkq[q, p]:, scn.Qkq[q, p]:] = np.ones((c.Mk - scn.Qkq[q, p], scn.oQq[q] - scn.Qkq[q, p]))
+                        Ryqrhoq += Ryy_dMWF_dis[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ scn.Eqps[q][p]
                     Pk[q] = self.filtup(Ryqyq, Rss=Ryqrhoq)
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
                     QkqNeighs = np.delete(scn.oQq, k)  # Remove k
-                    Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + int(np.sum(QkqNeighs))))
+                    Ck = c.init_full((c.nPosFreqs, c.M, c.Mk + int(np.sum(QkqNeighs))))
                     Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                     idxNei = 0
                     for q in range(c.K):
@@ -312,7 +317,7 @@ class Run:
                     Cqk = [None for _ in range(c.K)]
                     for q in range(c.K):
                         dim = c.Mk + c.Q * len(upstreamNeighs[q])
-                        Cqk[q] = self.init_full((c.nPosFreqs, c.M, dim))
+                        Cqk[q] = c.init_full((c.nPosFreqs, c.M, dim))
                         Cqk[q][..., c.Mk * q:c.Mk * (q + 1), :c.Mk] = np.eye(c.Mk)
                     # Compute fusion matrices
                     Pk = [None for _ in range(c.K)]
@@ -324,7 +329,7 @@ class Run:
                         if q != k:
                             # Compute Pk
                             Rhyqhyq = herm(Cqk[q]) @ Ryy @ Cqk[q]
-                            hEq = self.init_full((c.M, c.Q), selection_matrix=True)
+                            hEq = c.init_full((c.M, c.Q), selection_matrix=True)
                             hEq[c.Mk * k: c.Mk * k + c.Q, :] = np.eye(c.Q)
                             Rhyqyktq = herm(Cqk[q]) @ Ryy @ hEq
                             Pk[q] = self.filtup(Rhyqhyq, Rss=Rhyqyktq)
@@ -391,13 +396,13 @@ class Run:
                     for k in range(c.K):
                         # Compute C-matrix
                         if alg.startswith("tidanse"):
-                            Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd))
+                            Ck = c.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd))
                             Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                             for q in range(c.K):
                                 if q != k:
                                     Ck[..., c.Mk * q:c.Mk * (q + 1), c.Mk:] = Pk[q] @ gamma
                         else:
-                            Ck = self.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd * (c.K - 1)))
+                            Ck = c.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd * (c.K - 1)))
                             Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                             idxNei = 0
                             for q in range(c.K):
@@ -524,7 +529,8 @@ class Run:
 
         def _regular_mwf(Ryy, Rss):
             try:
-                tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
+                tmp = np.linalg.solve(c.mu * Ryy + (1 - c.mu) * Rss, Rss)
+                # tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
             except np.linalg.LinAlgError:
                 print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
                 tmp = np.linalg.pinv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss

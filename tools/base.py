@@ -215,6 +215,20 @@ class Parameters:
             return np.random.randn(*shape)
         else:
             return np.random.randn(*shape) + 1j * np.random.randn(*shape)
+    
+    
+    def init_full(self, shape, value=0, random=False, selection_matrix=False):
+        """Initialize a full matrix."""
+        if random:
+            if 'time' in self.domain and not selection_matrix:
+                shape = (shape[1], shape[2])  # get rid of the frequency dimension
+            return self.randmat(shape)
+        if self.domain == 'wola':
+            return np.full(shape, value, dtype=complex)
+        elif 'time' in self.domain:
+            if not selection_matrix:
+                shape = (shape[1], shape[2])  # get rid of the frequency dimension
+            return np.full(shape, value, dtype=complex if self.domain == 'time_complex' else float)
 
 
 def herm(x: np.ndarray) -> np.ndarray:
