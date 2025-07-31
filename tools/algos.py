@@ -35,7 +35,7 @@ class Run:
             graph = nx.minimum_spanning_tree(graph)
 
         # Launch algorithms
-        Ryy, Rnn, s, n = asc.setup()
+        Ryy, Rss, Rnn, s, n = asc.setup()
         if c.useVAD:
             vad, vadSTFT = asc.estimate_vad()
 
@@ -45,19 +45,20 @@ class Run:
             'rsdanse': c.Mk + c.Qd * (c.K - 1),
             'tidanse': c.Mk + c.Qd,
         }
+        baseListDANSEscms = {
+            alg: [
+                1e-6 * c.randmat(
+                    (c.nPosFreqs, algDims[alg], algDims[alg])
+                    if c.domain == 'wola'
+                    else (algDims[alg], algDims[alg]),
+                    makeComplex=True if c.domain != 'time' else False
+                ) for _ in range(c.K)
+            ] for alg in c.algos if 'danse' in alg
+        }
         iv = dict([(alg, {
-            'tRyy': [
-                1e-6 * c.randmat(
-                    (c.nPosFreqs, algDims[alg], algDims[alg]) if c.domain == 'wola' else (algDims[alg], algDims[alg]),
-                    makeComplex=True if c.domain != 'time' else False
-                ) for _ in range(c.K)
-            ],
-            'tRnn': [
-                1e-6 * c.randmat(
-                    (c.nPosFreqs, algDims[alg], algDims[alg]) if c.domain == 'wola' else (algDims[alg], algDims[alg]),
-                    makeComplex=True if c.domain != 'time' else False
-                ) for _ in range(c.K)
-            ],
+            'tRyy': baseListDANSEscms[alg],
+            'tRss': copy.deepcopy(baseListDANSEscms[alg]),
+            'tRnn': copy.deepcopy(baseListDANSEscms[alg]),
             'Pk': [
                 c.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
                 for _ in range(c.K)
@@ -99,60 +100,67 @@ class Run:
 
             for l in tqdm(range(c.nFrames), desc=f"Processing frames ({len(c.algos)} algorithms)"):
                 # New SCM estimates
-                ssH = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())
                 nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
+                if c.noCrossCorrelation:
+                    # ssH
+                    inner2 = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())
+                else:
+                    # yyH
+                    inner2 = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())
                 # Update the SCMs using the online estimation formula
                 for beta in betas:
                     kwargs = {
                         'beta': beta,
-                        'ssH': ssH,
+                        'ssH': inner2,
                         'nnH': nnH,
                         'vad': vadSTFT[:, l] if c.useVAD else None
                     }
                     # Update the SCMs using the online estimation formula
-                    Rss[beta], Rnn[beta] = single_update_scm(
-                        Rss[beta],
-                        Rnn[beta],
-                        **kwargs
-                    )
+                    if c.noCrossCorrelation:
+                        Rss[beta], Rnn[beta] = single_update_scm(Rss[beta], Rnn[beta], **kwargs)
+                    else:
+                        Ryy[beta], Rnn[beta] = single_update_scm(Ryy[beta], Rnn[beta], **kwargs)
                     if l % 2 == 0 and flagAlternating:
                         # If alternating dMWF, update the dMWF estimation SCMs
                         # using the even frames only
-                        Rss_est[beta], Rnn_est[beta] = single_update_scm(
-                            Rss_est[beta],
-                            Rnn_est[beta],
-                            **kwargs
-                        )
+                        if c.noCrossCorrelation:
+                            Rss_est[beta], Rnn_est[beta] = single_update_scm(Rss_est[beta], Rnn_est[beta], **kwargs)
+                        else:
+                            Ryy_est[beta], Rnn_est[beta] = single_update_scm(Ryy_est[beta], Rnn_est[beta], **kwargs)
                     elif l % 2 == 1 and flagAlternating:
                         # If alternating dMWF, update the dMWF discovery SCMs
                         # using the odd frames only
-                        Rss_dis[beta], Rnn_dis[beta] = single_update_scm(
-                            Rss_dis[beta],
-                            Rnn_dis[beta],
-                            **kwargs
-                        )
-                    
+                        if c.noCrossCorrelation:
+                            Rss_dis[beta], Rnn_dis[beta] = single_update_scm(Rss_dis[beta], Rnn_dis[beta], **kwargs)
+                        else:
+                            Ryy_dis[beta], Rnn_dis[beta] = single_update_scm(Ryy_dis[beta], Rnn_dis[beta], **kwargs)
+
                     # Complete signal SCM
-                    Ryy[beta] = Rss[beta] + Rnn[beta]
-                    if flagAlternating:
-                        Ryy_est[beta] = Rss_est[beta] + Rnn_est[beta]
-                        Ryy_dis[beta] = Rss_dis[beta] + Rnn_dis[beta]
+                    if c.noCrossCorrelation:
+                        Ryy[beta] = Rss[beta] + Rnn[beta]
+                        if flagAlternating:
+                            Ryy_est[beta] = Rss_est[beta] + Rnn_est[beta]
+                            Ryy_dis[beta] = Rss_dis[beta] + Rnn_dis[beta]
+                    else:
+                        Rss[beta] = None
 
                 # Current frame information
                 iv['frameIdx'] = l
                 iv['vad'] = vadSTFT[:, l] if c.useVAD else None
                 scenarioIdx = 0  # by default
                 if c.domain == 'wola':
-                    iv['frame_n'] = n[..., l].T
                     iv['frame_y'] = s[..., l].T + n[..., l].T
+                    iv['frame_s'] = s[..., l].T
+                    iv['frame_n'] = n[..., l].T
                     # Identify current acoustic scenario (for oQq and Qkq values in dMWF)
                     if c.dynamics == 'moving':
                         scenarioIdx = int((l * (c.nfft - c.nhop) / c.fs) // c.movingEvery)
                 else:
                     idxBeg = int(l * (c.frameDuration * c.fs))
                     idxEnd = int((l + 1) * (c.frameDuration * c.fs))
-                    iv['frame_n'] = n[..., idxBeg:idxEnd].T
                     iv['frame_y'] = s[..., idxBeg:idxEnd].T + n[..., idxBeg:idxEnd].T
+                    iv['frame_s'] = s[..., idxBeg:idxEnd].T
+                    iv['frame_n'] = n[..., idxBeg:idxEnd].T
                     # Identify current acoustic scenario (for oQq and Qkq values in dMWF)
                     if c.dynamics == 'moving':
                         scenarioIdx = int((l * c.frameDuration) // c.movingEvery)
@@ -161,7 +169,7 @@ class Run:
                 # profile = Profiler()
                 # profile.start()
                 tmp, ivOut = self.launch(
-                    Ryy, Rnn,
+                    Ryy, Rss, Rnn,
                     asc, graph,
                     ivIn=iv,
                     silent=True,
@@ -180,7 +188,7 @@ class Run:
                         iv[alg][key] = value
         else:
             W_netWide = self.launch(
-                Ryy, Rnn,
+                Ryy, Rss, Rnn,
                 asc, graph,
                 ivIn=iv
             )[0]
@@ -208,7 +216,7 @@ class Run:
 
     def launch(
             self,
-            RyyAll, RnnAll,
+            RyyAll, RssAll, RnnAll,
             asc: AcousticScenario, G,
             ivIn=None,
             silent=False,
@@ -222,6 +230,7 @@ class Run:
 
         Parameters:
             RyyAll (dict[float, np.ndarray]): Full signal covariance matrix, for all beta values.
+            RssAll (dict[float, np.ndarray]): Desired signal covariance matrix, for all beta values.
             RnnAll (dict[float, np.ndarray]): Noise signal covariance matrix, for all beta values.
             asc (AcousticScenario): Acoustic scenario object.
             G (nx.Graph): Graph representing the network topology.
@@ -252,12 +261,14 @@ class Run:
 
             if c.scmEstimation == 'online':
                 Ryy = RyyAll[c.beta[alg]]
+                Rss = RssAll[c.beta[alg]]
                 Rnn = RnnAll[c.beta[alg]]
                 Ryy_dMWF_est = Ryy_dMWF_estAll[c.beta[alg]]
                 Rnn_dMWF_est = Rnn_dMWF_estAll[c.beta[alg]]
                 Ryy_dMWF_dis = Ryy_dMWF_disAll[c.beta[alg]]
             else:
                 Ryy = RyyAll
+                Rss = RssAll
                 Rnn = RnnAll
                 Ryy_dMWF_est = Ryy_dMWF_estAll
                 Rnn_dMWF_est = Rnn_dMWF_estAll
@@ -346,11 +357,13 @@ class Run:
                 Wk = ivIn[alg]['Wk']
                 u = ivIn[alg]['u']
                 tRyyPrev = ivIn[alg]['tRyy']
+                tRssPrev = ivIn[alg]['tRss']
                 tRnnPrev = ivIn[alg]['tRnn']
                 onlineModeCriterion = True
                 if c.scmEstimation == 'online':
-                    frame_n = ivIn['frame_n']
                     frame_y = ivIn['frame_y']
+                    frame_s = ivIn['frame_s']
+                    frame_n = ivIn['frame_n']
                     onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
                 gamma = ivIn[alg]['gamma']  # normalization factor for TI-DANSE
 
@@ -367,13 +380,18 @@ class Run:
 
                     if c.scmEstimation == 'online':
                         # Compute fused signals
-                        zy, zn = [None for _ in range(c.K)], [None for _ in range(c.K)]
+                        zy, zs, zn = [None for _ in range(c.K)], [None for _ in range(c.K)], [None for _ in range(c.K)]
                         for k in range(c.K):
                             if c.domain == 'wola':
                                 zy[k] = np.einsum(
                                     'ijk,ij->ik',
                                     Pk[k].conj(),
                                     frame_y[:, c.Mk * k:c.Mk * (k + 1)]
+                                )
+                                zs[k] = np.einsum(
+                                    'ijk,ij->ik',
+                                    Pk[k].conj(),
+                                    frame_s[:, c.Mk * k:c.Mk * (k + 1)]
                                 )
                                 zn[k] = np.einsum(
                                     'ijk,ij->ik',
@@ -383,15 +401,18 @@ class Run:
                             else:
                                 # Time-domain-like processing
                                 zy[k] = frame_y[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
+                                zs[k] = frame_s[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
                                 zn[k] = frame_n[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
                             
                             if alg.startswith("tidanse"):
                                 # Apply normalization factor for TI-DANSE
                                 if c.domain == 'wola':
                                     zy[k] = np.einsum('ijk,ik->ij', herm(gamma), zy[k])
+                                    zs[k] = np.einsum('ijk,ik->ij', herm(gamma), zs[k])
                                     zn[k] = np.einsum('ijk,ik->ij', herm(gamma), zn[k])
                                 else:
                                     zy[k] = np.einsum('ij,kj->ki', herm(gamma), zy[k])
+                                    zs[k] = np.einsum('ij,kj->ki', herm(gamma), zs[k])
                                     zn[k] = np.einsum('ij,kj->ki', herm(gamma), zn[k])
 
                     for k in range(c.K):
@@ -420,6 +441,10 @@ class Run:
                                     frame_y[:, c.Mk * k:c.Mk * (k + 1)],
                                     np.sum([zy[q] for q in range(c.K) if q != k], axis=0)
                                 ], axis=1)
+                                ts = np.concatenate([
+                                    frame_s[:, c.Mk * k:c.Mk * (k + 1)],
+                                    np.sum([zs[q] for q in range(c.K) if q != k], axis=0)
+                                ], axis=1)
                                 tn = np.concatenate([
                                     frame_n[:, c.Mk * k:c.Mk * (k + 1)],
                                     np.sum([zn[q] for q in range(c.K) if q != k], axis=0)
@@ -429,33 +454,54 @@ class Run:
                                     [frame_y[:, c.Mk * k:c.Mk * (k + 1)]] +\
                                     [zy[q] for q in range(c.K) if q != k], axis=1
                                 )
+                                ts = np.concatenate(
+                                    [frame_s[:, c.Mk * k:c.Mk * (k + 1)]] +\
+                                    [zs[q] for q in range(c.K) if q != k], axis=1
+                                )
                                 tn = np.concatenate(
                                     [frame_n[:, c.Mk * k:c.Mk * (k + 1)]] +\
                                     [zn[q] for q in range(c.K) if q != k], axis=1
                                 )
                             if c.domain == 'wola':
                                 yyH = np.einsum('ij,ik->ijk', ty, ty.conj())
+                                ssH = np.einsum('ij,ik->ijk', ts, ts.conj())
                                 nnH = np.einsum('ij,ik->ijk', tn, tn.conj())
                             else:
                                 yyH = ty.T @ ty.conj()
+                                ssH = ts.T @ ts.conj()
                                 nnH = tn.T @ tn.conj()
                             
                             if alg.startswith("tidanse"):
                                 tRyyPrev[k] = herm(Nk) @ tRyyPrev[k] @ Nk
+                                tRssPrev[k] = herm(Nk) @ tRssPrev[k] @ Nk
                                 tRnnPrev[k] = herm(Nk) @ tRnnPrev[k] @ Nk
 
-                            tRyy, tRnn = single_update_scm(
-                                tRyyPrev[k], tRnnPrev[k],
-                                yyH, nnH, c.beta[alg],
-                                vad=ivIn['vad']
-                            )
-                            # tRyy = c.beta[alg] * tRyyPrev[k] + (1 - c.beta[alg]) * yyH
-                            # tRnn = c.beta[alg] * tRnnPrev[k] + (1 - c.beta[alg]) * nnH
+                            # Update the SCMs
+                            if c.noCrossCorrelation:
+                                tRss, tRnn = single_update_scm(
+                                    tRssPrev[k], tRnnPrev[k],
+                                    ssH, nnH, c.beta[alg],
+                                    vad=ivIn['vad']
+                                )
+                                tRyy = tRss + tRnn
+                            else:
+                                tRyy, tRnn = single_update_scm(
+                                    tRyyPrev[k], tRnnPrev[k],
+                                    yyH, nnH, c.beta[alg],
+                                    vad=ivIn['vad']
+                                )
+                                tRss = None
                         else:
-                            tRyy = herm(Ck) @ Ryy @ Ck
                             tRnn = herm(Ck) @ Rnn @ Ck
+                            if c.noCrossCorrelation:
+                                tRss = herm(Ck) @ Rss @ Ck
+                                tRyy = tRss + tRnn
+                            else:
+                                tRyy = herm(Ck) @ Ryy @ Ck
+                                tRss = None
                         
                         tRyyPrev[k] = tRyy
+                        tRssPrev[k] = tRss
                         tRnnPrev[k] = tRnn
 
                         # Update the filters
@@ -505,6 +551,7 @@ class Run:
                     'Wk': Wk,  # Last filter for each node
                     'u': u,
                     'tRyy': tRyyPrev,
+                    'tRss': tRssPrev,
                     'tRnn': tRnnPrev,
                     'gamma': gamma,  # normalization factor for TI-DANSE
                 }
@@ -530,8 +577,8 @@ class Run:
 
         def _regular_mwf(Ryy, Rss):
             try:
-                tmp = np.linalg.solve(c.mu * Ryy + (1 - c.mu) * Rss, Rss)
-                # tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
+                # tmp = np.linalg.solve(c.mu * Ryy + (1 - c.mu) * Rss, Rss)
+                tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
             except np.linalg.LinAlgError:
                 print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
                 tmp = np.linalg.pinv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss

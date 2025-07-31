@@ -105,6 +105,7 @@ class Parameters:
     singleLine: int = None  # if not None, only process this frequency line in WOLA domain
     unconstrainedRandomPositions: bool = False  # if True, allow random positions for sources
     wolaMixtures_viaTD: bool = False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
+    noCrossCorrelation: bool = False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory

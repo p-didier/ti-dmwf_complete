@@ -33,18 +33,18 @@ TEST_SET = [
     #     'scmEstimation': 'oracle',
     #     'observability': 'poss',
     # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'foss',
-    # },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'foss',
+    },
     {
         'scmEstimation': 'batch',
         'observability': 'poss',
     },
-    # {
-    #     'scmEstimation': 'online',
-    #     'observability': 'foss',
-    # },
+    {
+        'scmEstimation': 'online',
+        'observability': 'foss',
+    },
     {
         'scmEstimation': 'online',
         'observability': 'poss',

@@ -34,8 +34,10 @@ FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 # METRICS_OVER_FIRST_SECONDS = None  # Number of seconds to consider for waveform-based metrics computation
 METRICS_OVER_FIRST_SECONDS = 5  # Number of seconds to consider for waveform-based metrics computation
 
-WHICH_NODES = 'all'  # 'all' or a list of node indices to process
-# WHICH_NODES = [0]  # 'all' or a list of node indices to process
+# WHICH_NODES = 'all'  # 'all' or a list of node indices to process
+WHICH_NODES = [0]  # 'all' or a list of node indices to process
+
+COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for online processing)
 
 # Metrics computation method for online mode:
 # - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
@@ -97,10 +99,6 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
         c: Parameters = results['cfg']  # Configuration parameters
         
         # Compute metrics over the first seconds of the signal
-        # if c.desSigType == 'speech':
-        #     metricsOver = 10000 / c.fs  # First 10000 samples
-        # else:
-        #     metricsOver = METRICS_OVER_FIRST_SECONDS
         if c.scmEstimation != 'online':
             metricsMethod = 'entire_signal'  # Use entire signal for batch processing
         else:
@@ -176,19 +174,6 @@ class PostProcessor:
         ):
         c = self.cfg
 
-        # Initialize `metrics` dictionary
-        if c.scmEstimation == 'online':
-            metrics = dict([(metric, dict([
-                (alg, [
-                    np.zeros(c.nFrames)
-                    for _ in range(c.K)
-                ]) for alg in c.algos
-            ])) for metric in metricsToCompute])
-        else:
-            metrics = dict([(metric, dict([
-                (alg, [None for _ in range(c.K)]) for alg in c.algos
-            ])) for metric in metricsToCompute])
-
         def _apply_filter(Wk, x):
             if c.domain == 'wola':
                 return c.get_istft((herm(Wk) @ x.transpose(1, 0, 2)).transpose(1, 0, 2))
@@ -224,7 +209,7 @@ class PostProcessor:
             metricsCurrAlg = dict([(alg, []) for alg in c.algos])
             for alg in c.algos:
                 if not silent:
-                    print(f"Computing metrics for {alg}, node {k}...", end='\r')
+                    print(f"Computing metrics for {alg}, node {k+1}/{len(nodesToProcess)}...", end='\r')
 
                 if not isinstance(WcurrFrame[alg][k], list):
                     WcurrFrame[alg][k] = [WcurrFrame[alg][k]]
@@ -294,14 +279,30 @@ class PostProcessor:
             # Get metrics signals to be used for all frames
             yc, sc, nc, dkTD = _get_metrics_signals(endTime=metricsOver)
 
-        pass
+        # Initialize `metrics` dictionary
+        nodesToProcess = range(c.K) if WHICH_NODES == 'all' else WHICH_NODES
+        nFramesActual = int(np.ceil(len(W_netWide) / COMPUTE_METRICS_EVERY_N_FRAMES))
+        if c.scmEstimation == 'online':
+            metrics = dict([(metric, dict([
+                (alg, [
+                    np.zeros(nFramesActual)
+                    for _ in nodesToProcess
+                ]) for alg in c.algos
+            ])) for metric in metricsToCompute])
+        else:
+            metrics = dict([(metric, dict([
+                (alg, [None for _ in nodesToProcess]) for alg in c.algos
+            ])) for metric in metricsToCompute])
 
         # Process data for each node and each algorithm (and each time frame if online mode)
-        for k in range(c.K):
+        outFrameIdx = [0 for _ in nodesToProcess]  # Output frame index for each node
+        for k in nodesToProcess:
             if isinstance(W_netWide, list) and c.scmEstimation == 'online':
                 # Online-mode processing
                 for l, w in enumerate(W_netWide):
-                    print(f"Computing metrics at node {k+1}, frame {l + 1}/{len(W_netWide)}...", end='\r')
+                    if l % COMPUTE_METRICS_EVERY_N_FRAMES != 0:
+                        continue
+                    print(f"Computing metrics at node {k+1}/{len(nodesToProcess)}, frame {l + 1}/{len(W_netWide)}...", end='\r')
                     if metricsMethod == 'recent_seconds':
                         if c.domain == 'wola':
                             # Get metrics signals for the current frame
@@ -315,12 +316,11 @@ class PostProcessor:
                                 startTime=np.amax((0, l * c.frameDuration / c.fs - metricsOver)),
                                 endTime=(l + 1) * c.frameDuration / c.fs
                             )
-                    if l == 100:
-                        pass
                     metricsCurrAlg = _processing_loop(k, w, dkTD, silent=True)
                     for alg in c.algos:
                         for m in metricsToCompute:
-                            metrics[m][alg][k][l] = metricsCurrAlg[alg][0][m]  # always only one element in `metricsCurrAlg[alg][m]` list in online-mode
+                            metrics[m][alg][k][outFrameIdx[k]] = metricsCurrAlg[alg][0][m]  # always only one element in `metricsCurrAlg[alg][m]` list in online-mode
+                    outFrameIdx[k] += 1
             else:
                 metricsCurrAlg = _processing_loop(k, W_netWide, dkTD)
                 for alg in c.algos:
@@ -399,14 +399,14 @@ class PostProcessor:
                             color=colors[alg],
                             marker=markers[jj % len(markers)],
                         )
-                maxX = c.nFrames if c.scmEstimation == 'online' else c.maxDANSEiter
+                maxX = len(metrics[list(metrics.keys())[0]]['unprocessed'][0]) if c.scmEstimation == 'online' else c.maxDANSEiter
                 # Format x-axis
                 ax.set_xlim(0, maxX)
                 if c.scmEstimation == 'online':
                     ticksInterval = maxX / 5
                     xTicks = np.arange(0, maxX, ticksInterval)
                     ax.set_xticks(xTicks)
-                    ax.set_xticklabels(np.round(xTicks * c.frameDuration, 2))
+                    ax.set_xticklabels(np.round(xTicks * c.frameDuration * COMPUTE_METRICS_EVERY_N_FRAMES, 2))
                     ax.set_xlabel('Time [s]')
                 else:
                     ax.set_xlabel('Iteration')

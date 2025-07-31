@@ -378,11 +378,15 @@ class AcousticScenario:
             Ryy = Rss + Rnn
         elif c.scmEstimation == 'batch':
             # Batch SCM estimation based on actual signals
-            Rss = s @ s.conj().T / c.N
             Rnn = n @ n.conj().T / c.N
-            # Complete signal SCM
-            Ryy = Rss + Rnn
+            if c.noCrossCorrelation:
+                Rss = s @ s.conj().T / c.N
+                Ryy = Rss + Rnn
+            else:
+                Ryy = (s + n) @ (s + n).conj().T / c.N
         elif c.scmEstimation == 'online':
+            if not c.noCrossCorrelation:
+                raise NotImplementedError('Not done yet for online time-domain')
             t0 = time.time()
             # Online SCM estimation
             betas = list(set(c.beta.values()))
@@ -426,7 +430,7 @@ class AcousticScenario:
             oQq=self.oQq
         )]
 
-        return Ryy, Rnn, s, n
+        return Ryy, Rss, Rnn, s, n
     
     def setup_wola_domain(self):
         c = self.cfg
@@ -559,13 +563,16 @@ class AcousticScenario:
 
         elif c.scmEstimation == 'batch':
             nFrames = stack['y'].shape[-1]
-            Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
             Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
-            # Complete signal SCM
-            Ryy = Rss + Rnn
+            if c.noCrossCorrelation:
+                Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
+                Ryy = Rss + Rnn
+            else:
+                Ryy = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj()) / nFrames
+                Rss = Ryy - Rnn
 
         elif c.scmEstimation == 'online':
-            Ryy, Rnn = None, None # nothing to do -- done in `algos.py`
+            Ryy, Rss, Rnn = None, None, None # nothing to do -- done in `algos.py`
         else:
             raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
         
@@ -591,7 +598,7 @@ class AcousticScenario:
             fig.tight_layout()
             plt.show()
 
-        return Ryy, Rnn, stack['s'], stack['n']
+        return Ryy, Rss, Rnn, stack['s'], stack['n']
 
     def estimate_vad(self):
         """Estimate the VAD for the latent desired signal."""
