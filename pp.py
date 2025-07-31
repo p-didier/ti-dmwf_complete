@@ -35,7 +35,9 @@ FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
 # ===== Used in PostProcessor.get_metrics_from_full_signal() =====
-METRICS_CHUNK_DURATION = 0.5  # Duration of the chunk to compute metrics over (in seconds)
+METRICS_CHUNK_DURATION = 1  # Duration of the chunk to compute metrics over (in seconds)
+METRICS_CHUNK_SHIFT = 0.5  # Shift of the chunk to compute metrics over (in seconds)
+CUMULATED_AVERAGE = True  # If True, apply a cumulative average (smoothing) to the metrics
 # ================================================================
 
 # WHICH_NODES = 'all'  # 'all' or a list of node indices to process
@@ -166,7 +168,7 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
 
     plt.show(block=False)  # Show all figures
     print("Post-processing completed.")
-d    return 0
+    return 0
 
 @dataclass
 class PostProcessor:
@@ -229,12 +231,14 @@ class PostProcessor:
         wolaFlag = c.domain == 'wola' and c.singleLine is not None
         if wolaFlag:
             # We are in the WOLA domain
+            nFramesPerChunkShift = int(np.ceil(METRICS_CHUNK_SHIFT * c.fs / (c.nfft - c.nhop)))
             nFramesPerChunk = int(np.ceil(METRICS_CHUNK_DURATION * c.fs / (c.nfft - c.nhop)))
-            nChunks = int(np.ceil(y.shape[-1] / nFramesPerChunk))
+            nChunks = int(np.ceil(y.shape[-1] / nFramesPerChunkShift))
         else:
             # We are in the time domain
+            nSamplesPerChunkShift = int(np.ceil(METRICS_CHUNK_SHIFT * c.fs))
             nSamplesPerChunk = int(np.ceil(METRICS_CHUNK_DURATION * c.fs))
-            nChunks = int(np.ceil(y.shape[-1] / nSamplesPerChunk))
+            nChunks = int(np.ceil(y.shape[-1] / nSamplesPerChunkShift))
 
         if c.scmEstimation == 'online':
             metrics = dict([(metric, dict([
@@ -250,10 +254,10 @@ class PostProcessor:
 
         for ii in range(nChunks):
             if wolaFlag:
-                idxBeg = ii * nFramesPerChunk
-                idxEnd = min((ii + 1) * nFramesPerChunk, y.shape[-1])
+                idxBeg = ii * nFramesPerChunkShift
+                idxEnd = min(idxBeg + nFramesPerChunk, y.shape[-1])
             else:
-                idxBeg = ii * nSamplesPerChunk
+                idxBeg = ii * nSamplesPerChunkShift
                 idxEnd = min((ii + 1) * nSamplesPerChunk, y.shape[-1])
             for k in nodesToProcess:
                 dk_chunk = d[k, :, :, idxBeg:idxEnd]
@@ -264,6 +268,15 @@ class PostProcessor:
                     metrics_curr = _process(dk_chunk, dhatk_chunk, shatk_chunk, nhatk_chunk)
                     for m in metricsToCompute:
                         metrics[m][alg][k].append(metrics_curr[m])
+
+        if CUMULATED_AVERAGE:
+            # Apply smoothing to the metrics
+            for m in metricsToCompute:
+                for alg in c.algos:
+                    for k in nodesToProcess:
+                        metrics[m][alg][k] = np.cumsum(
+                            metrics[m][alg][k]
+                        ) / np.arange(1, len(metrics[m][alg][k]) + 1)
 
         if 0:
             nCols = int(np.sqrt(len(c.algos)))
@@ -523,11 +536,12 @@ class PostProcessor:
                 for i in range(nChanges):
                     ax.axvline(x=(i * c.movingEvery * c.fs / frameLength) / COMPUTE_METRICS_EVERY_N_FRAMES, color='0.5', linestyle='--')
             ax.set_title(m.upper())
-            if m in ['snr', 'ser']:
+            if m in ['snr', 'ser'] and not CUMULATED_AVERAGE:
+                # Ensure y-axis starts at -10, lowest for SNR and SER
                 ax.set_ylim(np.nanargmin([
                     np.amax((-10, ax.get_ylim()[0])),
                     np.nanargmin(metrics[m]['unprocessed'])
-                ]), None)  # Ensure y-axis starts at 0
+                ]), None)
         supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES}'
         if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
             supti += f', {c.betaString}'
