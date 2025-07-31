@@ -110,11 +110,9 @@ class Run:
                 # New SCM estimates
                 nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
                 if c.noCrossCorrelation:
-                    # ssH
-                    inner2 = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())
-                else:
-                    # yyH
-                    inner2 = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())
+                    inner2 = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())  # ssH
+                else: 
+                    inner2 = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())  # yyH
                 # Update the SCMs using the online estimation formula
                 for beta in betas:
                     kwargs = {

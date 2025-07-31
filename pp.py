@@ -25,14 +25,14 @@ import matplotlib
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-# resDir = f'{baseResultsDir}/res_20250730_1306_wideband_speech_testrun'  # specific directory
+# resDir = f'{baseResultsDir}/res_20250731_1241_online_dynamic_noise_wola'  # specific directory
 resDir = 'latest'  # <-- pick the latest results directory
 
 EXPORT = False  # If True, export the figures to files
 FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 # FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 # METRICS_OVER_FIRST_SECONDS = None  # Number of seconds to consider for waveform-based metrics computation
-METRICS_OVER_FIRST_SECONDS = 5  # Number of seconds to consider for waveform-based metrics computation
+METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
 # WHICH_NODES = 'all'  # 'all' or a list of node indices to process
 WHICH_NODES = [0]  # 'all' or a list of node indices to process
@@ -46,8 +46,8 @@ COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for onlin
 # - 'recent_seconds' to compute metrics over the most recent `METRICS_OVER_FIRST_SECONDS`
 #   seconds of signal using the filter at the frame considered
 #   (STOI is not computed).
-METRICS_METHOD = 'entire_signal'
-# METRICS_METHOD = 'recent_seconds'
+# METRICS_METHOD = 'entire_signal'
+METRICS_METHOD = 'recent_seconds'
 # NB: 'recent_seconds' can only be meaningfully used for online processing.
 #   For batch processing, we use 'entire_signal' by default.
 
@@ -101,8 +101,11 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
         # Compute metrics over the first seconds of the signal
         if c.scmEstimation != 'online':
             metricsMethod = 'entire_signal'  # Use entire signal for batch processing
+        elif c.dynamics != 'static':
+            metricsMethod = 'recent_seconds'  # Use recent seconds for non-static dynamics
         else:
             metricsMethod = METRICS_METHOD  # Use the specified method for online processing
+        
         if metricsMethod == 'recent_seconds':
             bypassStoi = True  # Bypass STOI computation for 'recent_seconds' method
 

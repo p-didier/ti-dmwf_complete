@@ -61,7 +61,8 @@ dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
-movingEvery: 10.0  # time in seconds after which sources move in `moving` scenarios
+# movingEvery: 10.0  # time in seconds after which sources move in `moving` scenarios
+movingEvery: 5.0  # time in seconds after which sources move in `moving` scenarios
 
 # Signals parameters
 # fs: 41000  # sampling frequency
@@ -93,9 +94,9 @@ algos:  # list of algorithms to run
 - unprocessed
 - local
 - centralized
-# - dmwf
-# - danse
-# - rsdanse
+- dmwf
+- danse
+- rsdanse
 # - tidmwf
 # - tidanse
 maxDANSEiter: 30  # maximum number of iterations for DANSE
@@ -120,6 +121,7 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
     default: 0.975,
+    # default: 0.9,
     # default: 0.985,
     # default: 0.99,
     # dmwf: 0.95,
@@ -140,4 +142,4 @@ nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration f
 seed: 42  # random number generator seed
 # suffix: 'test_changed_obsMat'  # output file suffix
 # suffix: 'noCrossCorrelation_wolaMixtures_viaTD'  # output file suffix
-suffix: 'saa_60s'  # output file suffix
+suffix: 'saa_changeevery5s'  # output file suffix
