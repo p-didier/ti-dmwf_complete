@@ -56,8 +56,8 @@ nhop: 512  # number of samples in FFT hop
 # nhop: 256  # number of samples in FFT hop
 win: hann  # STFT window type
 # win: rect  # STFT window type
-dynamics: static  # type of acoustic scenario dynamics
-# dynamics: moving  # type of acoustic scenario dynamics
+# dynamics: static  # type of acoustic scenario dynamics
+dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
@@ -80,9 +80,9 @@ selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
 # noiseSigType: ssn  # random, babble, or ssn
 noiseSigType: random  # random, babble, or ssn
-desSigType: random  # speech or noise
+# desSigType: random  # speech or noise
 # noiseSigType: babble  # random, babble, or ssn
-# desSigType: speech  # speech or noise
+desSigType: speech  # speech or noise
 ssnDatabasePath: "C:/Users/pdidier/Dropbox/PC/Documents/sounds-phd/02_data/00_raw_signals/02_noise/ssn"  # path to the SSN database
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
@@ -91,11 +91,11 @@ speechDatabasePath: "C:/Users/pdidier/Documents/datasets/DS_10283_3443/VCTK-Corp
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
 - unprocessed
-- centralized
 - local
-- dmwf
-- danse
-- rsdanse
+- centralized
+# - dmwf
+# - danse
+# - rsdanse
 # - tidmwf
 # - tidanse
 maxDANSEiter: 30  # maximum number of iterations for DANSE
@@ -119,9 +119,9 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 # Online mode parameters
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
-    # default: 0.975,
+    default: 0.975,
     # default: 0.985,
-    default: 0.99,
+    # default: 0.99,
     # dmwf: 0.95,
 }  # forgetting factor for online processing
 
@@ -137,7 +137,7 @@ noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimic
 # nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 
-seed: 43  # random number generator seed
+seed: 42  # random number generator seed
 # suffix: 'test_changed_obsMat'  # output file suffix
 # suffix: 'noCrossCorrelation_wolaMixtures_viaTD'  # output file suffix
-suffix: 'test'  # output file suffix
+suffix: 'saa_60s'  # output file suffix

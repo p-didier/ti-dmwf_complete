@@ -172,6 +172,7 @@ class Run:
                     # Identify current acoustic scenario (for oQq and Qkq values in dMWF)
                     if c.dynamics == 'moving':
                         scenarioIdx = int((l * c.frameDuration) // c.movingEvery)
+                scenarioIdx = np.amin([scenarioIdx, len(asc.scenarios) - 1])
                 
                 # Launch algorithms for the current frame
                 # profile = Profiler()

@@ -141,7 +141,7 @@ class Parameters:
         
         # Check algorithms to remove based on observabilities
         algs_to_remove = []
-        
+
         if self.observability == 'poss':
             if self.Qd + self.Qn > self.Mk:
                 raise ValueError("For partially overlapping subspaces, the total number of desired and noise sources must not exceed the number of sensors per node.")
@@ -154,6 +154,9 @@ class Parameters:
                         print('...also removing TI-DANSE.')
                         algs_to_remove.append('tidanse')
         if self.nodeSpecificDANSEsourceEnum:
+            if self.dynamics != 'static':
+                print('Node-specific DANSE desired source enumeration is only implemented for static scenarios.')
+                raise NotImplementedError
             for alg in self.algos:
                 if 'tidanse' in alg:
                     print(f'{alg} not implemented for node-specific DANSE desired source enumeration.')

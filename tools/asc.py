@@ -1016,8 +1016,8 @@ class AcousticScenario:
 
         # Store the STFT signals in the nodes
         for k in range(c.K):
-            self.nodes[k].wd['s'] = s[k * c.Mk:(k + 1) * c.Mk, ...]
-            self.nodes[k].wd['n'] = n[k * c.Mk:(k + 1) * c.Mk, ...]
+            self.nodes[k].wd['s'][..., idxFrameBeg:idxFrameEnd] = s[k * c.Mk:(k + 1) * c.Mk, ...]
+            self.nodes[k].wd['n'][..., idxFrameBeg:idxFrameEnd] = n[k * c.Mk:(k + 1) * c.Mk, ...]
 
     def define_layout(self):
         """Define the layout of the acoustic scenario."""

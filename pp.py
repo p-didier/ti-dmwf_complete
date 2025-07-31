@@ -427,7 +427,7 @@ class PostProcessor:
                 # Plot a vertical line every time the scenario changes
                 nChanges = int(c.T / c.movingEvery)
                 for i in range(nChanges):
-                    ax.axvline(x=i * c.movingEvery * c.fs / frameLength, color='0.5', linestyle='--')
+                    ax.axvline(x=(i * c.movingEvery * c.fs / frameLength) / COMPUTE_METRICS_EVERY_N_FRAMES, color='0.5', linestyle='--')
             ax.set_title(m.upper())
             if m in ['snr', 'ser']:
                 ax.set_ylim(np.amin([
