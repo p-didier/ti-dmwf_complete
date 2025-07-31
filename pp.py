@@ -34,11 +34,15 @@ FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 # METRICS_OVER_FIRST_SECONDS = None  # Number of seconds to consider for waveform-based metrics computation
 METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
+# ===== Used in PostProcessor.get_metrics_from_full_signal() =====
+METRICS_CHUNK_DURATION = 0.5  # Duration of the chunk to compute metrics over (in seconds)
+# ================================================================
+
 # WHICH_NODES = 'all'  # 'all' or a list of node indices to process
 WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
-# COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for online processing)
-COMPUTE_METRICS_EVERY_N_FRAMES = 30  # Compute metrics every N frames (for online processing)
+COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for online processing)
+# COMPUTE_METRICS_EVERY_N_FRAMES = 30  # Compute metrics every N frames (for online processing)
 
 # Metrics computation method for online mode:
 # - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
@@ -54,7 +58,7 @@ METRICS_METHOD = 'entire_signal'
 
 BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging)
 
-n_per_col = 2  # Number of figures per column
+n_per_col = 2  # Number of figures per column after plt.show()
 margin = 100  # Margin between figures in pixels
 
 def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPASS_STOI):
@@ -135,7 +139,8 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
 
             print("\nComputing metrics...")
             t0 = time.time()
-            metrics = pp.get_metrics(
+            # metrics = pp.get_metrics(
+            metrics = pp.get_metrics_from_full_signal(
                 results['W_netWide'],
                 y, d, n, s,
                 metricsToCompute,
@@ -161,11 +166,120 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
 
     plt.show(block=False)  # Show all figures
     print("Post-processing completed.")
-    return 0
+d    return 0
 
 @dataclass
 class PostProcessor:
     cfg: Parameters = field(default_factory=lambda: Parameters())
+
+    def get_metrics_from_full_signal(
+            self,
+            W_netWide,
+            y, d, n=None, s=None,
+            metricsToCompute=[],
+            metricsOver=None,
+            metricsMethod=None
+        ):
+        c = self.cfg
+
+        # First, compute estimated signals
+        nodesToProcess = range(c.K) if WHICH_NODES == 'all' else WHICH_NODES
+        dhatk = dict([(k, dict([(alg, np.zeros(d[k, ...].shape, dtype=y.dtype)) for alg in c.algos])) for k in nodesToProcess])
+        shatk = dict([(k, dict([(alg, np.zeros(d[k, ...].shape, dtype=y.dtype)) for alg in c.algos])) for k in nodesToProcess])
+        nhatk = dict([(k, dict([(alg, np.zeros(d[k, ...].shape, dtype=y.dtype)) for alg in c.algos])) for k in nodesToProcess])
+        for k in nodesToProcess:
+            if isinstance(W_netWide, list) and c.scmEstimation == 'online':
+                # Online-mode processing
+                for l, w in enumerate(W_netWide):
+                    yc = y[:, :, l]
+                    sc = s[:, :, l]
+                    nc = n[:, :, l]
+                    for alg in c.algos:
+                        if c.domain == 'wola':
+                            Wk = w[alg][k]
+                            if isinstance(Wk, list):
+                                # If Wk is a list, we take the last element (the most recent filter)
+                                Wk = Wk[-1]
+                            dhatk[k][alg][..., l] = np.einsum('ijk,ki->ij', herm(Wk), yc)
+                            shatk[k][alg][..., l] = np.einsum('ijk,ki->ij', herm(Wk), sc)
+                            nhatk[k][alg][..., l] = np.einsum('ijk,ki->ij', herm(Wk), nc)
+            else:
+                raise NotImplementedError("Offline-mode processing is not implemented.")
+        
+        # Now compute metrics
+        def _process(dk, dhatk, shatk, nhatk):
+            metrics_curr = dict([(metric, None) for metric in metricsToCompute])
+            for m in metricsToCompute:
+                if m == 'msed':
+                    metrics_curr['msed'] = np.mean(np.abs(dk - dhatk) ** 2)
+                if m == 'snr':
+                    metrics_curr['snr'] = 20 * np.log10(
+                        np.mean(np.abs(shatk) ** 2) /
+                        np.mean(np.abs(nhatk) ** 2)
+                    )
+                if m == 'ser':
+                    metrics_curr['ser'] = 20 * np.log10(
+                        np.mean(np.abs(dk) ** 2) /
+                        np.mean(np.abs(dk - dhatk) ** 2)
+                    )
+                if m == 'stoi':
+                    metrics_curr['stoi'] = stoi_any_fs(dk, dhatk, fs_sig=c.fs)
+            return metrics_curr
+        
+        wolaFlag = c.domain == 'wola' and c.singleLine is not None
+        if wolaFlag:
+            # We are in the WOLA domain
+            nFramesPerChunk = int(np.ceil(METRICS_CHUNK_DURATION * c.fs / (c.nfft - c.nhop)))
+            nChunks = int(np.ceil(y.shape[-1] / nFramesPerChunk))
+        else:
+            # We are in the time domain
+            nSamplesPerChunk = int(np.ceil(METRICS_CHUNK_DURATION * c.fs))
+            nChunks = int(np.ceil(y.shape[-1] / nSamplesPerChunk))
+
+        if c.scmEstimation == 'online':
+            metrics = dict([(metric, dict([
+                (alg, [
+                    []
+                    for _ in nodesToProcess
+                ]) for alg in c.algos
+            ])) for metric in metricsToCompute])
+        else:
+            metrics = dict([(metric, dict([
+                (alg, [None for _ in nodesToProcess]) for alg in c.algos
+            ])) for metric in metricsToCompute])
+
+        for ii in range(nChunks):
+            if wolaFlag:
+                idxBeg = ii * nFramesPerChunk
+                idxEnd = min((ii + 1) * nFramesPerChunk, y.shape[-1])
+            else:
+                idxBeg = ii * nSamplesPerChunk
+                idxEnd = min((ii + 1) * nSamplesPerChunk, y.shape[-1])
+            for k in nodesToProcess:
+                dk_chunk = d[k, :, :, idxBeg:idxEnd]
+                for alg in c.algos:
+                    dhatk_chunk = dhatk[k][alg][..., idxBeg:idxEnd]
+                    shatk_chunk = shatk[k][alg][..., idxBeg:idxEnd]
+                    nhatk_chunk = nhatk[k][alg][..., idxBeg:idxEnd]
+                    metrics_curr = _process(dk_chunk, dhatk_chunk, shatk_chunk, nhatk_chunk)
+                    for m in metricsToCompute:
+                        metrics[m][alg][k].append(metrics_curr[m])
+
+        if 0:
+            nCols = int(np.sqrt(len(c.algos)))
+            nRows = int(np.ceil(len(c.algos) / nCols))
+            fig, axes = plt.subplots(nRows, nCols, sharex=True, sharey=True)
+            fig.set_size_inches(8.5, 3.5)
+            for i, alg in enumerate(c.algos):
+                ax = axes[i // nCols, i % nCols]
+                ax.plot(np.abs(dhatk[0][alg][0, 0, :]), 'b', label='dhatk')
+                ax.plot(np.abs(d[0, 0, 0, :]), 'k', label='dk')
+                ax.legend()
+                ax.set_title(f"{alg} - Node {0 + 1}")
+            fig.tight_layout()
+            plt.show()
+        
+        return metrics
 
     def get_metrics(
             self,
@@ -226,41 +340,6 @@ class PostProcessor:
                         kwargs[alg]['nhatk'] = _apply_filter(wCurr, nc)
                     # Compute metrics for the current filter
                     metricsCurrAlg[alg].append(_process(wCurr, **kwargs[alg]))
-
-                    if 0 and ii == len(WcurrFrame[alg][k]) - 1:
-                        fig, axes = plt.subplots(1, 3)
-                        fig.set_size_inches(8.5, 3.5)
-                        # Ensure all axes have the same color scale
-                        vmin = np.amin([
-                            np.amin(20 * np.log10(np.abs((herm(wCurr) @ yc.transpose(1, 0, 2)).transpose(1, 0, 2)[0, ...]))),
-                            np.amin(20 * np.log10(np.abs(yc[k * c.Mk, ...]))),
-                            np.amin(20 * np.log10(np.abs(sc[k * c.Mk, ...])))
-                        ])
-                        vmax = np.amax([
-                            np.amax(20 * np.log10(np.abs((herm(wCurr) @ yc.transpose(1, 0, 2)).transpose(1, 0, 2)[0, ...]))),
-                            np.amax(20 * np.log10(np.abs(yc[k * c.Mk, ...]))),
-                            np.amax(20 * np.log10(np.abs(sc[k * c.Mk, ...])))
-                        ])
-                        axes[0].imshow(20*np.log10(np.abs((herm(wCurr) @ yc.transpose(1, 0, 2)).transpose(1, 0, 2)[0, ...])), vmin=vmin, vmax=vmax)
-                        axes[0].set_xlabel('Filtered')
-                        axes[1].imshow(20*np.log10(np.abs(yc[k * c.Mk, ...])), vmin=vmin, vmax=vmax)
-                        axes[1].set_xlabel('Unprocessed')
-                        axes[2].imshow(20*np.log10(np.abs(sc[k * c.Mk, ...])), vmin=vmin, vmax=vmax)
-                        axes[2].set_xlabel('Target')
-                        fig.suptitle(f"STFTs for {alg}, node {k}, frame {ii + 1}/{len(WcurrFrame[alg][k])}")
-                        fig.tight_layout()
-                        plt.show(block=False)
-                    
-            if 0:
-                nCols = int(np.sqrt(len(c.algos)))
-                nRows = int(np.ceil(len(c.algos) / nCols))
-                fig, axes = plt.subplots(nRows, nCols, sharex=True, sharey=True)
-                fig.set_size_inches(8.5, 3.5)
-                for ax, alg in zip(axes.flatten(), c.algos):
-                    ax.plot(kwargs[alg]['dhatk'].T)
-                    ax.set_title(alg)
-                fig.tight_layout()
-                plt.show()
 
             return metricsCurrAlg
         

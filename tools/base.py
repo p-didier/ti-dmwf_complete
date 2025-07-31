@@ -4,10 +4,12 @@
 # (c) Paul Didier, SOUNDS ETN, KU Leuven ESAT STADIUS
 
 import yaml
+import time
 import pickle
 import numpy as np
 import scipy.signal as sig
 from dataclasses import dataclass, field
+from humanfriendly import format_timespan
 
 @dataclass
 class Parameters:
@@ -167,9 +169,14 @@ class Parameters:
         for alg in algs_to_remove:
             self.algos.remove(alg)
 
-    
     def __str__(self):
-        return str(self.__dict__)
+        # Print the parameters in a readable format
+        params_str = "\n".join([f"{key}: {value}" for key, value in self.__dict__.items()])
+        params_str += f"\nN: {self.N}, nFrames: {self.nFrames}, nPosFreqs: {self.nPosFreqs}"
+        params_str += f"\nOutput directory: {self.outputDir}"
+        # Add time
+        params_str += f"\nTime: {format_timespan(time.time())}"
+        return f"Parameters:\n{params_str}"
     
     def load_from_yaml(self, path: str):
         """Load parameters from a YAML file."""

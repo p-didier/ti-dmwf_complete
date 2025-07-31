@@ -237,6 +237,7 @@ class AcousticScenario:
         c = self.cfg
 
         # Setup the acoustic scenario
+        t0 = time.time()
         if c.domain == 'wola':
             out = self.setup_wola_domain()
         if 'time' in c.domain:
@@ -245,6 +246,7 @@ class AcousticScenario:
                     "Dynamic scenarios are not supported in the time domain yet."
                 )
             out = self.setup_time_domain()
+        print(f">>> Acoustic scenario setup done in {time.time() - t0:.2f} s.")
         
         for s in self.scenarios:
             s.get_Qdims(c)
@@ -485,44 +487,45 @@ class AcousticScenario:
                 # Setup the static scenario
                 self.setup_wola_domain_static(idxStart, idxEnd, omFixed=omFixed)
 
-        # Diffuse noise
-        params = anf.CoherenceMatrix.Parameters(
-            mic_positions=self.scenarios[0].sensorsPos,
-            sc_type="spherical",
-            sample_frequency=c.fs,
-            nfft=c.nfft,
-        )
-        input_signals = np.random.randn(c.M, int(c.T * params.sample_frequency))
-        t0 = time.time()
-        print("Generating diffuse noise...")
-        diffuseNoise, _, _ = anf.generate_signals(
-            input_signals,
-            params,
-            decomposition='evd',
-            processing='balance+smooth'
-        )
-        print(f"Diffuse noise generated in {time.time() - t0:.2f} s.")
-        # Normalize the diffuse noise
-        diffuseNoise /= np.linalg.norm(diffuseNoise, axis=0, keepdims=True)
-        # Adapt SNR of diffuse noise to the target SNR
-        if c.diffuseSNR is not None:
-            # Scale the diffuse noise signals to match the target SNR
-            nPower = np.mean(np.abs(diffuseNoise) ** 2)
-            sPower = np.mean(np.abs(self.latentDesired) ** 2)
-            if nPower > 0 and sPower > 0:
-                currentSNR = 10 * np.log10(sPower / nPower)
-                scalingFactor = 10 ** ((c.diffuseSNR - currentSNR) / 20)
-                diffuseNoise *= scalingFactor
-        
-        if not c.wolaMixtures_viaTD:
-            # If we don't pass by the TD, convert diffuse noise to STFT domain
-            diffuseNoise = c.get_stft(diffuseNoise)
+        if c.diffuseSNR is not None and c.diffuseSNR > -50:
+            # Compute and add diffuse noise
+            params = anf.CoherenceMatrix.Parameters(
+                mic_positions=self.scenarios[0].sensorsPos,
+                sc_type="spherical",
+                sample_frequency=c.fs,
+                nfft=c.nfft,
+            )
+            input_signals = np.random.randn(c.M, int(c.T * params.sample_frequency))
+            t0 = time.time()
+            print("Generating diffuse noise...")
+            diffuseNoise, _, _ = anf.generate_signals(
+                input_signals,
+                params,
+                decomposition='evd',
+                processing='balance+smooth'
+            )
+            print(f"Diffuse noise generated in {time.time() - t0:.2f} s.")
+            # Normalize the diffuse noise
+            diffuseNoise /= np.linalg.norm(diffuseNoise, axis=0, keepdims=True)
+            # Adapt SNR of diffuse noise to the target SNR
+            if c.diffuseSNR is not None:
+                # Scale the diffuse noise signals to match the target SNR
+                nPower = np.mean(np.abs(diffuseNoise) ** 2)
+                sPower = np.mean(np.abs(self.latentDesired) ** 2)
+                if nPower > 0 and sPower > 0:
+                    currentSNR = 10 * np.log10(sPower / nPower)
+                    scalingFactor = 10 ** ((c.diffuseSNR - currentSNR) / 20)
+                    diffuseNoise *= scalingFactor
+            
+            if not c.wolaMixtures_viaTD:
+                # If we don't pass by the TD, convert diffuse noise to STFT domain
+                diffuseNoise = c.get_stft(diffuseNoise)
 
-        for k in range(c.K):
-            if c.wolaMixtures_viaTD:
-                self.nodes[k].td['n'] += diffuseNoise[k * c.Mk:(k + 1) * c.Mk, ...]
-            else:
-                self.nodes[k].wd['n'] += diffuseNoise[k * c.Mk:(k + 1) * c.Mk, ...]
+            for k in range(c.K):
+                if c.wolaMixtures_viaTD:
+                    self.nodes[k].td['n'] += diffuseNoise[k * c.Mk:(k + 1) * c.Mk, ...]
+                else:
+                    self.nodes[k].wd['n'] += diffuseNoise[k * c.Mk:(k + 1) * c.Mk, ...]
             
         # Self-noise addition (constant, independent of dynamics)
         pows = np.mean(np.abs(self.latentDesired) ** 2, axis=1)
