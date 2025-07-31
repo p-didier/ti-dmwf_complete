@@ -106,6 +106,7 @@ class Parameters:
     unconstrainedRandomPositions: bool = False  # if True, allow random positions for sources
     wolaMixtures_viaTD: bool = False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
     noCrossCorrelation: bool = False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
+    nodeSpecificDANSEsourceEnum: bool = False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 
     seed: int = 42  # random number generator seed
     outputDir: str = ""  # path to output directory
@@ -137,11 +138,14 @@ class Parameters:
         self.Q = self.Qd + self.Qn  # total number of sources
         if self.observability == 'foss' and self.Q > self.Mk:
             raise ValueError("For fully overlapping subspaces, the number of global sources must not exceed the number of sensors per node.")
+        
+        # Check algorithms to remove based on observabilities
+        algs_to_remove = []
+        
         if self.observability == 'poss':
             if self.Qd + self.Qn > self.Mk:
                 raise ValueError("For partially overlapping subspaces, the total number of desired and noise sources must not exceed the number of sensors per node.")
                 # ^^^ this is too strict, but we keep it for now
-            algs_to_remove = []
             for alg in self.algos:
                 if 'tidmwf' in alg:
                     print(f'{alg} not implemented for partially overlapping subspaces.')
@@ -149,8 +153,15 @@ class Parameters:
                     if 'tidanse' in self.algos:
                         print('...also removing TI-DANSE.')
                         algs_to_remove.append('tidanse')
-            for alg in algs_to_remove:
-                self.algos.remove(alg)
+        if self.nodeSpecificDANSEsourceEnum:
+            for alg in self.algos:
+                if 'tidanse' in alg:
+                    print(f'{alg} not implemented for node-specific DANSE desired source enumeration.')
+                    algs_to_remove.append(alg)
+        
+        for alg in algs_to_remove:
+            self.algos.remove(alg)
+
     
     def __str__(self):
         return str(self.__dict__)

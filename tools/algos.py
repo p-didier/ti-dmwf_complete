@@ -40,19 +40,26 @@ class Run:
             vad, vadSTFT = asc.estimate_vad()
 
         # Iterative variables for DANSE-like algorithms
+        refScn = asc.scenarios[0]  # Reference scenario for DANSE-like algorithms (ASSUMING NO CHANGING OBSERVABILITY)
         algDims = {
-            'danse': c.Mk + c.Qd * (c.K - 1),
-            'rsdanse': c.Mk + c.Qd * (c.K - 1),
+            'danse': [
+                c.Mk + np.sum([refScn.Qdk[q] for q in range(c.K) if q != k])
+                for k in range(c.K)
+            ],
+            'rsdanse': [
+                c.Mk + np.sum([refScn.Qdk[q] for q in range(c.K) if q != k])
+                for k in range(c.K)
+            ],
             'tidanse': c.Mk + c.Qd,
         }
         baseListDANSEscms = {
             alg: [
                 1e-6 * c.randmat(
-                    (c.nPosFreqs, algDims[alg], algDims[alg])
+                    (c.nPosFreqs, algDims[alg][k], algDims[alg][k])
                     if c.domain == 'wola'
-                    else (algDims[alg], algDims[alg]),
+                    else (algDims[alg][k], algDims[alg][k]),
                     makeComplex=True if c.domain != 'time' else False
-                ) for _ in range(c.K)
+                ) for k in range(c.K)
             ] for alg in c.algos if 'danse' in alg
         }
         iv = dict([(alg, {
@@ -60,18 +67,19 @@ class Run:
             'tRss': copy.deepcopy(baseListDANSEscms[alg]),
             'tRnn': copy.deepcopy(baseListDANSEscms[alg]),
             'Pk': [
-                c.init_full((c.nPosFreqs, c.Mk, c.Qd), random=True)
-                for _ in range(c.K)
+                c.init_full((c.nPosFreqs, c.Mk, refScn.Qdk[k]), random=True)
+                for k in range(c.K)
             ],
             'WkkPrev_rS': [
-                c.init_full((c.nPosFreqs, c.Mk, c.Qd))
-                for _ in range(c.K)
+                c.init_full((c.nPosFreqs, c.Mk, refScn.Qdk[k]), random=True)
+                for k in range(c.K)
             ],
             'Wk': [
-                c.init_full((c.nPosFreqs, algDims[alg], algDims[alg]), random=True)
-                for _ in range(c.K)
+                c.init_full((c.nPosFreqs, algDims[alg][k], algDims[alg][k]), random=True)
+                for k in range(c.K)
             ],
             'u': 0,
+            'i': 0,
             'gamma': np.array([np.eye(c.Qd) for _ in range(c.nPosFreqs)]) if c.domain == 'wola' else np.eye(c.Qd),  # normalization factor for TI-DANSE
         }) for alg in c.algos if 'danse' in alg])  # iteration variable for DANSE algorithms
 
@@ -255,6 +263,8 @@ class Run:
         if Ryy_dMWF_disAll is None:
             Ryy_dMWF_disAll = RyyAll
 
+        scn = asc.scenarios[scenarioIdx]  # Current acoustic scenario
+
         for alg in c.algos:
             if not silent:
                 print(f"Running algorithm: {alg}...")
@@ -289,7 +299,6 @@ class Run:
                     tmp = self.filtup(Rykyk, Rnknk, gevd=c.gevd, gevdRank=c.Qd)
                     W_netWide[alg][k][..., c.Mk * k:c.Mk * (k + 1), :] = tmp[..., :c.D]
             elif alg == "dmwf":
-                scn = asc.scenarios[scenarioIdx]  # Current acoustic scenario
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
@@ -298,11 +307,11 @@ class Run:
                     for p in range(c.K):
                         if p == q:
                             continue
-                        # Eqps = c.init_full((c.Mk, scn.oQq[q]), selection_matrix=True)
-                        # # Eqps[:scn.oQq[q], :scn.oQq[q]] = np.eye(scn.oQq[q])
-                        # Eqps[:scn.Qkq[q, p], :scn.Qkq[q, p]] = np.eye(scn.Qkq[q, p])
-                        # Eqps[scn.Qkq[q, p]:, scn.Qkq[q, p]:] = np.ones((c.Mk - scn.Qkq[q, p], scn.oQq[q] - scn.Qkq[q, p]))
-                        Ryqrhoq += Ryy_dMWF_dis[..., c.Mk * q:c.Mk * (q + 1), c.Mk * p:c.Mk * (p + 1)] @ scn.Eqps[q][p]
+                        Ryqrhoq += Ryy_dMWF_dis[
+                            ...,
+                            c.Mk * q:c.Mk * (q + 1),
+                            c.Mk * p:c.Mk * (p + 1)
+                        ] @ scn.Eqps[q][p]
                     Pk[q] = self.filtup(Ryqyq, Rss=Ryqrhoq)
                 # Estimation filters
                 for k in range(c.K):
@@ -364,6 +373,7 @@ class Run:
                     frame_y = ivIn['frame_y']
                     frame_s = ivIn['frame_s']
                     frame_n = ivIn['frame_n']
+                    iEff = ivIn[alg]['i']  # effective iteration index
                     onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
                 gamma = ivIn[alg]['gamma']  # normalization factor for TI-DANSE
 
@@ -371,6 +381,8 @@ class Run:
                 for i in range(c.maxDANSEiter):
                     if not silent:
                         print(f"Iteration {i + 1}/{c.maxDANSEiter} for {alg}...", end='\r')
+                    if c.scmEstimation != 'online':
+                        iEff = i  # effective iteration index
 
                     # For TI-DANSE, take normalization factor into account
                     Nk = np.array([
@@ -424,13 +436,14 @@ class Run:
                                 if q != k:
                                     Ck[..., c.Mk * q:c.Mk * (q + 1), c.Mk:] = Pk[q] @ gamma
                         else:
-                            Ck = c.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd * (c.K - 1)))
+                            Qdks = [scn.Qdk[q] for q in range(c.K) if q != k]
+                            Ck = c.init_full((c.nPosFreqs, c.M, c.Mk + np.sum(Qdks)))
                             Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
                             idxNei = 0
                             for q in range(c.K):
                                 if q != k:
-                                    idxBeg = c.Mk + idxNei * c.Qd
-                                    idxEnd = idxBeg + c.Qd
+                                    idxBeg = int(c.Mk + np.sum(Qdks[:idxNei]))
+                                    idxEnd = idxBeg + Qdks[idxNei]
                                     Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
                                     idxNei += 1
                         # Compute the SCMs
@@ -507,14 +520,20 @@ class Run:
                         # Update the filters
                         if (k == u or alg.startswith("rsdanse")) and onlineModeCriterion:
                             # Compute the filter
-                            Wk[k] = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)
+                            Wk[k] = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=scn.Qdk[k])
 
                             if alg.startswith("rsdanse"):
                                 # For rS-DANSE, we apply a relaxation
-                                alpha = 1 / np.log10(i + 10)
-                                Wk[k][..., :c.Mk, :c.Qd] = (1 - alpha) * WkkPrev_rS[k] +\
-                                    alpha * Wk[k][..., :c.Mk, :c.Qd]
-                                WkkPrev_rS[k] = Wk[k][..., :c.Mk, :c.Qd]
+                                if c.scmEstimation == 'online':
+                                    alpha = 1 / np.log10(iEff + 10)
+                                else:
+                                    alpha = 1 / np.log10(i + 10)
+                                Wk[k][..., :c.Mk, :scn.Qdk[k]] = (1 - alpha) * WkkPrev_rS[k] +\
+                                    alpha * Wk[k][..., :c.Mk, :scn.Qdk[k]]
+                                WkkPrev_rS[k] = Wk[k][..., :c.Mk, :scn.Qdk[k]]
+                            
+                                if k == 0:
+                                    iEff += 1  # Increment effective iteration index
                         else:
                             # No update for this node
                             if alg.startswith("tidanse"): # and c.scmEstimation == 'online':
@@ -528,7 +547,7 @@ class Run:
                             if k == 0:
                                 print(f'\nNorm of Pk[{k}]: {np.linalg.norm(Pk[k])}')
                         else:
-                            Pk[k] = Wk[k][..., :c.Mk, :c.Qd]
+                            Pk[k] = Wk[k][..., :c.Mk, :scn.Qdk[k]]
 
                         # Store the network-wide filter for this iteration/frame
                         W_netWide[alg][k].append(Ck @ Wk[k][..., :c.D])
@@ -550,6 +569,7 @@ class Run:
                     'WkkPrev_rS': WkkPrev_rS,
                     'Wk': Wk,  # Last filter for each node
                     'u': u,
+                    'i': iEff,  # effective iteration index
                     'tRyy': tRyyPrev,
                     'tRss': tRssPrev,
                     'tRnn': tRnnPrev,

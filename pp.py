@@ -145,8 +145,8 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
                 pickle.dump(metrics, f)
 
         # Derive figure positioning parameters
-        col = i // num_rows
-        row = i % num_rows
+        row = i // num_cols
+        col = i % num_cols
         pos_x = screen_x + margin + col * (fig_w + 10)
         pos_y = screen_y + margin + row * (fig_h + 10)
         # Post-process results
@@ -157,7 +157,6 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS, bypassStoi=BYPAS
 
     plt.show(block=False)  # Show all figures
     print("Post-processing completed.")
-
     return 0
 
 @dataclass
@@ -439,8 +438,6 @@ class PostProcessor:
         if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
             supti += f', {c.betaString}'
         fig.suptitle(supti)
-        fig.tight_layout()
-        # plt.show(block=False)
 
         backend = matplotlib.get_backend().lower()
         manager = fig.canvas.manager
@@ -453,7 +450,7 @@ class PostProcessor:
         else:
             print(f"Unsupported backend '{backend}' for window positioning.")
 
-        # plt.show(block=False)
+        fig.tight_layout()
         return fig
 
 

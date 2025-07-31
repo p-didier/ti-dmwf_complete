@@ -36,12 +36,14 @@ class StaticScenarioParameters:
     trees: list = field(default_factory=list)  # list of TreeWASN objects
     Qkq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources in common between nodes
     oQq: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of sources observed by each node
+    Qdk: np.ndarray = field(default_factory=lambda: np.zeros((0, 0)))  # number of desired sources for each node
 
     def get_Qdims(self, c: Parameters):
         """Compute the number of sources in common between nodes."""
         if c.observability == 'foss': # or 1:  # DEBUG: always use 'foss' for now
             self.oQq = np.full(c.K, c.Q)
             self.Qkq = np.full((c.K, c.K), c.Q)
+            self.Qdk = np.full(c.K, c.Qd)
         elif c.observability == 'poss':
             # Number of sources useful for fusion matrix computation for node q
             self.oQq = [0 for _ in range(c.K)]
@@ -59,7 +61,12 @@ class StaticScenarioParameters:
             for k in range(c.K):
                 for q in range(c.K):
                     self.Qkq[k, q] = np.sum(self.obsMat[k, :] * self.obsMat[q, :])
-        
+            # Compute the number of desired sources for each node
+            if c.nodeSpecificDANSEsourceEnum:
+                self.Qdk = np.sum(self.obsMat[:, :c.Qd], axis=1)
+            else:
+                self.Qdk = np.full(c.K, c.Qd)
+
         # Cache pre-computed selection matrices for dMWF
         self.Eqps = [[None for _ in range(c.K)] for _ in range(c.K)]
         for q in range(c.K):
@@ -68,7 +75,9 @@ class StaticScenarioParameters:
                     continue
                 self.Eqps[q][p] = c.init_full((c.Mk, self.oQq[q]), selection_matrix=True)
                 self.Eqps[q][p][:self.Qkq[q, p], :self.Qkq[q, p]] = np.eye(self.Qkq[q, p])
-                self.Eqps[q][p][self.Qkq[q, p]:, self.Qkq[q, p]:] = np.ones((c.Mk - self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
+                # self.Eqps[q][p][self.Qkq[q, p]:, self.Qkq[q, p]:] = np.ones((c.Mk - self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
+                self.Eqps[q][p][self.Qkq[q, p]:, self.Qkq[q, p]:] = np.random.randn(*(c.Mk - self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
+                # self.Eqps[q][p][:self.oQq[q], :self.oQq[q]] = np.eye(self.oQq[q])
 
 @dataclass
 class SignalContainer:
@@ -384,6 +393,7 @@ class AcousticScenario:
                 Ryy = Rss + Rnn
             else:
                 Ryy = (s + n) @ (s + n).conj().T / c.N
+                Rss = None
         elif c.scmEstimation == 'online':
             if not c.noCrossCorrelation:
                 raise NotImplementedError('Not done yet for online time-domain')
@@ -552,10 +562,10 @@ class AcousticScenario:
             Rss = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
             Rnn = np.zeros((c.nPosFreqs, c.M, c.M), dtype=complex)
             for f in range(c.nPosFreqs):
-                Rsslat = np.diag(power_s[:, f])
-                Rnnlat = np.diag(power_n[:, f])
-                Rss[f, ...] = Cmat[f, :, :c.Qd] @ Rsslat @ Cmat[f, :, :c.Qd].conj().T
-                Rnn[f, ...] = Cmat[f, :, c.Qd:] @ Rnnlat @ Cmat[f, :, c.Qd:].conj().T
+                Rsslat_f = np.diag(power_s[:, f])
+                Rnnlat_f = np.diag(power_n[:, f])
+                Rss[f, ...] = Cmat[f, :, :c.Qd] @ Rsslat_f @ Cmat[f, :, :c.Qd].conj().T
+                Rnn[f, ...] = Cmat[f, :, c.Qd:] @ Rnnlat_f @ Cmat[f, :, c.Qd:].conj().T
                 # Add self-noise to noise SCM
                 Rnn[f, ...] += np.diag(power_v[:, f])
             # Complete signal SCM
@@ -563,13 +573,13 @@ class AcousticScenario:
 
         elif c.scmEstimation == 'batch':
             nFrames = stack['y'].shape[-1]
-            Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / nFrames
+            Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj())
             if c.noCrossCorrelation:
-                Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj()) / nFrames
+                Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj())
                 Ryy = Rss + Rnn
             else:
-                Ryy = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj()) / nFrames
-                Rss = Ryy - Rnn
+                Ryy = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj())
+                Rss = None
 
         elif c.scmEstimation == 'online':
             Ryy, Rss, Rnn = None, None, None # nothing to do -- done in `algos.py`
@@ -1003,8 +1013,6 @@ class AcousticScenario:
             Cmat[..., c.Qd:],  # Noise sources steering matrix
             nlatSTFT[..., idxFrameBeg:idxFrameEnd]
         )
-
-        pass
 
         # Store the STFT signals in the nodes
         for k in range(c.K):
