@@ -37,7 +37,8 @@ METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-bas
 # WHICH_NODES = 'all'  # 'all' or a list of node indices to process
 WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
-COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for online processing)
+# COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for online processing)
+COMPUTE_METRICS_EVERY_N_FRAMES = 30  # Compute metrics every N frames (for online processing)
 
 # Metrics computation method for online mode:
 # - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
@@ -46,8 +47,8 @@ COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for onlin
 # - 'recent_seconds' to compute metrics over the most recent `METRICS_OVER_FIRST_SECONDS`
 #   seconds of signal using the filter at the frame considered
 #   (STOI is not computed).
-# METRICS_METHOD = 'entire_signal'
-METRICS_METHOD = 'recent_seconds'
+METRICS_METHOD = 'entire_signal'
+# METRICS_METHOD = 'recent_seconds'
 # NB: 'recent_seconds' can only be meaningfully used for online processing.
 #   For batch processing, we use 'entire_signal' by default.
 
@@ -250,6 +251,17 @@ class PostProcessor:
                         fig.tight_layout()
                         plt.show(block=False)
                     
+            if 0:
+                nCols = int(np.sqrt(len(c.algos)))
+                nRows = int(np.ceil(len(c.algos) / nCols))
+                fig, axes = plt.subplots(nRows, nCols, sharex=True, sharey=True)
+                fig.set_size_inches(8.5, 3.5)
+                for ax, alg in zip(axes.flatten(), c.algos):
+                    ax.plot(kwargs[alg]['dhatk'].T)
+                    ax.set_title(alg)
+                fig.tight_layout()
+                plt.show()
+
             return metricsCurrAlg
         
         def _get_metrics_signals(startTime=0, endTime=None):
@@ -302,7 +314,7 @@ class PostProcessor:
             if isinstance(W_netWide, list) and c.scmEstimation == 'online':
                 # Online-mode processing
                 for l, w in enumerate(W_netWide):
-                    if l % COMPUTE_METRICS_EVERY_N_FRAMES != 0:
+                    if l % COMPUTE_METRICS_EVERY_N_FRAMES != 0 or l == 0:
                         continue
                     print(f"Computing metrics at node {k+1}/{len(nodesToProcess)}, frame {l + 1}/{len(W_netWide)}...", end='\r')
                     if metricsMethod == 'recent_seconds':
@@ -433,9 +445,9 @@ class PostProcessor:
                     ax.axvline(x=(i * c.movingEvery * c.fs / frameLength) / COMPUTE_METRICS_EVERY_N_FRAMES, color='0.5', linestyle='--')
             ax.set_title(m.upper())
             if m in ['snr', 'ser']:
-                ax.set_ylim(np.amin([
+                ax.set_ylim(np.nanargmin([
                     np.amax((-10, ax.get_ylim()[0])),
-                    np.amin(metrics[m]['unprocessed'])
+                    np.nanargmin(metrics[m]['unprocessed'])
                 ]), None)  # Ensure y-axis starts at 0
         supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES}'
         if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():

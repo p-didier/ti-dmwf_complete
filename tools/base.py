@@ -47,6 +47,7 @@ class Parameters:
         # intermediate values stop the pruning between 0 and 1.
     maxDistForObservability: float = 0.5  # minimum distance for observability in meters
     latentSNR: float = 0.0  # SNR between the latent desired signals and the latent noise signals in dB
+    diffuseSNR: float = -9999.0  # SNR between the latent desired signals and the diffuse noise signals in dB
     commDist: float = 1.5  # communication distance [m] (used at ad-hoc topology initialization, but `connectivity` plays a role)
     connectivity: float = 0.5  # amount of ad-hoc topology connectivity
     pruningStrategy: str = 'mst'  # tree-pruning strategy
@@ -62,6 +63,7 @@ class Parameters:
         # 'moving' for dynamic scenario with always-active sources and random source movements
         # 'switching' for dynamic scenario with sources that can appear and disappear
     movingEvery: float = 1.0  # time in seconds after which sources move in `moving` scenarios
+    fixedObservabilities: bool = True  # if True, the observabilities are fixed
 
     # Signals parameters
     fs: int = 16000  # sampling frequency

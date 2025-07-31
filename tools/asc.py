@@ -12,6 +12,7 @@ import networkx as nx
 import soundfile as sf
 from pathlib import Path
 import scipy.signal as sig
+import anf_generator as anf
 from resampy import resample
 import pyroomacoustics as pra
 from collections import deque
@@ -471,13 +472,58 @@ class AcousticScenario:
             # Dynamic scenario with always-active sources and random source movements
             nScenarios = np.floor(c.T / c.movingEvery).astype(int)
             print(f"Setting up {nScenarios} dynamic scenarios with different sources/nodes positions.")
+            
+            if c.fixedObservabilities:
+                omFixed = self.get_observability_matrix()  # Get the fixed observability matrix
+            else:
+                omFixed = None
+
             for ii in range(nScenarios):
                 print(f"Setting up scenario {ii + 1}/{nScenarios}...")
                 idxStart = ii * int(c.movingEvery * c.fs)
                 idxEnd = idxStart + int(c.movingEvery * c.fs) - 1
                 # Setup the static scenario
-                self.setup_wola_domain_static(idxStart, idxEnd)
+                self.setup_wola_domain_static(idxStart, idxEnd, omFixed=omFixed)
+
+        # Diffuse noise
+        params = anf.CoherenceMatrix.Parameters(
+            mic_positions=self.scenarios[0].sensorsPos,
+            sc_type="spherical",
+            sample_frequency=c.fs,
+            nfft=c.nfft,
+        )
+        input_signals = np.random.randn(c.M, int(c.T * params.sample_frequency))
+        t0 = time.time()
+        print("Generating diffuse noise...")
+        diffuseNoise, _, _ = anf.generate_signals(
+            input_signals,
+            params,
+            decomposition='evd',
+            processing='balance+smooth'
+        )
+        print(f"Diffuse noise generated in {time.time() - t0:.2f} s.")
+        # Normalize the diffuse noise
+        diffuseNoise /= np.linalg.norm(diffuseNoise, axis=0, keepdims=True)
+        # Adapt SNR of diffuse noise to the target SNR
+        if c.diffuseSNR is not None:
+            # Scale the diffuse noise signals to match the target SNR
+            nPower = np.mean(np.abs(diffuseNoise) ** 2)
+            sPower = np.mean(np.abs(self.latentDesired) ** 2)
+            if nPower > 0 and sPower > 0:
+                currentSNR = 10 * np.log10(sPower / nPower)
+                scalingFactor = 10 ** ((c.diffuseSNR - currentSNR) / 20)
+                diffuseNoise *= scalingFactor
         
+        if not c.wolaMixtures_viaTD:
+            # If we don't pass by the TD, convert diffuse noise to STFT domain
+            diffuseNoise = c.get_stft(diffuseNoise)
+
+        for k in range(c.K):
+            if c.wolaMixtures_viaTD:
+                self.nodes[k].td['n'] += diffuseNoise[k * c.Mk:(k + 1) * c.Mk, ...]
+            else:
+                self.nodes[k].wd['n'] += diffuseNoise[k * c.Mk:(k + 1) * c.Mk, ...]
+            
         # Self-noise addition (constant, independent of dynamics)
         pows = np.mean(np.abs(self.latentDesired) ** 2, axis=1)
         for k in range(c.K):
@@ -497,7 +543,7 @@ class AcousticScenario:
         # Compute SCMs (from steering matrices if oracle, from signals if batch)
         return self.compute_scms()
 
-    def setup_wola_domain_static(self, idxStart=0, idxEnd=-1):
+    def setup_wola_domain_static(self, idxStart=0, idxEnd=-1, omFixed=None):
         """Setup a static acoustic scenario in the WOLA domain."""
         c = self.cfg
         # Compute material absorption coefficients from T60
@@ -519,7 +565,7 @@ class AcousticScenario:
         )
 
         # Generate the WASN parameters
-        p: StaticScenarioParameters = self.define_static_scenario(room)
+        p: StaticScenarioParameters = self.define_static_scenario(room, omFixed=omFixed)
         self.apply_static_scenario(p, smIdx=[idxStart, idxEnd])
         # Store the parameters for later use
         self.scenarios.append(p)
@@ -1125,17 +1171,22 @@ class AcousticScenario:
 
         return nodesPos, sensorsPos, speechSourcesPos, noiseSourcesPos
 
-    def define_static_scenario(self, room: pra.ShoeBox) -> StaticScenarioParameters:
+    def define_static_scenario(self, room: pra.ShoeBox, omFixed=None) -> StaticScenarioParameters:
         c = self.cfg  # Configuration object
 
         # Define the layout of the acoustic scenario
         nodesPos, sensorsPos, speechSourcesPos, noiseSourcesPos =\
             self.define_layout()
         
-        # Create observability matrix based on the node and source positions
-        obsMat = self.get_observability_matrix(
-            nodesPos, speechSourcesPos, noiseSourcesPos
-        )  # node x source
+        if omFixed is None:
+            # Create observability matrix based on the node and source positions
+            obsMat = self.get_observability_matrix(
+                nodesPos, speechSourcesPos, noiseSourcesPos
+            )  # node x source
+        else:
+            # Use the fixed observability matrix
+            obsMat = omFixed
+        
         # Compute number of common sources for each pair of nodes
         Qkq = np.array([[
             np.sum(obsMat[k, :] + obsMat[q, :] == 2)
@@ -1202,7 +1253,7 @@ class AcousticScenario:
             trees=trees if flagTI else None,
         )
 
-    def get_observability_matrix(self, nodesPos, speechPos, noisePos) -> np.ndarray:
+    def get_observability_matrix(self, nodesPos=None, speechPos=None, noisePos=None) -> np.ndarray:
         """Compute the observability matrix."""
         c = self.cfg
         if c.observability == 'foss':
@@ -1210,7 +1261,7 @@ class AcousticScenario:
             obsMat = np.ones((c.K, c.Qd + c.Qn))
         elif c.observability == 'poss':
             # Partial observability -- nodes only observe certain sources
-            if 1:
+            if 1 or nodesPos is None or speechPos is None or noisePos is None:
                 # Do not differentiate between global and local sources, 
                 # randomly generate observability pattern
                 obsMat = np.zeros((c.K, c.Q))
