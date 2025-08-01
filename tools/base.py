@@ -105,17 +105,19 @@ class Parameters:
     frameDuration: float = 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
     beta: dict = field(default_factory=lambda: {'default': 0.99})  # forgetting factor for online SCM estimation
 
+    # General simulation set parameters
+    nMCruns: int = 1  # number of Monte Carlo runs
+    seed: int = 42  # random number generator seed
+    outputDir: str = ""  # path to output directory
+    outputFilePath: str = ""  # path to output file
+    suffix: str = ""  # output file suffix
+
     # Debug
     singleLine: int = None  # if not None, only process this frequency line in WOLA domain
     unconstrainedRandomPositions: bool = False  # if True, allow random positions for sources
     wolaMixtures_viaTD: bool = False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
     noCrossCorrelation: bool = False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
     nodeSpecificDANSEsourceEnum: bool = False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
-
-    seed: int = 42  # random number generator seed
-    outputDir: str = ""  # path to output directory
-    outputFilePath: str = ""  # path to output file
-    suffix: str = ""  # output file suffix
 
     def __post_init__(self):
         np.random.seed(self.seed)

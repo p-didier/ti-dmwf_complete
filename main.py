@@ -17,38 +17,33 @@ from tools.base import *
 from tools.algos import *
 from pp import main as main_pp
 
-# import matplotlib as mpl
-# mpl.use('TkAgg')  # use TkAgg backend to avoid issues when plotting
-# import matplotlib.pyplot as plt
-# plt.ion()  # interactive mode on
-
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
 TEST_SET = [
-    # {
-    #     'scmEstimation': 'oracle',
-    #     'observability': 'foss',
-    # },
-    # {
-    #     'scmEstimation': 'oracle',
-    #     'observability': 'poss',
-    # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'foss',
-    # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'poss',
-    # },
     {
-        'scmEstimation': 'online',
+        'scmEstimation': 'oracle',
         'observability': 'foss',
     },
     {
-        'scmEstimation': 'online',
+        'scmEstimation': 'oracle',
         'observability': 'poss',
     },
+    # {
+    #     'scmEstimation': 'batch',
+    #     'observability': 'foss',
+    # },
+    # {
+    #     'scmEstimation': 'batch',
+    #     'observability': 'poss',
+    # # },
+    # {
+    #     'scmEstimation': 'online',
+    #     'observability': 'foss',
+    # },
+    # {
+    #     'scmEstimation': 'online',
+    #     'observability': 'poss',
+    # },
 ]
 
 def main():
@@ -59,22 +54,36 @@ def main():
     # Generate folder if it does not exist
     clean_output_dir(cfgBase.outputDir)  # Clean the output directory if it exists
 
-    np.random.seed(cfgBase.seed)
-    rngState = np.random.get_state()
+    for idxMC in range(cfgBase.nMCruns):
+        if cfgBase.nMCruns > 1:
+            print(f"\nMC run {idxMC + 1}/{cfgBase.nMCruns}")
+            trueSeed = cfgBase.seed + idxMC  # Change seed for each Monte Carlo run
+        else:
+            print("\nSingle run (no Monte Carlo)")
+            trueSeed = cfgBase.seed
 
-    for i, test in enumerate(TEST_SET):
-        print(f"\nTest {i + 1}/{len(TEST_SET)}: {test}")
-        cfg = copy.deepcopy(cfgBase)
-        cfg.outputFilePath = f"{cfgBase.outputDir}\\res_cfg{i + 1}.pkl"  # Unique output file for each test
-        for key, value in test.items():
-            setattr(cfg, key, value)
-        cfg.__post_init__()
+        np.random.seed(trueSeed)
+        rngState = np.random.get_state()
 
-        # Reset random state for each test
-        np.random.set_state(rngState)
+        for i, test in enumerate(TEST_SET):
+            cfg = copy.deepcopy(cfgBase)
+            setattr(cfg, 'seed', trueSeed)  # Set the seed for the current test
+            if cfgBase.nMCruns > 1:
+                print(f"\n[MC run {idxMC + 1}/{cfgBase.nMCruns}] Test {i + 1}/{len(TEST_SET)}: {test}")
+                cfg.outputFilePath = f"{cfgBase.outputDir}\\res_cfg{i + 1}_mc{idxMC + 1}.pkl"  # Unique output file for each test
+            else:
+                print(f"\n[Test {i + 1}/{len(TEST_SET)}: {test}")
+                cfg.outputFilePath = f"{cfgBase.outputDir}\\res_cfg{i + 1}.pkl"  # Unique output file for each test
+            
+            for key, value in test.items():
+                setattr(cfg, key, value)
+            cfg.__post_init__()
 
-        # Launch the simulation
-        Run(cfg).go()
+            # Reset random state for each test
+            np.random.set_state(rngState)
+
+            # Launch the simulation
+            Run(cfg).go()
 
     # Post-processing
     main_pp()

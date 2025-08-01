@@ -23,6 +23,7 @@ class Run:
 
     def go(self):
         # Generate scenario
+        tMaster = time.time()
         c = self.cfg
         asc = AcousticScenario(cfg=c)
         # Generate tree
@@ -202,6 +203,8 @@ class Run:
 
         # Export results
         self.export_results(W_netWide, s, n)
+
+        print(f"\nTotal time taken for this run: {time.time() - tMaster:.2f} seconds")
 
         return 0
 

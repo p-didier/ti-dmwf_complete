@@ -12,8 +12,8 @@ possDiffuse: False  # if True and observability is 'foss', the
     # noise sources are assumed only local, i.e., uncorrelated across nodes
 ###########################
 # domain: time  # domain of the signals, 'time', or 'time_complex', or 'wola'
-domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
-# domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
+# domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
+domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
 ##########################
 TDsteeringMats: random  # type of steering matrices in time domain
 # TDsteeringMats: anechoic  # type of steering matrices in time domain
@@ -40,10 +40,10 @@ hierarchicalObsPruningThrs: 1  # for 'hierarchical' `observabilityCriterion`, th
 maxDistForObservability: null  # minimum distance for observability in meters
 # latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
 latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
-# diffuseSNR: -9999.0  # SNR between the latent desired signals and the diffuse noise signals in dB
+diffuseSNR: -9999.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 # diffuseSNR: -10.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 # diffuseSNR: -5.0  # SNR between the latent desired signals and the diffuse noise signals in dB
-diffuseSNR: 0.0  # SNR between the latent desired signals and the diffuse noise signals in dB
+# diffuseSNR: 0.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 commDist: 1.5  # communication distance [m] (used at ad-hoc topology initialization, but `connectivity` plays a role)
 connectivity: 0.5  # amount of ad-hoc topology connectivity
 # pruningStrategy: star  # tree-pruning strategy
@@ -60,13 +60,13 @@ nhop: 512  # number of samples in FFT hop
 # nhop: 256  # number of samples in FFT hop
 win: hann  # STFT window type
 # win: rect  # STFT window type
-# dynamics: static  # type of acoustic scenario dynamics
-dynamics: moving  # type of acoustic scenario dynamics
+dynamics: static  # type of acoustic scenario dynamics
+# dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
-# movingEvery: 10.0  # time in seconds after which sources move in `moving` scenarios
-movingEvery: 5.0  # time in seconds after which sources move in `moving` scenarios
+movingEvery: 10.0  # time in seconds after which sources move in `moving` scenarios
+# movingEvery: 5.0  # time in seconds after which sources move in `moving` scenarios
 fixedObservabilities: True  # if True, the observabilities are fixed
 
 # Signals parameters
@@ -74,9 +74,9 @@ fixedObservabilities: True  # if True, the observabilities are fixed
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
-# T: 10.0  # duration of the signals in seconds
+T: 4.0  # duration of the signals in seconds
 # T: 15.0  # duration of the signals in seconds
-T: 30.0  # duration of the signals in seconds
+# T: 30.0  # duration of the signals in seconds
 # T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
@@ -125,10 +125,10 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 # Online mode parameters
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 beta: {
-    default: 0.975,
+    # default: 0.975,
     # default: 0.9,
     # default: 0.985,
-    # default: 0.99,
+    default: 0.99,
     # dmwf: 0.95,
 }  # forgetting factor for online processing
 
@@ -144,7 +144,7 @@ noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimic
 # nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 
+# General simulation set parameters
+nMCruns: 10  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-# suffix: 'test_changed_obsMat'  # output file suffix
-# suffix: 'noCrossCorrelation_wolaMixtures_viaTD'  # output file suffix
-suffix: 'saa_nodeRadius5cm'  # output file suffix
+suffix: saa_nodeSpecificDANSEsourceEnumFalse  # output file suffix
