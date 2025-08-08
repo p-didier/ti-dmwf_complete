@@ -12,8 +12,8 @@ possDiffuse: False  # if True and observability is 'foss', the
     # noise sources are assumed only local, i.e., uncorrelated across nodes
 ###########################
 # domain: time  # domain of the signals, 'time', or 'time_complex', or 'wola'
-# domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
-domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
+domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
+# domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
 ##########################
 TDsteeringMats: random  # type of steering matrices in time domain
 # TDsteeringMats: anechoic  # type of steering matrices in time domain
@@ -23,8 +23,8 @@ roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.05  # radius of the node in meters
 onPlane: True  # if True, all elements are on the same plane
 # onPlane: False  # if True, all elements are on the same plane
-t60: 0.          # reverberation time in seconds
-# t60: 0.2          # reverberation time in seconds
+# t60: 0.          # reverberation time in seconds
+t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
@@ -38,8 +38,8 @@ hierarchicalObsPruningThrs: 1  # for 'hierarchical' `observabilityCriterion`, th
     # intermediate values stop the pruning between 0 and 1.
 # maxDistForObservability: 0.05  # minimum distance for observability in meters
 maxDistForObservability: null  # minimum distance for observability in meters
-# latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
-latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
+latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
+# latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
 diffuseSNR: -9999.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 # diffuseSNR: -10.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 # diffuseSNR: -5.0  # SNR between the latent desired signals and the diffuse noise signals in dB
@@ -60,8 +60,8 @@ nhop: 512  # number of samples in FFT hop
 # nhop: 256  # number of samples in FFT hop
 win: hann  # STFT window type
 # win: rect  # STFT window type
-dynamics: static  # type of acoustic scenario dynamics
-# dynamics: moving  # type of acoustic scenario dynamics
+# dynamics: static  # type of acoustic scenario dynamics
+dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
@@ -74,20 +74,20 @@ fixedObservabilities: True  # if True, the observabilities are fixed
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
-T: 4.0  # duration of the signals in seconds
+# T: 4.0  # duration of the signals in seconds
 # T: 15.0  # duration of the signals in seconds
 # T: 30.0  # duration of the signals in seconds
-# T: 60.0  # duration of the signals in seconds
+T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
-# selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
-selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
+selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
+# selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
 # noiseSigType: ssn  # random, babble, or ssn
-noiseSigType: random  # random, babble, or ssn
+# noiseSigType: random  # random, babble, or ssn
 # desSigType: random  # speech or noise
-# noiseSigType: babble  # random, babble, or ssn
+noiseSigType: babble  # random, babble, or ssn
 desSigType: speech  # speech or noise
 ssnDatabasePath: "C:/Users/pdidier/Dropbox/PC/Documents/sounds-phd/02_data/00_raw_signals/02_noise/ssn"  # path to the SSN database
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
@@ -112,8 +112,8 @@ mu: 1  # SDW-MWF factor
 gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 # DANSEiterEveryXframes: 20  # DANSE iteration every X frames
 DANSEiterEveryXframes: 1  # DANSE iteration every X frames
-# dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
-dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
+dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
+# dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 
 # VAD parameters
 # useVAD: True  # if True, update the SCMs based on a VAD decision
@@ -145,6 +145,6 @@ noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimic
 nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 
 # General simulation set parameters
-nMCruns: 10  # number of Monte Carlo runs
+nMCruns: 1  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: saa_nodeSpecificDANSEsourceEnumFalse  # output file suffix
+suffix: saaa_alternatingdMWF  # output file suffix

@@ -9,7 +9,6 @@ import pickle
 import numpy as np
 import scipy.signal as sig
 from dataclasses import dataclass, field
-from humanfriendly import format_timespan
 
 @dataclass
 class Parameters:
@@ -177,7 +176,7 @@ class Parameters:
         params_str += f"\nN: {self.N}, nFrames: {self.nFrames}, nPosFreqs: {self.nPosFreqs}"
         params_str += f"\nOutput directory: {self.outputDir}"
         # Add time
-        params_str += f"\nTime: {format_timespan(time.time())}"
+        params_str += f"\nExport time: {time.strftime('%Y-%m-%d %H:%M:%S')}"
         return f"Parameters:\n{params_str}"
     
     def load_from_yaml(self, path: str):

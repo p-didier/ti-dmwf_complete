@@ -24,32 +24,34 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-# resDir = f'{baseResultsDir}/res_20250801_0920_official_oracle_results'  # specific directory
-resDir = 'latest'  # <-- pick the latest results directory
+resDir = f'{baseResultsDir}/res_20250808_0948_saa_60s'  # specific directory
+# resDir = 'latest'  # <-- pick the latest results directory
 
-EXPORT = True  # If True, export the figures to files
-# EXPORT = False  # If True, export the figures to files
+# EXPORT = True  # If True, export the figures to files
+EXPORT = False  # If True, export the figures to files
 
 FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 # FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
-# METRICS_OVER_FIRST_SECONDS = None  # Number of seconds to consider for waveform-based metrics computation
-METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
 
 # ===== Used in PostProcessor.get_metrics_from_full_signal() =====
-METRICS_CHUNK_DURATION = 5  # Duration of the chunk to compute metrics over (in seconds)
+METRICS_CHUNK_DURATION = 3  # Duration of the chunk to compute metrics over (in seconds)
 METRICS_CHUNK_SHIFT = 0.1  # Shift of the chunk to compute metrics over (in seconds)
 # CUMULATED_AVERAGE = True  # If True, apply a cumulative average (smoothing) to the metrics
 CUMULATED_AVERAGE = False  # If True, apply a cumulative average (smoothing) to the metrics
 # ================================================================
 
+# ===== Used in PostProcessor.get_metrics() =====
+# METRICS_OVER_FIRST_SECONDS = None  # Number of seconds to consider for waveform-based metrics computation
+METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
+COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for online processing)
+# COMPUTE_METRICS_EVERY_N_FRAMES = 30  # Compute metrics every N frames (for online processing)
+# ================================================================
+
 DELTAS_SNR_SER = True  # If True, show SNR and SER as deltas from the local estimate
 # DELTAS_SNR_SER = False  # If True, show SNR and SER as deltas from the local estimate
 
-WHICH_NODES = 'all'  # 'all' or a list of node indices to process
-# WHICH_NODES = [0]  # 'all' or a list of node indices to process
-
-COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for online processing)
-# COMPUTE_METRICS_EVERY_N_FRAMES = 30  # Compute metrics every N frames (for online processing)
+# WHICH_NODES = 'all'  # 'all' or a list of node indices to process
+WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
 # Metrics computation method for online mode:
 # - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
@@ -66,7 +68,7 @@ METRICS_METHOD = 'entire_signal'
 # Overriding parameters
 BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging
 METRICS_TO_COMPUTE_OVERRIDE = None  # If not None, override the metrics to compute
-METRICS_TO_COMPUTE_OVERRIDE = ['msew']
+# METRICS_TO_COMPUTE_OVERRIDE = ['msew']
 FORCED_YLIM = {
     'msew': [1e-27, 1e6],  # If not None, force y-axis limits for msew
 }
@@ -183,16 +185,16 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS):
         pos_x = screen_x + margin + col * (fig_w + 10)
         pos_y = screen_y + margin + row * (fig_h + 10)
         # Post-process results
-        fig = pp.plot_metrics(metrics, placement=[pos_x, pos_y, fig_w, fig_h], nMC=len(groupedFiles))
+        fig = pp.plot_metrics(metrics, placement=[pos_x, pos_y, fig_w, fig_h], nMC=len(groupedFiles[list(groupedFiles.keys())[0]]))
         if EXPORT:
             # Prompt user: are you sure?
-            confirm = input(f"Are you sure you want to export metrics figures to {c.outputDir}? (y/n) ")
+            confirm = input(f"☝️ Are you sure you want to export metrics figures to {Path(c.outputDir).stem}? (y/n) ")
             if confirm.lower() != 'y':
                 print("Export cancelled.")
                 continue
-            fig.savefig(f"{c.outputDir}/metrics_{file.stem}.svg", dpi=300)
-            fig.savefig(f"{c.outputDir}/metrics_{file.stem}.png", dpi=300)
-            print(f"Metrics figures exported to {c.outputDir}/metrics_{file.stem}.svg and .png")
+            fig.savefig(f"{resDir}/metrics_{cfgRef}.svg", dpi=300)
+            fig.savefig(f"{resDir}/metrics_{cfgRef}.png", dpi=300)
+            print(f"Metrics figures exported to {resDir}/metrics_{cfgRef}.svg and .png")
 
     plt.show(block=False)  # Show all figures
     print("Post-processing completed.")
@@ -512,6 +514,13 @@ class PostProcessor:
             ax = axes[ii] if len(metrics.keys()) > 1 else axes
             if m == 'stoi':
                 ax.set_ylim(0, 1)
+            maxX = metrics[list(metrics.keys())[0]]['unprocessed'].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
+            if c.dynamics == 'moving' and c.scmEstimation == 'online':
+                # Plot a vertical line every time the scenario changes
+                nChanges = int(c.T / c.movingEvery)
+                for i in range(nChanges):
+                    x = i * c.movingEvery / c.T * maxX
+                    ax.axvline(x=x, color='0.5', linestyle='--')
             flagDelta = m in ['snr', 'ser'] and DELTAS_SNR_SER
             if any('danse' in alg for alg in c.algos) or c.scmEstimation == 'online':
                 # Line plot when including iterative algorithms
@@ -558,7 +567,6 @@ class PostProcessor:
                             color=colors[alg],
                             marker=markers[jj % len(markers)],
                         )
-                maxX = len(metrics[list(metrics.keys())[0]]['unprocessed'][0]) if c.scmEstimation == 'online' else c.maxDANSEiter
                 # Format x-axis
                 ax.set_xlim(0, maxX)
                 if c.scmEstimation == 'online':
@@ -585,12 +593,6 @@ class PostProcessor:
                 ax.legend(loc='lower center')
             if m == 'msed':
                 ax.legend(loc='upper center')
-            if c.dynamics == 'moving' and c.scmEstimation == 'online':
-                # Plot a vertical line every time the scenario changes
-                nChanges = int(c.T / c.movingEvery)
-                for i in range(nChanges):
-                    x = i * c.movingEvery / c.T * maxX
-                    ax.axvline(x=x, color='0.5', linestyle='--')
             ti = m.upper()
             if m in ['snr', 'ser'] and DELTAS_SNR_SER:
                 ti = f'$\\Delta${ti}'
@@ -623,6 +625,120 @@ class PostProcessor:
         else:
             print(f"Unsupported backend '{backend}' for window positioning.")
 
+
+        # === Additional figure: metrics aggregated per static segment as stairs ===
+        if c.scmEstimation == 'online' and getattr(c, 'dynamics', None) == 'moving' and hasattr(c, 'movingEvery'):
+            # Compute mapping from frame index -> time [s]
+            maxX = metrics[list(metrics.keys())[0]]['unprocessed'].shape[-1]
+            # Segment edges in time
+            seg_edges_time = np.arange(0, c.T + 1e-9, c.movingEvery)
+            if seg_edges_time[-1] < c.T:  # ensure we cover the tail
+                seg_edges_time = np.append(seg_edges_time, c.T)
+            # Convert segment edges to frame indices (the x-domain used for the online plots)
+            seg_edges_idx = np.clip(np.round(seg_edges_time / c.T * maxX).astype(int), 0, maxX)
+            # Prepare new figure with the same layout/style
+            fig2, axes2 = plt.subplots(1, len(metrics.keys()), sharex=True)
+            # Position this second figure just below the first one
+            placement2 = placement.copy()
+            placement2[1] = placement[1] + placement[3] + 15  # below
+            backend2 = matplotlib.get_backend().lower()
+            manager2 = fig2.canvas.manager
+            fig_w2, fig_h2 = placement2[2], placement2[3]
+            if 'tkagg' in backend2:
+                manager2.window.wm_geometry(f"{int(fig_w2)}x{int(fig_h2)}+{int(placement2[0])}+{int(placement2[1])}")
+            elif 'qt' in backend2:
+                manager2.window.setGeometry(placement2[0], placement2[1], fig_w2, fig_h2)
+            else:
+                print(f"Unsupported backend '{backend2}' for window positioning.")
+            # Loop over metrics and algorithms to compute per-segment averages and plot as steps
+            for ii, m in enumerate(metrics.keys()):
+                ax2 = axes2[ii] if len(metrics.keys()) > 1 else axes2
+                if m == 'stoi':
+                    ax2.set_ylim(0, 1)
+                # Vertical lines at segment boundaries
+                for s in range(len(seg_edges_idx)):
+                    x = seg_edges_idx[s]
+                    ax2.axvline(x=x, color='0.5', linestyle='--')
+                flagDelta = m in ['snr', 'ser'] and DELTAS_SNR_SER
+                # y-values per algorithm: list of length nSegments-1
+                for jj, alg in enumerate(metrics[m].keys()):
+                    if (m == 'msew' and alg in ['centralized', 'local', 'unprocessed']) or \
+                       (flagDelta and alg in ['local', 'unprocessed']):
+                        continue
+                    # Build the time series data first, averaged over nodes/MC like in the main plot
+                    if metrics[m][alg].shape[-1] > 1:
+                        if WHICH_NODES == 'all':
+                            series = np.mean(metrics[m][alg], axis=(0, 1))
+                            if flagDelta:
+                                series -= np.mean(metrics[m]['local'], axis=(0, 1))
+                        else:
+                            series = np.mean([
+                                mm for i, mm in enumerate(metrics[m][alg]) if i in WHICH_NODES
+                            ], axis=(0, 1))
+                            if flagDelta:
+                                series -= np.mean([
+                                    mm for i, mm in enumerate(metrics[m]['local']) if i in WHICH_NODES
+                                ], axis=(0, 1))
+                    else:
+                        # Non-iterative/batch lines are plotted as constants
+                        if WHICH_NODES == 'all':
+                            series = np.array([np.mean(metrics[m][alg])])
+                            if flagDelta:
+                                series -= np.mean(metrics[m]['local'])
+                        else:
+                            series = np.array([np.mean([
+                                mm for i, mm in enumerate(metrics[m][alg]) if i in WHICH_NODES
+                            ])])
+                            if flagDelta:
+                                series -= np.mean([
+                                    mm for i, mm in enumerate(metrics[m]['local']) if i in WHICH_NODES
+                                ])
+                        # Expand constant across all segments
+                        series = np.full(len(seg_edges_idx)-1, series.item())
+                    # Compute per-segment averages
+                    seg_vals = []
+                    for s in range(len(seg_edges_idx)-1):
+                        beg, end = seg_edges_idx[s], seg_edges_idx[s+1]
+                        if end <= beg or beg >= len(series):
+                            seg_vals.append(np.nan)
+                        else:
+                            seg_vals.append(np.nanmean(series[beg:end]))
+                    # Build stairs: x as edges, y as segment values
+                    x_edges = seg_edges_idx
+                    y_vals = np.array(seg_vals)
+                    # For log-scale metrics, avoid non-positive values
+                    if m in ['msew', 'msed']:
+                        y_vals = np.where(y_vals <= 0, np.nan, y_vals)
+                        ax2.set_yscale('log')
+                    ax2.step(x_edges, np.append(y_vals, y_vals[-1] if len(y_vals) else np.nan),
+                             where='post', label=alg, color=colors[alg])
+                # Axes formatting mirrors the main plot
+                ax2.set_xlim(0, maxX)
+                ticksInterval = maxX / 5
+                if c.dynamics == 'moving':
+                    ticksInterval = np.amin([ticksInterval, c.movingEvery / c.T * maxX])
+                xTicks = np.arange(0, maxX + 1e-9, ticksInterval)
+                ax2.set_xticks(xTicks)
+                ax2.set_xticklabels(np.round(xTicks / maxX * c.T, 2))
+                ax2.set_xlabel('Time [s]')
+                if m in ['snr', 'ser'] and ax2.get_ylim()[0] < 0:
+                    ax2.axhline(y=0, color='0.75')
+                ti2 = (f'$\\Delta${m.upper()}' if (m in ['snr', 'ser'] and DELTAS_SNR_SER) else m.upper()) + ' (per static segment)'
+                ax2.set_title(ti2)
+                # Legend placement same as main plot
+                if m == 'stoi':
+                    ax2.legend(loc='lower center')
+                if m == 'msed':
+                    ax2.legend(loc='upper center')
+                if m in FORCED_YLIM.keys() and FORCED_YLIM[m] is not None:
+                    ax2.set_ylim(FORCED_YLIM[m])
+            supti2 = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES} — static-segment stairs'
+            if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
+                supti2 += f', {c.betaString}'
+            if nMC > 1:
+                supti2 += f', #MCs: {nMC}'
+            fig2.suptitle(supti2)
+            fig2.tight_layout()
         fig.tight_layout()
         return fig
 

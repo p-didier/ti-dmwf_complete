@@ -20,14 +20,14 @@ from pp import main as main_pp
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
 TEST_SET = [
-    {
-        'scmEstimation': 'oracle',
-        'observability': 'foss',
-    },
-    {
-        'scmEstimation': 'oracle',
-        'observability': 'poss',
-    },
+    # {
+    #     'scmEstimation': 'oracle',
+    #     'observability': 'foss',
+    # },
+    # {
+    #     'scmEstimation': 'oracle',
+    #     'observability': 'poss',
+    # },
     # {
     #     'scmEstimation': 'batch',
     #     'observability': 'foss',
@@ -36,14 +36,14 @@ TEST_SET = [
     #     'scmEstimation': 'batch',
     #     'observability': 'poss',
     # # },
-    # {
-    #     'scmEstimation': 'online',
-    #     'observability': 'foss',
-    # },
-    # {
-    #     'scmEstimation': 'online',
-    #     'observability': 'poss',
-    # },
+    {
+        'scmEstimation': 'online',
+        'observability': 'foss',
+    },
+    {
+        'scmEstimation': 'online',
+        'observability': 'poss',
+    },
 ]
 
 def main():
@@ -54,7 +54,10 @@ def main():
     # Generate folder if it does not exist
     clean_output_dir(cfgBase.outputDir)  # Clean the output directory if it exists
 
+    tMaster = time.time()
+    print(f"Starting simulation with configuration: {cfgBase}")
     for idxMC in range(cfgBase.nMCruns):
+        tMC = time.time()
         if cfgBase.nMCruns > 1:
             print(f"\nMC run {idxMC + 1}/{cfgBase.nMCruns}")
             trueSeed = cfgBase.seed + idxMC  # Change seed for each Monte Carlo run
@@ -84,6 +87,10 @@ def main():
 
             # Launch the simulation
             Run(cfg).go()
+
+        if cfgBase.nMCruns > 1:
+            print(f"\nMC run {idxMC + 1}/{cfgBase.nMCruns} completed in {time.time() - tMC:.2f} seconds.")
+    print(f"\nAll runs completed in {time.time() - tMaster:.2f} seconds.")
 
     # Post-processing
     main_pp()
