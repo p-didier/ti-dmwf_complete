@@ -76,7 +76,7 @@ FORCED_YLIM = {
 n_per_col = 2  # Number of figures per column after plt.show()
 margin = 100  # Margin between figures in pixels
 
-def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS):
+def main(resDir=resDir):
     """Main function (called by default when running script)."""
     # Load the results from the directory
     if resDir == 'latest':
@@ -174,7 +174,6 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS):
                 metrics.append(fcn(
                     dataIn,
                     metricsToCompute,
-                    metricsOver,
                 ))
                 print(f"\nMetrics for file {idxMC + 1}/{len(files)} computed in {time.time() - t0:.2f} seconds.")
 
@@ -259,7 +258,6 @@ class PostProcessor:
             self,
             dataIn,
             metricsToCompute=[],
-            metricsOver=None,
         ):
         c = self.cfg
 
@@ -383,7 +381,6 @@ class PostProcessor:
             self,
             dataIn,
             metricsToCompute=[],
-            metricsOver=None,
         ):
         c = self.cfg
 
@@ -458,7 +455,7 @@ class PostProcessor:
 
         if self.metricsMethod == 'entire_signal':
             # Get metrics signals to be used for all frames
-            yc, sc, nc, dkTD = _get_metrics_signals(endTime=metricsOver)
+            yc, sc, nc, dkTD = _get_metrics_signals(endTime=METRICS_OVER_FIRST_SECONDS)
 
         # Initialize `metrics` dictionary
         self.nodesToProcess = range(c.K) if WHICH_NODES == 'all' else WHICH_NODES
@@ -488,13 +485,13 @@ class PostProcessor:
                         if c.domain == 'wola':
                             # Get metrics signals for the current frame
                             yc, sc, nc, dkTD = _get_metrics_signals(
-                                startTime=np.amax((0, l * (c.nfft - c.nhop) / c.fs - metricsOver)),
+                                startTime=np.amax((0, l * (c.nfft - c.nhop) / c.fs - METRICS_OVER_FIRST_SECONDS)),
                                 endTime=(l + 1) * (c.nfft - c.nhop) / c.fs
                             )
                         elif 'time' in c.domain:
                             # Get metrics signals for the current frame
                             yc, sc, nc, dkTD = _get_metrics_signals(
-                                startTime=np.amax((0, l * c.frameDuration / c.fs - metricsOver)),
+                                startTime=np.amax((0, l * c.frameDuration / c.fs - METRICS_OVER_FIRST_SECONDS)),
                                 endTime=(l + 1) * c.frameDuration / c.fs
                             )
                     metricsCurrAlg = _processing_loop(k, w, dkTD, silent=True)

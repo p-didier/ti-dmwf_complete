@@ -6,6 +6,7 @@
 import yaml
 import time
 import pickle
+import subprocess
 import numpy as np
 from typing import Union
 import scipy.signal as sig
@@ -16,7 +17,10 @@ class Parameters:
     """A dataclass for simulation parameters."""
     # WASN parameters
     K: int = 10  # number of nodes
-    Mk: Union[int, list[int]] = 3  # number of sensors per node
+    Mk: Union[int, list[Union[int, str]]] = 3  # number of sensors per node
+        # If Mk is int: all nodes have the same number of sensors
+        # If the last element of Mk is 'X--', the value X is used for all nodes
+        #   for which Mk is not already specified.
     graphDiameter: int = None  # diameter of the graph corresponding to the network
 
     # Acoustic scenario parameters
@@ -125,7 +129,12 @@ class Parameters:
 
         if isinstance(self.Mk, int):
             self.Mk = [self.Mk] * self.K
-        else:
+        elif isinstance(self.Mk, list):
+            if isinstance(self.Mk[-1], str):
+                if self.Mk[-1][-2:] == '--':
+                    # Indicator to repeat value for all subsequent nodes
+                    nNodesAlreadyAssigned = len(self.Mk) - 1
+                    self.Mk = self.Mk[:-1] + [int(self.Mk[-1][:-2])] * (self.K - nNodesAlreadyAssigned)
             if len(self.Mk) != self.K:
                 raise ValueError("Mk must be an int or a list of length K.")
         self.Mkc = np.cumsum([0] + self.Mk)
@@ -179,9 +188,13 @@ class Parameters:
         # Print the parameters in a readable format
         params_str = "\n".join([f"{key}: {value}" for key, value in self.__dict__.items()])
         params_str += f"\nN: {self.N}, nFrames: {self.nFrames}, nPosFreqs: {self.nPosFreqs}"
-        params_str += f"\nOutput directory: {self.outputDir}"
+        params_str += f"\n\n\nOutput directory: {self.outputDir}"
         # Add time
         params_str += f"\nExport time: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+        # Add current repository commit ID
+        cid, msg = get_git_info()
+        params_str += f"\n\nLast Git commit ID: {cid}"
+        params_str += f"\nLast Git commit Message: '{msg}'"
         return f"Parameters:\n{params_str}"
     
     def load_from_yaml(self, path: str):
@@ -267,3 +280,18 @@ def herm(x: np.ndarray) -> np.ndarray:
         return x.conj().T
     elif x.ndim == 3:
         return x.conj().transpose(0, 2, 1)
+
+
+def get_git_info():
+    try:
+        commit_id = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+
+        commit_msg = subprocess.check_output(
+            ["git", "log", "-1", "--pretty=%B"], stderr=subprocess.DEVNULL
+        ).decode("utf-8").strip()
+
+        return commit_id, commit_msg
+    except subprocess.CalledProcessError:
+        return None, None

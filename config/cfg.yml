@@ -1,6 +1,9 @@
 # WASN parameters
 K: 6  # number of nodes
-Mk: 5  # number of sensors per node
+# Mk: 1  # number of sensors per node
+Mk:  # number of sensors per node
+- 1
+- '5--'
 graphDiameter: null  # diameter of the graph corresponding to the network
 
 # Acoustic scenario parameters
@@ -9,8 +12,8 @@ Qn: 2  # number of noise sources
 D: 1  # number of target signal channels
 ###########################
 # domain: time  # domain of the signals, 'time', or 'time_complex', or 'wola'
-domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
-# domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
+# domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
+domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
 ##########################
 TDsteeringMats: random  # type of steering matrices in time domain
 # TDsteeringMats: anechoic  # type of steering matrices in time domain
@@ -138,10 +141,10 @@ wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) vi
 # wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 # noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
-# nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
-nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
+nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
+# nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 
 # General simulation set parameters
 nMCruns: 1  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: saa_nocrosscorr  # output file suffix
+suffix: saa_Mkeq1  # output file suffix

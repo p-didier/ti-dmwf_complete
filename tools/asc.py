@@ -72,6 +72,7 @@ class StaticScenarioParameters:
         for k in range(c.K):
             self.Qkq[k, :] = [np.amin((c.Mk[k], q)) for q in self.Qkq[k, :]]
             self.oQq[k] = np.amin((c.Mk[k], self.oQq[k]))
+            self.Qdk[k] = np.amin((c.Mk[k], self.Qdk[k]))
 
         # Cache pre-computed selection matrices for dMWF
         self.Eqps = [[None for _ in range(c.K)] for _ in range(c.K)]
@@ -79,9 +80,13 @@ class StaticScenarioParameters:
             for p in range(c.K):
                 if p == q:
                     continue
-                self.Eqps[q][p] = c.init_full((c.Mk[q], self.oQq[q]), selection_matrix=True)
-                self.Eqps[q][p][:self.Qkq[q, p], :self.Qkq[q, p]] = np.eye(self.Qkq[q, p])
-                self.Eqps[q][p][self.Qkq[q, p]:, self.Qkq[q, p]:] = np.random.randn(*(c.Mk[q] - self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
+                oQq_eff = np.amin((c.Mk[p], self.oQq[q]))
+                Qqp_eff = np.amin((c.Mk[p], self.Qkq[q, p]))
+                self.Eqps[q][p] = c.init_full((c.Mk[p], oQq_eff), selection_matrix=True)
+                self.Eqps[q][p][:Qqp_eff, :Qqp_eff] = np.eye(Qqp_eff)
+                self.Eqps[q][p][Qqp_eff:, Qqp_eff:] = np.random.randn(
+                    *(c.Mk[p] - Qqp_eff, oQq_eff - Qqp_eff)
+                )
 
 @dataclass
 class SignalContainer:
