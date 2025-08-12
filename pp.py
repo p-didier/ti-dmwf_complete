@@ -147,10 +147,11 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS):
                 if 's' in results.keys():
                     # Format 1: time-domain raw mic signals and filter weights
                     dataIn = {
+                        'W_netWide': results['W_netWide'],
                         's': results['s'],
                         'n': results['n'],
                         'y': results['s'] + results['n'],
-                        'd': np.array([results['s'][c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])
+                        'd': np.array([results['s'][c.Mkc[k]:c.Mkc[k] + c.D, ...] for k in range(c.K)])
                     }
                 elif 'shatk' in results.keys():
                     # Format 2: time-domain processed signals
@@ -250,7 +251,9 @@ class PostProcessor:
         else:
             self.bypassStoi = BYPASS_STOI
         self.nodesToProcess = range(c.K) if WHICH_NODES == 'all' else WHICH_NODES
-
+        if isinstance(c.Mk, int):
+            self.Mk = [c.Mk] * c.K
+            self.Mkc = np.cumsum([0] + self.Mk)
 
     def get_metrics_from_full_signal(
             self,

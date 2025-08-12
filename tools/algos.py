@@ -71,11 +71,11 @@ class Run:
             'tRss': copy.deepcopy(baseListDANSEscms[alg]),
             'tRnn': copy.deepcopy(baseListDANSEscms[alg]),
             'Pk': [
-                c.init_full((c.nPosFreqs, c.Mk, refScn.Qdk[k]), random=True)
+                c.init_full((c.nPosFreqs, c.Mk[k], refScn.Qdk[k]), random=True)
                 for k in range(c.K)
             ],
             'WkkPrev_rS': [
-                c.init_full((c.nPosFreqs, c.Mk, refScn.Qdk[k]), random=True)
+                c.init_full((c.nPosFreqs, c.Mk[k], refScn.Qdk[k]), random=True)
                 for k in range(c.K)
             ],
             'Wk': [
@@ -261,21 +261,9 @@ class Run:
                     nhatkSTFT = np.einsum('ijkl,kji->lji', wCurr.conj(), n)
                     shatk[k][alg] = c.get_istft(shatkSTFT)
                     nhatk[k][alg] = c.get_istft(nhatkSTFT)
-
-            if 0:
-                fig, axes = plt.subplots(len(c.algos), 1)
-                fig.set_size_inches(8.5, len(c.algos))
-                for i, alg in enumerate(c.algos):
-                    axes[i].set_ylabel(alg)
-                    axes[i].plot(dhatk[alg][0][0, ...])
-                    axes[i].set_ylim([-1, 1])
-                    axes[i].set_xticks([])
-                    axes[i].set_yticks([])
-                fig.tight_layout()
-                plt.show()
             
             results = {
-                'd': c.get_istft(np.array([s[c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])),
+                'd': c.get_istft(np.array([s[c.Mkc[k]:c.Mkc[k] + c.D, ...] for k in range(c.K)])),
                 'shatk': shatk,
                 'nhatk': nhatk,
                 'cfg': c,
@@ -358,45 +346,45 @@ class Run:
 
             if alg == 'unprocessed':
                 for k in range(c.K):
-                    W_netWide[alg][k][..., c.Mk * k:c.Mk * k + c.D, :] = np.eye(c.D)
+                    W_netWide[alg][k][..., c.Mkc[k]:c.Mkc[k] + c.D, :] = np.eye(c.D)
             elif alg == "centralized":
                 Wcentr = self.filtup(Ryy, Rnn, gevd=c.gevd, gevdRank=c.Qd)
                 W_netWide[alg] = [
-                    Wcentr[..., c.Mk * k:c.Mk * k + c.D] for k in range(c.K)
+                    Wcentr[..., c.Mkc[k]:c.Mkc[k] + c.D] for k in range(c.K)
                 ]
             elif alg == "local":
                 for k in range(c.K):
-                    Rykyk = Ryy[..., c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
-                    Rnknk = Rnn[..., c.Mk * k:c.Mk * (k + 1), c.Mk * k:c.Mk * (k + 1)]
+                    Rykyk = Ryy[..., c.Mkc[k]:c.Mkc[k + 1], c.Mkc[k]:c.Mkc[k + 1]]
+                    Rnknk = Rnn[..., c.Mkc[k]:c.Mkc[k + 1], c.Mkc[k]:c.Mkc[k + 1]]
                     tmp = self.filtup(Rykyk, Rnknk, gevd=c.gevd, gevdRank=c.Qd)
-                    W_netWide[alg][k][..., c.Mk * k:c.Mk * (k + 1), :] = tmp[..., :c.D]
+                    W_netWide[alg][k][..., c.Mkc[k]:c.Mkc[k + 1], :] = tmp[..., :c.D]
             elif alg == "dmwf":
                 # Neighbor-specific fusion matrices
                 Pk = [None for _ in range(c.K)]
                 for q in range(c.K):
-                    Ryqyq = Ryy_dMWF_dis[..., c.Mk * q:c.Mk * (q + 1), c.Mk * q:c.Mk * (q + 1)]
-                    Ryqrhoq = c.init_full((c.nPosFreqs, c.Mk, scn.oQq[q]))
+                    Ryqyq = Ryy_dMWF_dis[..., c.Mkc[q]:c.Mkc[q + 1], c.Mkc[q]:c.Mkc[q + 1]]
+                    Ryqrhoq = c.init_full((c.nPosFreqs, c.Mk[q], scn.oQq[q]))
                     for p in range(c.K):
                         if p == q:
                             continue
                         Ryqrhoq += Ryy_dMWF_dis[
                             ...,
-                            c.Mk * q:c.Mk * (q + 1),
-                            c.Mk * p:c.Mk * (p + 1)
+                            c.Mkc[q]:c.Mkc[q + 1],
+                            c.Mkc[p]:c.Mkc[p + 1]
                         ] @ scn.Eqps[q][p]
                     Pk[q] = self.filtup(Ryqyq, Rss=Ryqrhoq)
                 # Estimation filters
                 for k in range(c.K):
                     # ty = C^H.y
                     QkqNeighs = np.delete(scn.oQq, k)  # Remove k
-                    Ck = c.init_full((c.nPosFreqs, c.M, c.Mk + int(np.sum(QkqNeighs))))
-                    Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
+                    Ck = c.init_full((c.nPosFreqs, c.M, c.Mk[k] + int(np.sum(QkqNeighs))))
+                    Ck[..., c.Mkc[k]:c.Mkc[k + 1], :c.Mk[k]] = np.eye(c.Mk[k])
                     idxNei = 0
                     for q in range(c.K):
                         if q != k:
-                            idxBeg = c.Mk + int(np.sum(QkqNeighs[:idxNei]))
+                            idxBeg = c.Mk[k] + int(np.sum(QkqNeighs[:idxNei]))
                             idxEnd = idxBeg + scn.oQq[q]
-                            Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
+                            Ck[..., c.Mkc[q]:c.Mkc[q + 1], idxBeg:idxEnd] = Pk[q]
                             idxNei += 1
                     # Compute the filters
                     tRyy = herm(Ck) @ Ryy_dMWF_est @ Ck
@@ -409,21 +397,21 @@ class Run:
                     _, upstreamNeighs = get_upstream_nodes(G, k)
                     Cqk = [None for _ in range(c.K)]
                     for q in range(c.K):
-                        dim = c.Mk + c.Q * len(upstreamNeighs[q])
+                        dim = c.Mk[q] + c.Q * len(upstreamNeighs[q])
                         Cqk[q] = c.init_full((c.nPosFreqs, c.M, dim))
-                        Cqk[q][..., c.Mk * q:c.Mk * (q + 1), :c.Mk] = np.eye(c.Mk)
+                        Cqk[q][..., c.Mk[q]:c.Mk[q + 1], :c.Mk[q]] = np.eye(c.Mk[q])
                     # Compute fusion matrices
                     Pk = [None for _ in range(c.K)]
                     for q in flatten_list(tree_levels(G, k)):
                         for ii, n in enumerate(upstreamNeighs[q]):
-                            idxBeg = c.Mk + ii * c.Q
+                            idxBeg = c.Mk[q] + ii * c.Q
                             idxEnd = idxBeg + c.Q
                             Cqk[q][..., idxBeg:idxEnd] = Cqk[n] @ Pk[n]
                         if q != k:
                             # Compute Pk
                             Rhyqhyq = herm(Cqk[q]) @ Ryy @ Cqk[q]
                             hEq = c.init_full((c.M, c.Q), selection_matrix=True)
-                            hEq[c.Mk * k: c.Mk * k + c.Q, :] = np.eye(c.Q)
+                            hEq[c.Mkc[k]:c.Mkc[k] + c.Q, :] = np.eye(c.Q)
                             Rhyqyktq = herm(Cqk[q]) @ Ryy @ hEq
                             Pk[q] = self.filtup(Rhyqhyq, Rss=Rhyqyktq)
                     # Compute estimation filter
@@ -457,10 +445,13 @@ class Run:
                         iEff = i  # effective iteration index
 
                     # For TI-DANSE, take normalization factor into account
-                    Nk = np.array([
-                        sla.block_diag(*(np.eye(c.Mk), gamma[kappa]))
-                        for kappa in range(c.nPosFreqs)
-                    ]) if c.domain == 'wola' else sla.block_diag(*(np.eye(c.Mk), gamma))
+                    Nk = [
+                            np.array([
+                            sla.block_diag(*(np.eye(c.Mk[k]), gamma[kappa]))
+                            for kappa in range(c.nPosFreqs)
+                        ]) if c.domain == 'wola' else sla.block_diag(*(np.eye(c.Mk[k]), gamma))
+                        for k in range(c.K)
+                    ]
 
                     if c.scmEstimation == 'online':
                         # Compute fused signals
@@ -470,23 +461,23 @@ class Run:
                                 zy[k] = np.einsum(
                                     'ijk,ij->ik',
                                     Pk[k].conj(),
-                                    frame_y[:, c.Mk * k:c.Mk * (k + 1)]
+                                    frame_y[:, c.Mkc[k]:c.Mkc[k + 1]]
                                 )
                                 zs[k] = np.einsum(
                                     'ijk,ij->ik',
                                     Pk[k].conj(),
-                                    frame_s[:, c.Mk * k:c.Mk * (k + 1)]
+                                    frame_s[:, c.Mkc[k]:c.Mkc[k + 1]]
                                 )
                                 zn[k] = np.einsum(
                                     'ijk,ij->ik',
                                     Pk[k].conj(),
-                                    frame_n[:, c.Mk * k:c.Mk * (k + 1)]
+                                    frame_n[:, c.Mkc[k]:c.Mkc[k + 1]]
                                 )
                             else:
                                 # Time-domain-like processing
-                                zy[k] = frame_y[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
-                                zs[k] = frame_s[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
-                                zn[k] = frame_n[:, c.Mk * k:c.Mk * (k + 1)] @ Pk[k].conj()
+                                zy[k] = frame_y[:, c.Mkc[k]:c.Mkc[k + 1]] @ Pk[k].conj()
+                                zs[k] = frame_s[:, c.Mkc[k]:c.Mkc[k + 1]] @ Pk[k].conj()
+                                zn[k] = frame_n[:, c.Mkc[k]:c.Mkc[k + 1]] @ Pk[k].conj()
                             
                             if alg.startswith("tidanse"):
                                 # Apply normalization factor for TI-DANSE
@@ -502,49 +493,49 @@ class Run:
                     for k in range(c.K):
                         # Compute C-matrix
                         if alg.startswith("tidanse"):
-                            Ck = c.init_full((c.nPosFreqs, c.M, c.Mk + c.Qd))
-                            Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
+                            Ck = c.init_full((c.nPosFreqs, c.M, c.Mk[k] + c.Qd))
+                            Ck[..., c.Mkc[k]:c.Mkc[k + 1], :c.Mk[k]] = np.eye(c.Mk[k])
                             for q in range(c.K):
                                 if q != k:
-                                    Ck[..., c.Mk * q:c.Mk * (q + 1), c.Mk:] = Pk[q] @ gamma
+                                    Ck[..., c.Mkc[q]:c.Mkc[q + 1], c.Mk[k]:] = Pk[q] @ gamma
                         else:
                             Qdks = [scn.Qdk[q] for q in range(c.K) if q != k]
-                            Ck = c.init_full((c.nPosFreqs, c.M, c.Mk + np.sum(Qdks)))
-                            Ck[..., c.Mk * k:c.Mk * (k + 1), :c.Mk] = np.eye(c.Mk)
+                            Ck = c.init_full((c.nPosFreqs, c.M, c.Mk[k] + np.sum(Qdks)))
+                            Ck[..., c.Mkc[k]:c.Mkc[k + 1], :c.Mk[k]] = np.eye(c.Mk[k])
                             idxNei = 0
                             for q in range(c.K):
                                 if q != k:
-                                    idxBeg = int(c.Mk + np.sum(Qdks[:idxNei]))
+                                    idxBeg = int(c.Mk[k] + np.sum(Qdks[:idxNei]))
                                     idxEnd = idxBeg + Qdks[idxNei]
-                                    Ck[..., c.Mk * q:c.Mk * (q + 1), idxBeg:idxEnd] = Pk[q]
+                                    Ck[..., c.Mkc[q]:c.Mkc[q + 1], idxBeg:idxEnd] = Pk[q]
                                     idxNei += 1
                         # Compute the SCMs
                         if c.scmEstimation == 'online':
                             # Build observation vector
                             if alg.startswith("tidanse"):
                                 ty = np.concatenate([
-                                    frame_y[:, c.Mk * k:c.Mk * (k + 1)],
+                                    frame_y[:, c.Mkc[k]:c.Mkc[k + 1]],
                                     np.sum([zy[q] for q in range(c.K) if q != k], axis=0)
                                 ], axis=1)
                                 ts = np.concatenate([
-                                    frame_s[:, c.Mk * k:c.Mk * (k + 1)],
+                                    frame_s[:, c.Mkc[k]:c.Mkc[k + 1]],
                                     np.sum([zs[q] for q in range(c.K) if q != k], axis=0)
                                 ], axis=1)
                                 tn = np.concatenate([
-                                    frame_n[:, c.Mk * k:c.Mk * (k + 1)],
+                                    frame_n[:, c.Mkc[k]:c.Mkc[k + 1]],
                                     np.sum([zn[q] for q in range(c.K) if q != k], axis=0)
                                 ], axis=1)
                             else:
                                 ty = np.concatenate(
-                                    [frame_y[:, c.Mk * k:c.Mk * (k + 1)]] +\
+                                    [frame_y[:, c.Mkc[k]:c.Mkc[k + 1]]] +\
                                     [zy[q] for q in range(c.K) if q != k], axis=1
                                 )
                                 ts = np.concatenate(
-                                    [frame_s[:, c.Mk * k:c.Mk * (k + 1)]] +\
+                                    [frame_s[:, c.Mkc[k]:c.Mkc[k + 1]]] +\
                                     [zs[q] for q in range(c.K) if q != k], axis=1
                                 )
                                 tn = np.concatenate(
-                                    [frame_n[:, c.Mk * k:c.Mk * (k + 1)]] +\
+                                    [frame_n[:, c.Mkc[k]:c.Mkc[k + 1]]] +\
                                     [zn[q] for q in range(c.K) if q != k], axis=1
                                 )
                             if c.domain == 'wola':
@@ -557,9 +548,9 @@ class Run:
                                 nnH = tn.T @ tn.conj()
                             
                             if alg.startswith("tidanse"):
-                                tRyyPrev[k] = herm(Nk) @ tRyyPrev[k] @ Nk
-                                tRssPrev[k] = herm(Nk) @ tRssPrev[k] @ Nk
-                                tRnnPrev[k] = herm(Nk) @ tRnnPrev[k] @ Nk
+                                tRyyPrev[k] = herm(Nk[k]) @ tRyyPrev[k] @ Nk[k]
+                                tRssPrev[k] = herm(Nk[k]) @ tRssPrev[k] @ Nk[k]
+                                tRnnPrev[k] = herm(Nk[k]) @ tRnnPrev[k] @ Nk[k]
 
                             # Update the SCMs
                             if c.noCrossCorrelation:
@@ -600,26 +591,26 @@ class Run:
                                     alpha = 1 / np.log10(iEff + 10)
                                 else:
                                     alpha = 1 / np.log10(i + 10)
-                                Wk[k][..., :c.Mk, :scn.Qdk[k]] = (1 - alpha) * WkkPrev_rS[k] +\
-                                    alpha * Wk[k][..., :c.Mk, :scn.Qdk[k]]
-                                WkkPrev_rS[k] = Wk[k][..., :c.Mk, :scn.Qdk[k]]
-                            
+                                Wk[k][..., :c.Mk[k], :scn.Qdk[k]] = (1 - alpha) * WkkPrev_rS[k] +\
+                                    alpha * Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
+                                WkkPrev_rS[k] = Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
+
                                 if k == 0:
                                     iEff += 1  # Increment effective iteration index
                         else:
                             # No update for this node
                             if alg.startswith("tidanse"): # and c.scmEstimation == 'online':
                                 # For TI-DANSE, apply the normalization factor
-                                Wk[k] = np.linalg.inv(Nk) @ Wk[k]  # loaded from previous iteration/frame
+                                Wk[k] = np.linalg.inv(Nk[k]) @ Wk[k]  # loaded from previous iteration/frame
                         
                         # Compute the fusion matrix Pk
                         if alg.startswith("tidanse"):
-                            Pk[k] = Wk[k][..., :c.Mk, :c.Qd] @\
-                                np.linalg.inv(Wk[k][..., c.Mk:, :c.Qd])
+                            Pk[k] = Wk[k][..., :c.Mk[k], :c.Qd] @\
+                                np.linalg.inv(Wk[k][..., c.Mk[k]:, :c.Qd])
                             if k == 0:
                                 print(f'\nNorm of Pk[{k}]: {np.linalg.norm(Pk[k])}')
                         else:
-                            Pk[k] = Wk[k][..., :c.Mk, :scn.Qdk[k]]
+                            Pk[k] = Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
 
                         # Store the network-wide filter for this iteration/frame
                         W_netWide[alg][k].append(Ck @ Wk[k][..., :c.D])
@@ -629,8 +620,8 @@ class Run:
                         # Update anyway, always, at the reference node
                         r = c.refNodeForTInorm
                         tWr = self.filtup(tRyyPrev[r], tRnnPrev[r], gevd=c.gevd, gevdRank=c.Qd)
-                        gamma = tWr[..., c.Mk:, :c.Qd]
-                
+                        gamma = tWr[..., c.Mk[k]:, :c.Qd]
+
                     # Update the updating node index for next iteration
                     if onlineModeCriterion:
                         u = (u + 1) % c.K

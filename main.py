@@ -20,30 +20,30 @@ from pp import main as main_pp
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
 TEST_SET = [
-    # {
-    #     'scmEstimation': 'oracle',
-    #     'observability': 'foss',
-    # },
-    # {
-    #     'scmEstimation': 'oracle',
-    #     'observability': 'poss',
-    # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'foss',
-    # },
-    # {
-    #     'scmEstimation': 'batch',
-    #     'observability': 'poss',
-    # # },
     {
-        'scmEstimation': 'online',
+        'scmEstimation': 'oracle',
         'observability': 'foss',
     },
     {
-        'scmEstimation': 'online',
+        'scmEstimation': 'oracle',
         'observability': 'poss',
     },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'foss',
+    },
+    {
+        'scmEstimation': 'batch',
+        'observability': 'poss',
+    },
+    # {
+    #     'scmEstimation': 'online',
+    #     'observability': 'foss',
+    # },
+    # {
+    #     'scmEstimation': 'online',
+    #     'observability': 'poss',
+    # },
 ]
 
 def main():
@@ -75,7 +75,7 @@ def main():
                 print(f"\n[MC run {idxMC + 1}/{cfgBase.nMCruns}] Test {i + 1}/{len(TEST_SET)}: {test}")
                 cfg.outputFilePath = f"{cfgBase.outputDir}\\res_cfg{i + 1}_mc{idxMC + 1}.pkl"  # Unique output file for each test
             else:
-                print(f"\n[Test {i + 1}/{len(TEST_SET)}: {test}")
+                print(f"\n[Test {i + 1}/{len(TEST_SET)}]: {test}")
                 cfg.outputFilePath = f"{cfgBase.outputDir}\\res_cfg{i + 1}.pkl"  # Unique output file for each test
             
             for key, value in test.items():
