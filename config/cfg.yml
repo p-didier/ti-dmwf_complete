@@ -1,6 +1,6 @@
 # WASN parameters
 K: 6  # number of nodes
-Mk: 7  # number of sensors per node
+Mk: 1  # number of sensors per node
 graphDiameter: null  # diameter of the graph corresponding to the network
 
 # Acoustic scenario parameters
@@ -75,8 +75,8 @@ fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
 # T: 2.0  # duration of the signals in seconds
-# T: 15.0  # duration of the signals in seconds
-T: 30.0  # duration of the signals in seconds
+T: 15.0  # duration of the signals in seconds
+# T: 30.0  # duration of the signals in seconds
 # T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
@@ -147,4 +147,4 @@ nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration f
 # General simulation set parameters
 nMCruns: 1  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: other_asc  # output file suffix
+suffix: allow_Mkeq1  # output file suffix

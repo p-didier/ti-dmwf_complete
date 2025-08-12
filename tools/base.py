@@ -7,6 +7,7 @@ import yaml
 import time
 import pickle
 import numpy as np
+from typing import Union
 import scipy.signal as sig
 from dataclasses import dataclass, field
 
@@ -15,7 +16,7 @@ class Parameters:
     """A dataclass for simulation parameters."""
     # WASN parameters
     K: int = 10  # number of nodes
-    Mk: int = 3  # number of sensors per node
+    Mk: Union[int, list[int]] = 3  # number of sensors per node
     graphDiameter: int = None  # diameter of the graph corresponding to the network
 
     # Acoustic scenario parameters
@@ -122,6 +123,13 @@ class Parameters:
         np.random.seed(self.seed)
         self.N = int(self.fs * self.T)
 
+        if isinstance(self.Mk, int):
+            self.Mk = [self.Mk] * self.K
+        else:
+            if len(self.Mk) != self.K:
+                raise ValueError("Mk must be an int or a list of length K.")
+        self.Mkc = np.cumsum([0] + self.Mk)
+
         if self.domain == 'wola':
             self.frameDuration = (self.nfft - self.nhop) / self.fs  # frame length in seconds
         self.nFrames = int(np.ceil(self.T / self.frameDuration)) + 1  # number of frames for online processing
@@ -137,20 +145,17 @@ class Parameters:
         # Number of positive frequencies in STFT
         self.nPosFreqs = self.nfft // 2 + 1 if self.singleLine is None else 1
         # Validate parameters
-        if self.Qd + self.Qn > self.Mk:
-            raise ValueError("The sum of global desired and noise sources must not exceed the number of sensors per node.")
-        self.M = self.K * self.Mk  # total number of sensors
+        # if self.Qd + self.Qn > self.Mk:
+        #     raise ValueError("The sum of global desired and noise sources must not exceed the number of sensors per node.")
+        self.M = np.sum(self.Mk)  # total number of sensors
         self.Q = self.Qd + self.Qn  # total number of sources
-        if self.observability == 'foss' and self.Q > self.Mk:
-            raise ValueError("For fully overlapping subspaces, the number of global sources must not exceed the number of sensors per node.")
+        # if self.observability == 'foss' and self.Q > self.Mk:
+        #     raise ValueError("For fully overlapping subspaces, the number of global sources must not exceed the number of sensors per node.")
         
         # Check algorithms to remove based on observabilities
         algs_to_remove = []
 
         if self.observability == 'poss':
-            if self.Qd + self.Qn > self.Mk:
-                raise ValueError("For partially overlapping subspaces, the total number of desired and noise sources must not exceed the number of sensors per node.")
-                # ^^^ this is too strict, but we keep it for now
             for alg in self.algos:
                 if 'tidmwf' in alg:
                     print(f'{alg} not implemented for partially overlapping subspaces.')

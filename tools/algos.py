@@ -45,14 +45,16 @@ class Run:
         refScn = asc.scenarios[0]  # Reference scenario for DANSE-like algorithms (ASSUMING NO CHANGING OBSERVABILITY)
         algDims = {
             'danse': [
-                c.Mk + np.sum([refScn.Qdk[q] for q in range(c.K) if q != k])
+                c.Mk[k] + np.sum([refScn.Qdk[q] for q in range(c.K) if q != k])
                 for k in range(c.K)
             ],
             'rsdanse': [
-                c.Mk + np.sum([refScn.Qdk[q] for q in range(c.K) if q != k])
+                c.Mk[k] + np.sum([refScn.Qdk[q] for q in range(c.K) if q != k])
                 for k in range(c.K)
             ],
-            'tidanse': c.Mk + c.Qd,
+            'tidanse': [
+                c.Mk[k] + c.Qd for k in range(c.K)
+            ],
         }
         baseListDANSEscms = {
             alg: [

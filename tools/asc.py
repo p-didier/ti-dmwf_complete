@@ -68,17 +68,20 @@ class StaticScenarioParameters:
             else:
                 self.Qdk = np.full(c.K, c.Qd)
 
+        # ADJUST to number of microphones
+        for k in range(c.K):
+            self.Qkq[k, :] = [np.amin((c.Mk[k], q)) for q in self.Qkq[k, :]]
+            self.oQq[k] = np.amin((c.Mk[k], self.oQq[k]))
+
         # Cache pre-computed selection matrices for dMWF
         self.Eqps = [[None for _ in range(c.K)] for _ in range(c.K)]
         for q in range(c.K):
             for p in range(c.K):
                 if p == q:
                     continue
-                self.Eqps[q][p] = c.init_full((c.Mk, self.oQq[q]), selection_matrix=True)
+                self.Eqps[q][p] = c.init_full((c.Mk[q], self.oQq[q]), selection_matrix=True)
                 self.Eqps[q][p][:self.Qkq[q, p], :self.Qkq[q, p]] = np.eye(self.Qkq[q, p])
-                # self.Eqps[q][p][self.Qkq[q, p]:, self.Qkq[q, p]:] = np.ones((c.Mk - self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
-                self.Eqps[q][p][self.Qkq[q, p]:, self.Qkq[q, p]:] = np.random.randn(*(c.Mk - self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
-                # self.Eqps[q][p][:self.oQq[q], :self.oQq[q]] = np.eye(self.oQq[q])
+                self.Eqps[q][p][self.Qkq[q, p]:, self.Qkq[q, p]:] = np.random.randn(*(c.Mk[q] - self.Qkq[q, p], self.oQq[q] - self.Qkq[q, p]))
 
 @dataclass
 class SignalContainer:
@@ -110,19 +113,19 @@ class Node(SignalContainer):
 
     def init_signal_vectors(self, c: Parameters):
         self.td = {
-            'y': np.zeros((c.Mk, c.N)),
-            's': np.zeros((c.Mk, c.N)),
-            'n': np.zeros((c.Mk, c.N)),
-            'sn': np.zeros((c.Mk, c.N)),
-            'sIndiv': np.zeros((c.Qd, c.Mk, c.N)),
-            'nIndiv': np.zeros((c.Qn, c.Mk, c.N)),
+            'y': np.zeros((c.Mk[self.idx], c.N)),
+            's': np.zeros((c.Mk[self.idx], c.N)),
+            'n': np.zeros((c.Mk[self.idx], c.N)),
+            'sn': np.zeros((c.Mk[self.idx], c.N)),
+            'sIndiv': np.zeros((c.Qd, c.Mk[self.idx], c.N)),
+            'nIndiv': np.zeros((c.Qn, c.Mk[self.idx], c.N)),
         }
         if c.domain == 'wola':
             self.wd = {
-                'y': np.zeros((c.Mk, c.nPosFreqs, c.nFrames), dtype=complex),
-                's': np.zeros((c.Mk, c.nPosFreqs, c.nFrames), dtype=complex),
-                'n': np.zeros((c.Mk, c.nPosFreqs, c.nFrames), dtype=complex),
-                'sn': np.zeros((c.Mk, c.nPosFreqs, c.nFrames), dtype=complex)
+                'y': np.zeros((c.Mk[self.idx], c.nPosFreqs, c.nFrames), dtype=complex),
+                's': np.zeros((c.Mk[self.idx], c.nPosFreqs, c.nFrames), dtype=complex),
+                'n': np.zeros((c.Mk[self.idx], c.nPosFreqs, c.nFrames), dtype=complex),
+                'sn': np.zeros((c.Mk[self.idx], c.nPosFreqs, c.nFrames), dtype=complex)
             }
 
 @dataclass
@@ -329,10 +332,10 @@ class AcousticScenario:
             for k in range(c.K):
                 for s in range(c.Qd):
                     if self.obsMat[k, s] == 0:
-                        Amat[c.Mk * k:c.Mk * (k + 1), s] = 0
+                        Amat[c.Mkc[k]:c.Mkc[k + 1], s] = 0
                 for n in range(c.Qn):
                     if self.obsMat[k, c.Qd + n] == 0:
-                        Bmat[c.Mk * k:c.Mk * (k + 1), n] = 0
+                        Bmat[c.Mkc[k]:c.Mkc[k + 1], n] = 0
 
         # Compute signals
         s = Amat @ slat
@@ -369,7 +372,7 @@ class AcousticScenario:
                 tmp = tmp[:, fLineIdx]
                 # Set the steering vectors of nodes that do not observe source ii to zero
                 for q in np.where(p.obsMat[:, ii] == 0)[0]:
-                    tmp[c.Mk * q:c.Mk * (q + 1)] = 0
+                    tmp[c.Mkc[q]:c.Mkc[q + 1]] = 0
                 Cmat[..., ii] = tmp
             s = Cmat[..., :c.Qd] @ c.get_stft(slat)[..., 0, :]
             n = Cmat[..., c.Qd:] @ c.get_stft(nlat)[..., 0, :]
@@ -523,15 +526,15 @@ class AcousticScenario:
 
             for k in range(c.K):
                 if c.wolaMixtures_viaTD:
-                    self.nodes[k].td['n'] += diffuseNoise[k * c.Mk:(k + 1) * c.Mk, ...]
+                    self.nodes[k].td['n'] += diffuseNoise[c.Mkc[k]:c.Mkc[k + 1], ...]
                 else:
-                    self.nodes[k].wd['n'] += diffuseNoise[k * c.Mk:(k + 1) * c.Mk, ...]
-            
+                    self.nodes[k].wd['n'] += diffuseNoise[c.Mkc[k]:c.Mkc[k + 1], ...]
+
         # Self-noise addition (constant, independent of dynamics)
         pows = np.mean(np.abs(self.latentDesired) ** 2, axis=1)
         for k in range(c.K):
             # Generate self-noise at correct SNR
-            sn = c.randmat((c.Mk, c.N), makeComplex=False) * np.mean(pows) * c.selfNoiseFactor
+            sn = c.randmat((c.Mk[k], c.N), makeComplex=False) * np.mean(pows) * c.selfNoiseFactor
             if c.wolaMixtures_viaTD:
                 self.nodes[k].td['sn'] = sn
                 self.nodes[k].td['n'] += self.nodes[k].td['sn']
@@ -599,7 +602,7 @@ class AcousticScenario:
                     tmp = tmp[:, [c.singleLine]]
                 # Set the steering vectors of nodes that do not observe source ii to zero
                 for q in np.where(scn.obsMat[:, ii] == 0)[0]:
-                    tmp[c.Mk * q:c.Mk * (q + 1), :] = 0
+                    tmp[c.Mkc[q]:c.Mkc[q + 1], :] = 0
                 Cmat[..., ii] = tmp.T
             # Compute STFTs of latent signals
             slatSTFT = c.get_stft(self.latentDesired)
@@ -634,28 +637,6 @@ class AcousticScenario:
             Ryy, Rss, Rnn = None, None, None # nothing to do -- done in `algos.py`
         else:
             raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
-        
-        if 0:
-            RyyBatch = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj()) / c.nFrames
-            RnnBatch = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj()) / c.nFrames
-            diffRyy = dict([(beta, [
-                np.linalg.norm(RyyBatch - Ryy[l][beta])
-                for l in range(c.nFrames)
-            ]) for beta in betas])
-            diffRnn = dict([(beta, [
-                np.linalg.norm(RnnBatch - Rnn[l][beta])
-                for l in range(c.nFrames)
-            ]) for beta in betas])
-            fig, axes = plt.subplots(1, 1)
-            fig.set_size_inches(8.5, 3.5)
-            for beta in betas:
-                axes.plot(diffRyy[beta], label=f"Ryy - Beta {beta}")
-                axes.plot(diffRnn[beta], label=f"Rnn - Beta {beta}")
-            axes.legend()
-            axes.set_xlabel("Frame index")
-            axes.set_ylabel("Difference to batch SCM")
-            fig.tight_layout()
-            plt.show()
 
         return Ryy, Rss, Rnn, stack['s'], stack['n']
 
@@ -706,18 +687,12 @@ class AcousticScenario:
                 axes.text(scn.nodesPos[k, 0] + c.nodeRadius, scn.nodesPos[k, 1] + c.nodeRadius, str(k+1))
             # Plot the sensors
             for k in range(c.K):
-                for m in range(c.Mk):
+                for m in range(c.Mk[k]):
                     axes.plot(
-                        scn.sensorsPos[k * c.Mk + m, 0],
-                        scn.sensorsPos[k * c.Mk + m, 1],
+                        scn.sensorsPos[c.Mkc[k] + m, 0],
+                        scn.sensorsPos[c.Mkc[k] + m, 1],
                         'ko', markersize=2
                     )
-                    # # Add text
-                    # axes.text(
-                    #     scn.sensorsPos[k * c.Mk + m, 0] + c.nodeRadius,
-                    #     scn.sensorsPos[k * c.Mk + m, 1] + c.nodeRadius,
-                    #     f'{k+1}.{m+1}'
-                    # )
             # Add circle around the nodes 
             for k in range(c.K):
                 circle = plt.Circle(
@@ -808,11 +783,11 @@ class AcousticScenario:
                 )
             # Plot the sensors
             for k in range(c.K):
-                for m in range(c.Mk):
+                for m in range(c.Mk[k]):
                     ax.plot(
-                        scn.sensorsPos[k * c.Mk + m, 0],
-                        scn.sensorsPos[k * c.Mk + m, 1],
-                        scn.sensorsPos[k * c.Mk + m, 2],
+                        scn.sensorsPos[c.Mkc[k] + m, 0],
+                        scn.sensorsPos[c.Mkc[k] + m, 1],
+                        scn.sensorsPos[c.Mkc[k] + m, 2],
                         'ko', markersize=2
                     )
             # Plot the sources
@@ -988,7 +963,7 @@ class AcousticScenario:
         # Apply the room impulse responses to the latent signals
         for k in range(c.K):
             # Get the indices of the microphones for this node
-            micIdx = np.arange(k * c.Mk, (k + 1) * c.Mk)
+            micIdx = np.arange(c.Mkc[k], c.Mkc[k + 1])
             # Apply the room impulse responses to the latent signals
             for ii in range(c.Qd):
                 # ---------------------------------------
@@ -1046,7 +1021,7 @@ class AcousticScenario:
                 tmp = tmp[:, [c.singleLine]]
             # Set the steering vectors of nodes that do not observe source ii to zero
             for q in np.where(p.obsMat[:, ii] == 0)[0]:
-                tmp[c.Mk * q:c.Mk * (q + 1), :] = 0
+                tmp[c.Mkc[q]:c.Mkc[q + 1], :] = 0
             Cmat[..., ii] = tmp.T
         slatSTFT = c.get_stft(self.latentDesired)
         nlatSTFT = c.get_stft(self.latentNoise)
@@ -1065,8 +1040,8 @@ class AcousticScenario:
 
         # Store the STFT signals in the nodes
         for k in range(c.K):
-            self.nodes[k].wd['s'][..., idxFrameBeg:idxFrameEnd] = s[k * c.Mk:(k + 1) * c.Mk, ...]
-            self.nodes[k].wd['n'][..., idxFrameBeg:idxFrameEnd] = n[k * c.Mk:(k + 1) * c.Mk, ...]
+            self.nodes[k].wd['s'][..., idxFrameBeg:idxFrameEnd] = s[c.Mkc[k]:c.Mkc[k + 1], ...]
+            self.nodes[k].wd['n'][..., idxFrameBeg:idxFrameEnd] = n[c.Mkc[k]:c.Mkc[k + 1], ...]
 
     def define_layout(self):
         """Define the layout of the acoustic scenario."""
@@ -1076,7 +1051,7 @@ class AcousticScenario:
 
         if c.unconstrainedRandomPositions:
             nodePos = np.random.rand(c.K, 3) * np.array(rd)
-            sensorsPos = np.random.rand(c.K * c.Mk, 3) * np.array(rd)
+            sensorsPos = np.random.rand(c.M, 3) * np.array(rd)
             speechSourcesPos = np.random.rand(c.Qd, 3) * np.array(rd)
             noiseSourcesPos = np.random.rand(c.Qn, 3) * np.array(rd)
             if c.onPlane:
@@ -1106,27 +1081,28 @@ class AcousticScenario:
             nodesPos[k, :] = tmp
         
         # Generate sensor positions around node position
-        sensorsPos = np.zeros((c.K, c.Mk, 3))
+        # sensorsPos = np.zeros((c.K, c.Mk, 3))
+        sensorsPos = [np.zeros((c.Mk[k], 3)) for k in range(c.K)]
         for k in range(c.K):
             sensors = np.vstack(
-                [nodesPos[k, :]] * c.Mk
+                [nodesPos[k, :]] * c.Mk[k]
             )  # Start with the node position as the first sensor
-            for m in range(c.Mk):
+            for m in range(c.Mk[k]):
                 # Generate a random position around the node position
                 tmp = nodesPos[k, :] + np.random.randn(3) * (c.nodeRadius / 2)
                 if c.onPlane:
                     tmp[2] = zPlane
-                while np.any(np.linalg.norm(tmp - np.array(sensors), axis=1) < c.nodeRadius / c.Mk):
+                while np.any(np.linalg.norm(tmp - np.array(sensors), axis=1) < c.nodeRadius / c.Mk[k]):
                     # If the sensor is too close to another sensor, generate a new position
                     tmp = nodesPos[k, :] + np.random.randn(3) * (c.nodeRadius / 2)
                     if c.onPlane:
                         tmp[2] = zPlane
                 # Store the position of the sensor
                 sensors[m, :] = tmp
-            sensorsPos[k, :, :] = np.array(sensors)
+            sensorsPos[k] = np.array(sensors)
         # Flatten the sensor positions
-        sensorsPos = sensorsPos.reshape(c.K * c.Mk, 3)
-        
+        sensorsPos = np.vstack(sensorsPos)
+
         if c.onPlane:
             # Ensure that the nodes are on the same plane
             zPlane = 1.3 if c.roomHeight > 1.3 else c.roomHeight / 2.0
@@ -1162,7 +1138,7 @@ class AcousticScenario:
             counter = 0
             while np.linalg.norm(attempt - nodesPos, axis=1).min() < c.minDistNodeSource or\
                 np.linalg.norm(attempt - speechSourcesPos, axis=1).min() < c.minDistNodeSource:
-                print(f"Noise source {ii + 1}/{c.Qd} too close to a node or a desired source, generating a new position (trial #{counter+1})...", end='\r')
+                print(f"Noise source {ii + 1}/{c.Qn} too close to a node or a desired source, generating a new position (trial #{counter+1})...", end='\r')
                 # If the source is too close to a node, generate a new position
                 attempt = np.random.rand(3) *\
                     (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
@@ -1195,8 +1171,8 @@ class AcousticScenario:
             np.sum(obsMat[k, :] + obsMat[q, :] == 2)
             for q in range(c.K)
         ] for k in range(c.K)])
-        if np.any(Qkq - np.diag(np.diag(Qkq)) > c.Mk) and any('dMWF' in alg for alg in c.algos):
-            raise ValueError("Number of common sources exceeds number of sensors per node.")
+        # if np.any(Qkq - np.diag(np.diag(Qkq)) > c.Mk) and any('dMWF' in alg for alg in c.algos):
+        #     raise ValueError("Number of common sources exceeds number of sensors per node.")
 
         # For topology-independent (TI) algorithms, generate the adjacency matrix
         flagTI = any('TI' in alg for alg in c.algos)
@@ -1354,7 +1330,7 @@ class AcousticScenario:
         Gnx: nx.Graph = nx.from_numpy_array(aMat)
         # Get node positions 
         nodesPos = dict(
-            [(k, sensorsPos[k * c.Mk:(k + 1) * c.Mk, ...]) for k in range(c.K)]
+            [(k, sensorsPos[c.Mkc[k]:c.Mkc[k + 1], ...]) for k in range(c.K)]
         )
         
         # Add edge weights based on inter-node distance ((TODO -- is that a correct approach?))
@@ -1422,7 +1398,7 @@ class AcousticScenario:
 
         # Compute TI-dMWF dimension for each node
         hMk = [
-            int(c.Mk + np.sum([
+            int(c.Mk[q] + np.sum([
                 Qqup_k[i] for i in upstNeighbors[q]
             ])) for q in range(c.K)
         ]
