@@ -1,11 +1,11 @@
 # WASN parameters
 K: 6  # number of nodes
-Mk: 5  # number of sensors per node
+Mk: 7  # number of sensors per node
 graphDiameter: null  # diameter of the graph corresponding to the network
 
 # Acoustic scenario parameters
 Qd: 2  # number of desired sources
-Qn: 2  # number of noise sources
+Qn: 4  # number of noise sources
 D: 1  # number of target signal channels
 # possDiffuse: True  # if True and observability is 'foss', the
 possDiffuse: False  # if True and observability is 'foss', the
@@ -20,7 +20,7 @@ TDsteeringMats: random  # type of steering matrices in time domain
 roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
-nodeRadius: 0.05  # radius of the node in meters
+nodeRadius: 0.03  # radius of the node in meters
 onPlane: True  # if True, all elements are on the same plane
 # onPlane: False  # if True, all elements are on the same plane
 # t60: 0.          # reverberation time in seconds
@@ -74,10 +74,10 @@ fixedObservabilities: True  # if True, the observabilities are fixed
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
-# T: 4.0  # duration of the signals in seconds
+# T: 2.0  # duration of the signals in seconds
 # T: 15.0  # duration of the signals in seconds
-# T: 30.0  # duration of the signals in seconds
-T: 60.0  # duration of the signals in seconds
+T: 30.0  # duration of the signals in seconds
+# T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
@@ -133,18 +133,18 @@ beta: {
 }  # forgetting factor for online processing
 
 # Debug
-# singleLine: null  # if not None, only process this frequency line in WOLA domain
-singleLine: 20  # if not None, only process this frequency line in WOLA domain
+singleLine: null  # if not None, only process this frequency line in WOLA domain
+# singleLine: 20  # if not None, only process this frequency line in WOLA domain
 # unconstrainedRandomPositions: True  # if True, allow random positions for sources
 unconstrainedRandomPositions: False  # if True, allow random positions for sources
 wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 # wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
-noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
-# noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
+# noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
+noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 # nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 
 # General simulation set parameters
 nMCruns: 1  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: saaa_alternatingdMWF  # output file suffix
+suffix: other_asc  # output file suffix

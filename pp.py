@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-resDir = f'{baseResultsDir}/res_20250808_0948_saa_60s'  # specific directory
-# resDir = 'latest'  # <-- pick the latest results directory
+# resDir = f'{baseResultsDir}/res_20250808_0948_saa_60s'  # specific directory
+resDir = 'latest'  # <-- pick the latest results directory
 
 # EXPORT = True  # If True, export the figures to files
 EXPORT = False  # If True, export the figures to files
@@ -47,8 +47,8 @@ COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for onlin
 # COMPUTE_METRICS_EVERY_N_FRAMES = 30  # Compute metrics every N frames (for online processing)
 # ================================================================
 
-DELTAS_SNR_SER = True  # If True, show SNR and SER as deltas from the local estimate
-# DELTAS_SNR_SER = False  # If True, show SNR and SER as deltas from the local estimate
+# DELTAS_SNR_SER = True  # If True, show SNR and SER as deltas from the local estimate
+DELTAS_SNR_SER = False  # If True, show SNR and SER as deltas from the local estimate
 
 # WHICH_NODES = 'all'  # 'all' or a list of node indices to process
 WHICH_NODES = [0]  # 'all' or a list of node indices to process
@@ -144,10 +144,25 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS):
                     'local' not in c.algos:
                     raise ValueError("DELTAS_SNR_SER is enabled but 'local' algorithm is not included.")
 
-                s = results['s']  # desired signals
-                n = results['n']  # noise signals
-                y = s + n  # observed signals
-                d = np.array([s[c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])  # target signals
+                if 's' in results.keys():
+                    # Format 1: time-domain raw mic signals and filter weights
+                    dataIn = {
+                        's': results['s'],
+                        'n': results['n'],
+                        'y': results['s'] + results['n'],
+                        'd': np.array([results['s'][c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])
+                    }
+                elif 'shatk' in results.keys():
+                    # Format 2: time-domain processed signals
+                    dataIn = {
+                        'd': results['d'],
+                        'shatk': results['shatk'],
+                        'nhatk': results['nhatk']
+                    }
+                    if 0:
+                        plot_signals(dataIn, c)
+                else:
+                    raise ValueError("Unknown results format (no 's' or 'shat' key in results dict).")
 
                 print("\nComputing metrics...")
                 t0 = time.time()
@@ -156,12 +171,12 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS):
                 else:
                     fcn = pp.get_metrics
                 metrics.append(fcn(
-                    results['W_netWide'],
-                    y, d, n, s,
+                    dataIn,
                     metricsToCompute,
                     metricsOver,
                 ))
                 print(f"\nMetrics for file {idxMC + 1}/{len(files)} computed in {time.time() - t0:.2f} seconds.")
+
 
             # Rearrange metrics: place MC runs in the last dimension of the deepest level
             metricsRearranged = dict([(m, dict([(alg, []) for alg in c.algos])) for m in metricsToCompute])
@@ -200,6 +215,24 @@ def main(resDir=resDir, metricsOver=METRICS_OVER_FIRST_SECONDS):
     print("Post-processing completed.")
     return 0
 
+
+def plot_signals(sigs, c: Parameters, kPlot=0):
+    """Plot the signals."""
+    dhatk = [
+        dict([(alg, sigs['shatk'][k][alg] + sigs['nhatk'][k][alg]) for alg in c.algos])
+        for k in range(c.K)
+    ]
+    dk = sigs['d']
+    fig, axes = plt.subplots(len(c.algos), 1, sharex=True, sharey=True)
+    for alg_idx, alg in enumerate(c.algos):
+        axes[alg_idx].plot(dhatk[kPlot][alg][0, :], 'r')
+        axes[alg_idx].plot(dk[kPlot, 0, :], 'k')
+        axes[alg_idx].set_ylabel(alg)
+    fig.tight_layout()
+    plt.show(block=False)
+    pass
+
+
 @dataclass
 class PostProcessor:
     cfg: Parameters = field(default_factory=lambda: Parameters())
@@ -221,35 +254,48 @@ class PostProcessor:
 
     def get_metrics_from_full_signal(
             self,
-            W_netWide,
-            y, d, n=None, s=None,
+            dataIn,
             metricsToCompute=[],
             metricsOver=None,
         ):
         c = self.cfg
 
-        # First, compute estimated signals
-        dhatk = dict([(k, dict([(alg, np.zeros(d[k, ...].shape, dtype=y.dtype)) for alg in c.algos])) for k in self.nodesToProcess])
-        shatk = dict([(k, dict([(alg, np.zeros(d[k, ...].shape, dtype=y.dtype)) for alg in c.algos])) for k in self.nodesToProcess])
-        nhatk = dict([(k, dict([(alg, np.zeros(d[k, ...].shape, dtype=y.dtype)) for alg in c.algos])) for k in self.nodesToProcess])
-        for k in self.nodesToProcess:
-            if isinstance(W_netWide, list) and c.scmEstimation == 'online':
-                # Online-mode processing
-                for l, w in enumerate(W_netWide):
-                    yc = y[:, :, l]
-                    sc = s[:, :, l]
-                    nc = n[:, :, l]
-                    for alg in c.algos:
-                        if c.domain == 'wola':
-                            Wk = w[alg][k]
-                            if isinstance(Wk, list):
-                                # If Wk is a list, we take the last element (the most recent filter)
-                                Wk = Wk[-1]
-                            dhatk[k][alg][..., l] = np.einsum('ijk,ki->ij', herm(Wk), yc)
-                            shatk[k][alg][..., l] = np.einsum('ijk,ki->ij', herm(Wk), sc)
-                            nhatk[k][alg][..., l] = np.einsum('ijk,ki->ij', herm(Wk), nc)
-            else:
-                raise NotImplementedError("Offline-mode processing is not implemented.")
+        if 's' in dataIn.keys():
+            W_netWide = dataIn['W_netWide']
+            s = dataIn['s']
+            n = dataIn['n']
+            y = dataIn['y']
+            d = dataIn['d']
+            # Compute estimated signals
+            dhatk = dict([(k, dict([(alg, np.zeros(d[k, ...].shape, dtype=y.dtype)) for alg in c.algos])) for k in self.nodesToProcess])
+            shatk = dict([(k, dict([(alg, np.zeros(d[k, ...].shape, dtype=y.dtype)) for alg in c.algos])) for k in self.nodesToProcess])
+            nhatk = dict([(k, dict([(alg, np.zeros(d[k, ...].shape, dtype=y.dtype)) for alg in c.algos])) for k in self.nodesToProcess])
+            for k in self.nodesToProcess:
+                if isinstance(W_netWide, list) and c.scmEstimation == 'online':
+                    # Online-mode processing
+                    for l, w in enumerate(W_netWide):
+                        yc = y[:, :, l]
+                        sc = s[:, :, l]
+                        nc = n[:, :, l]
+                        for alg in c.algos:
+                            if c.domain == 'wola':
+                                Wk = w[alg][k]
+                                if isinstance(Wk, list):
+                                    # If Wk is a list, we take the last element (the most recent filter)
+                                    Wk = Wk[-1]
+                                dhatk[k][alg][..., l] = np.einsum('ijk,ki->ij', herm(Wk), yc)
+                                shatk[k][alg][..., l] = np.einsum('ijk,ki->ij', herm(Wk), sc)
+                                nhatk[k][alg][..., l] = np.einsum('ijk,ki->ij', herm(Wk), nc)
+                else:
+                    raise NotImplementedError("Offline-mode processing is not implemented.")
+        elif 'shatk' in dataIn.keys():
+            d = np.array(dataIn['d'])
+            shatk = dataIn['shatk']
+            nhatk = dataIn['nhatk']
+            dhatk = [
+                dict([(alg, shatk[k][alg] + nhatk[k][alg]) for alg in c.algos])
+                for k in range(c.K)
+            ]
         
         wolaFlag = c.domain == 'wola' and c.singleLine is not None
         if wolaFlag:
@@ -261,7 +307,7 @@ class PostProcessor:
             # We are in the time domain
             nSamplesPerChunkShift = int(np.ceil(METRICS_CHUNK_SHIFT * c.fs))
             nSamplesPerChunk = int(np.ceil(METRICS_CHUNK_DURATION * c.fs))
-            nChunks = int(np.ceil(y.shape[-1] / nSamplesPerChunkShift))
+            nChunks = int(np.ceil(list(dhatk[0].values())[0].shape[-1] / nSamplesPerChunkShift))
 
         if c.scmEstimation == 'online':
             metrics = dict([(metric, dict([
@@ -283,7 +329,7 @@ class PostProcessor:
                 idxEnd = ii * nSamplesPerChunkShift
                 idxBeg = max(idxEnd - nSamplesPerChunk, 0)
             for k in self.nodesToProcess:
-                dk_chunk = d[k, :, :, idxBeg:idxEnd]
+                dk_chunk = d[k, ..., idxBeg:idxEnd]
                 for alg in c.algos:
                     dhatk_chunk = dhatk[k][alg][..., idxBeg:idxEnd]
                     shatk_chunk = shatk[k][alg][..., idxBeg:idxEnd]
@@ -332,12 +378,20 @@ class PostProcessor:
 
     def get_metrics(
             self,
-            W_netWide,
-            y, d, n=None, s=None,
+            dataIn,
             metricsToCompute=[],
             metricsOver=None,
         ):
         c = self.cfg
+
+        if 's' in dataIn.keys():
+            W_netWide = dataIn['W_netWide']
+            s = dataIn['s']
+            n = dataIn['n']
+            y = dataIn['y']
+            d = dataIn['d']
+        else:
+            raise NotImplementedError('Format 2 (processed signals) not implemented.')
 
         def _apply_filter(Wk, x):
             if c.domain == 'wola':
@@ -723,7 +777,7 @@ class PostProcessor:
                 ax2.set_xlabel('Time [s]')
                 if m in ['snr', 'ser'] and ax2.get_ylim()[0] < 0:
                     ax2.axhline(y=0, color='0.75')
-                ti2 = (f'$\\Delta${m.upper()}' if (m in ['snr', 'ser'] and DELTAS_SNR_SER) else m.upper()) + ' (per static segment)'
+                ti2 = (f'$\\Delta${m.upper()}' if (m in ['snr', 'ser'] and DELTAS_SNR_SER) else m.upper())
                 ax2.set_title(ti2)
                 # Legend placement same as main plot
                 if m == 'stoi':

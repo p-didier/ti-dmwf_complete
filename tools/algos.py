@@ -11,10 +11,11 @@ import networkx as nx
 from tqdm import tqdm
 from .tree_utils import *
 import scipy.linalg as sla
-from dataclasses import dataclass
-from .asc import AcousticScenario, single_update_scm
 import matplotlib.pyplot as plt
 from pyinstrument import Profiler
+from dataclasses import dataclass
+from humanfriendly import format_timespan
+from .asc import AcousticScenario, single_update_scm
 
 
 @dataclass
@@ -108,39 +109,62 @@ class Run:
                 Ryy_est, Rss_est, Rnn_est, Ryy_dis, Rss_dis, Rnn_dis = None, None, None, None, None, None  # default -- no alternating dMWF
 
             for l in tqdm(range(c.nFrames), desc=f"Processing frames ({len(c.algos)} algorithms)"):
+
                 # New SCM estimates
                 nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
                 if c.noCrossCorrelation:
                     inner2 = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())  # ssH
                 else: 
                     inner2 = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())  # yyH
+                if flagAlternating:
+                    # Prepare previous chunk of data for alternating dMWF
+                    nnHprev = np.einsum('ji,ki->ijk', n[..., l - 1], n[..., l - 1].conj())
+                    if c.noCrossCorrelation:
+                        inner2_prev = np.einsum('ji,ki->ijk', s[..., l - 1], s[..., l - 1].conj())  # ssH
+                    else: 
+                        inner2_prev = np.einsum('ji,ki->ijk', (s + n)[..., l - 1], (s + n)[..., l - 1].conj())  # yyH
+                
                 # Update the SCMs using the online estimation formula
                 for beta in betas:
+
                     kwargs = {
                         'beta': beta,
                         'ssH': inner2,
                         'nnH': nnH,
                         'vad': vadSTFT[:, l] if c.useVAD else None
                     }
+                    if flagAlternating:
+                        kwargs_prev = copy.deepcopy(kwargs)
+                        kwargs_prev['nnH'] = nnHprev
+                        kwargs_prev['ssH'] = inner2_prev
+                    
                     # Update the SCMs using the online estimation formula
                     if c.noCrossCorrelation:
                         Rss[beta], Rnn[beta] = single_update_scm(Rss[beta], Rnn[beta], **kwargs)
                     else:
                         Ryy[beta], Rnn[beta] = single_update_scm(Ryy[beta], Rnn[beta], **kwargs)
+                    
                     if l % 2 == 0 and flagAlternating:
                         # If alternating dMWF, update the dMWF estimation SCMs
-                        # using the even frames only
+                        # using the even frames only, and update the dMWF
+                        # discovery SCMs using the previous chunk of data.
                         if c.noCrossCorrelation:
                             Rss_est[beta], Rnn_est[beta] = single_update_scm(Rss_est[beta], Rnn_est[beta], **kwargs)
+                            Rss_dis[beta], Rnn_dis[beta] = single_update_scm(Rss_dis[beta], Rnn_dis[beta], **kwargs_prev)
                         else:
                             Ryy_est[beta], Rnn_est[beta] = single_update_scm(Ryy_est[beta], Rnn_est[beta], **kwargs)
+                            Ryy_dis[beta], Rnn_dis[beta] = single_update_scm(Ryy_dis[beta], Rnn_dis[beta], **kwargs_prev)
+                    
                     elif l % 2 == 1 and flagAlternating:
                         # If alternating dMWF, update the dMWF discovery SCMs
-                        # using the odd frames only
+                        # using the odd frames only, and update the dMWF
+                        # estimation SCMs using the previous chunk of data.
                         if c.noCrossCorrelation:
                             Rss_dis[beta], Rnn_dis[beta] = single_update_scm(Rss_dis[beta], Rnn_dis[beta], **kwargs)
+                            Rss_est[beta], Rnn_est[beta] = single_update_scm(Rss_est[beta], Rnn_est[beta], **kwargs_prev)
                         else:
                             Ryy_dis[beta], Rnn_dis[beta] = single_update_scm(Ryy_dis[beta], Rnn_dis[beta], **kwargs)
+                            Ryy_est[beta], Rnn_est[beta] = single_update_scm(Ryy_est[beta], Rnn_est[beta], **kwargs_prev)
 
                     # Complete signal SCM
                     if c.noCrossCorrelation:
@@ -204,19 +228,63 @@ class Run:
         # Export results
         self.export_results(W_netWide, s, n)
 
-        print(f"\nTotal time taken for this run: {time.time() - tMaster:.2f} seconds")
+        print(f"\nTotal time taken for this run: {format_timespan(time.time() - tMaster)}")
 
         return 0
 
     def export_results(self, W_netWide, s, n):
         """Export results to a file."""
         c = self.cfg
-        results = {
-            'W_netWide': W_netWide,
-            's': s,
-            'n': n,
-            'cfg': c,
-        }
+        if c.scmEstimation == 'online' and c.desSigType == 'speech' and c.singleLine is None:
+            # Wideband speech enhancement simulation: don't compute MSE_W and
+            # don't export W_netWide. Instead, export the estimated desired
+            # signal, the filtered s and filtered n, all in the time-domain.
+            shatk = [
+                dict([(alg, None) for alg in c.algos])
+                for _ in range(c.K)
+            ]
+            nhatk = [
+                dict([(alg, None) for alg in c.algos])
+                for _ in range(c.K)
+            ]
+            for alg in c.algos:
+                for k in range(c.K):
+                    print(f"Computing time-domain estimates for algorithm {alg}, node {k}...", end='\r')
+                    # Compile coefficients
+                    wCurr = np.array([
+                        w[alg][k][0] if isinstance(w[alg][k], list) else w[alg][k]
+                        for w in W_netWide
+                    ])
+                    shatkSTFT = np.einsum('ijkl,kji->lji', wCurr.conj(), s)
+                    nhatkSTFT = np.einsum('ijkl,kji->lji', wCurr.conj(), n)
+                    shatk[k][alg] = c.get_istft(shatkSTFT)
+                    nhatk[k][alg] = c.get_istft(nhatkSTFT)
+
+            if 0:
+                fig, axes = plt.subplots(len(c.algos), 1)
+                fig.set_size_inches(8.5, len(c.algos))
+                for i, alg in enumerate(c.algos):
+                    axes[i].set_ylabel(alg)
+                    axes[i].plot(dhatk[alg][0][0, ...])
+                    axes[i].set_ylim([-1, 1])
+                    axes[i].set_xticks([])
+                    axes[i].set_yticks([])
+                fig.tight_layout()
+                plt.show()
+            
+            results = {
+                'd': c.get_istft(np.array([s[c.Mk * k:c.Mk * k + c.D, ...] for k in range(c.K)])),
+                'shatk': shatk,
+                'nhatk': nhatk,
+                'cfg': c,
+            }
+        else:
+            results = {
+                'W_netWide': W_netWide,
+                's': s,
+                'n': n,
+                'cfg': c,
+            }
         with open(c.outputFilePath, 'wb') as f:
             pickle.dump(results, f)
         # Export cfg as .txt file
