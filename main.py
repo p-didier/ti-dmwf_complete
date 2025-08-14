@@ -11,6 +11,7 @@
 import sys
 import time
 import copy
+import itertools
 import numpy as np
 from pathlib import Path
 from tools.base import *
@@ -19,31 +20,17 @@ from pp import main as main_pp
 
 PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 
+testParams = {
+    # 'scmEstimation': ['oracle', 'batch'],
+    'scmEstimation': ['online'],
+    'observability': ['foss', 'poss'],
+    # 'observability': ['poss'],
+}
+
+# Build TEST_SET based on testParams
 TEST_SET = [
-    {
-        'scmEstimation': 'oracle',
-        'observability': 'foss',
-    },
-    {
-        'scmEstimation': 'oracle',
-        'observability': 'poss',
-    },
-    {
-        'scmEstimation': 'batch',
-        'observability': 'foss',
-    },
-    {
-        'scmEstimation': 'batch',
-        'observability': 'poss',
-    },
-    # {
-    #     'scmEstimation': 'online',
-    #     'observability': 'foss',
-    # },
-    # {
-    #     'scmEstimation': 'online',
-    #     'observability': 'poss',
-    # },
+    dict(zip(testParams.keys(), values))
+    for values in itertools.product(*testParams.values())
 ]
 
 def main():
@@ -59,7 +46,6 @@ def main():
     for idxMC in range(cfgBase.nMCruns):
         tMC = time.time()
         if cfgBase.nMCruns > 1:
-            print(f"\nMC run {idxMC + 1}/{cfgBase.nMCruns}")
             trueSeed = cfgBase.seed + idxMC  # Change seed for each Monte Carlo run
         else:
             print("\nSingle run (no Monte Carlo)")

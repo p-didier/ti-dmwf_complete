@@ -74,13 +74,25 @@ class StaticScenarioParameters:
             self.oQq[k] = np.amin((c.Mk[k], self.oQq[k]))
             self.Qdk[k] = np.amin((c.Mk[k], self.Qdk[k]))
 
+        # Compute and save compression factors
+        c.sigDims = {
+            'Qkq': self.Qkq,
+            'oQq': self.oQq,
+            'Qdk': self.Qdk,
+        }
+        c.CFs = {
+            'danse': c.M / np.sum(self.Qdk),
+            'dmwf': c.M / np.sum(self.oQq),
+        }
+
         # Cache pre-computed selection matrices for dMWF
         self.Eqps = [[None for _ in range(c.K)] for _ in range(c.K)]
         for q in range(c.K):
             for p in range(c.K):
                 if p == q:
                     continue
-                oQq_eff = np.amin((c.Mk[p], self.oQq[q]))
+                # oQq_eff = np.amin((c.Mk[p], self.oQq[q]))
+                oQq_eff = self.oQq[q]
                 Qqp_eff = np.amin((c.Mk[p], self.Qkq[q, p]))
                 self.Eqps[q][p] = c.init_full((c.Mk[p], oQq_eff), selection_matrix=True)
                 self.Eqps[q][p][:Qqp_eff, :Qqp_eff] = np.eye(Qqp_eff)
@@ -1591,13 +1603,12 @@ def single_update_scm(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
     Rss = copy.deepcopy(RssPrev)  # by default, copy the previous SCM
     Rnn = copy.deepcopy(RnnPrev)  # by default, copy the previous SCM
     if vad is not None:
-        raise NotImplementedError("VAD functionality is not correctly implemented.")
-    # if 0:  # DEBUG: use this to test the VAD functionality
-        if any(vad):
+        if any(vad):  # <-- VOICE ACTIVITY ON
             Rss = beta * RssPrev + (1 - beta) * ssH
             # no update for noise SCM if VAD is False
-        else:
-            Rss = beta * RssPrev + (1 - beta) * ssH
+        else:  # <-- VOICE ACTIVITY OFF
+            # Rss = beta * RssPrev + (1 - beta) * ssH
+            # no update for speech+noise/speech-only SCM if VAD is False
             if RnnPrev is not None:
                 # Rnn = beta * RnnPrev + (1 - beta) * yyH
                 Rnn = beta * RnnPrev + (1 - beta) * nnH

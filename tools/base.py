@@ -116,6 +116,9 @@ class Parameters:
     outputFilePath: str = ""  # path to output file
     suffix: str = ""  # output file suffix
 
+    # Parameters set somewhere else
+    CFs: dict = field(default_factory=dict)  # compression factors
+
     # Debug
     singleLine: int = None  # if not None, only process this frequency line in WOLA domain
     unconstrainedRandomPositions: bool = False  # if True, allow random positions for sources

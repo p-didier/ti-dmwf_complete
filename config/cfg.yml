@@ -3,7 +3,8 @@ K: 6  # number of nodes
 # Mk: 1  # number of sensors per node
 Mk:  # number of sensors per node
 - 1
-- '5--'
+- 2
+- '10--'
 graphDiameter: null  # diameter of the graph corresponding to the network
 
 # Acoustic scenario parameters
@@ -12,8 +13,8 @@ Qn: 2  # number of noise sources
 D: 1  # number of target signal channels
 ###########################
 # domain: time  # domain of the signals, 'time', or 'time_complex', or 'wola'
-# domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
-domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
+domain: wola  # domain of the signals, 'time', or 'time_complex', or 'wola'
+# domain: time_complex  # domain of the signals, 'time', or 'time_complex', or 'wola'
 ##########################
 TDsteeringMats: random  # type of steering matrices in time domain
 # TDsteeringMats: anechoic  # type of steering matrices in time domain
@@ -23,8 +24,8 @@ roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.03  # radius of the node in meters
 onPlane: True  # if True, all elements are on the same plane
 # onPlane: False  # if True, all elements are on the same plane
-t60: 0.          # reverberation time in seconds
-# t60: 0.2          # reverberation time in seconds
+# t60: 0.          # reverberation time in seconds
+t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
@@ -112,12 +113,13 @@ mu: 1  # SDW-MWF factor
 gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 # DANSEiterEveryXframes: 20  # DANSE iteration every X frames
 DANSEiterEveryXframes: 1  # DANSE iteration every X frames
+#   ^^^ if useVAD is True, new DANSE iteration as soon as both Ryy and Rnn have both been updated at least X times.
 dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
 # dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 
 # VAD parameters
-# useVAD: True  # if True, update the SCMs based on a VAD decision
-useVAD: False  # if True, update the SCMs based on a VAD decision
+useVAD: True  # if True, update the SCMs based on a VAD decision
+# useVAD: False  # if True, update the SCMs based on a VAD decision
 noiseONOFFperiod: 1  # period of noise ON/OFF switching in seconds (only used if `useVAD` is True and desired signals are `random`)
 vadThreshold: 0.1  # threshold for VAD decision, relative to the energy of the latent desired signal
 vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
@@ -133,18 +135,19 @@ beta: {
 }  # forgetting factor for online processing
 
 # Debug
-# singleLine: null  # if not None, only process this frequency line in WOLA domain
-singleLine: 20  # if not None, only process this frequency line in WOLA domain
+singleLine: null  # if not None, only process this frequency line in WOLA domain
+# singleLine: 20  # if not None, only process this frequency line in WOLA domain
 # unconstrainedRandomPositions: True  # if True, allow random positions for sources
 unconstrainedRandomPositions: False  # if True, allow random positions for sources
 wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 # wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
-noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
-# noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
-nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
-# nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
+# noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
+noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
+# nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
+nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 
 # General simulation set parameters
-nMCruns: 1  # number of Monte Carlo runs
+# nMCruns: 1  # number of Monte Carlo runs
+nMCruns: 6  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: saa_Mkeq1  # output file suffix
+suffix: saa_wideband  # output file suffix

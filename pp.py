@@ -50,8 +50,8 @@ COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for onlin
 # DELTAS_SNR_SER = True  # If True, show SNR and SER as deltas from the local estimate
 DELTAS_SNR_SER = False  # If True, show SNR and SER as deltas from the local estimate
 
-# WHICH_NODES = 'all'  # 'all' or a list of node indices to process
-WHICH_NODES = [0]  # 'all' or a list of node indices to process
+WHICH_NODES = 'all'  # 'all' or a list of node indices to process
+# WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
 # Metrics computation method for online mode:
 # - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
@@ -160,7 +160,7 @@ def main(resDir=resDir):
                         'shatk': results['shatk'],
                         'nhatk': results['nhatk']
                     }
-                    if 0:
+                    if 1:
                         plot_signals(dataIn, c)
                 else:
                     raise ValueError("Unknown results format (no 's' or 'shat' key in results dict).")
@@ -194,13 +194,20 @@ def main(resDir=resDir):
             with open(metricsFile, 'wb') as f:
                 pickle.dump(metrics, f)
 
+        if c.observability == 'poss' and 'CFs' in c.__dict__.keys():
+            print(c.CFs) 
+
         # Derive figure positioning parameters
         row = i // num_cols
         col = i % num_cols
         pos_x = screen_x + margin + col * (fig_w + 10)
         pos_y = screen_y + margin + row * (fig_h + 10)
         # Post-process results
-        fig = pp.plot_metrics(metrics, placement=[pos_x, pos_y, fig_w, fig_h], nMC=len(groupedFiles[list(groupedFiles.keys())[0]]))
+        fig = pp.plot_metrics(
+            metrics,
+            placement=[pos_x, pos_y, fig_w, fig_h],
+            nMC=len(files)
+        )
         if EXPORT:
             # Prompt user: are you sure?
             confirm = input(f"☝️ Are you sure you want to export metrics figures to {Path(c.outputDir).stem}? (y/n) ")
@@ -225,9 +232,10 @@ def plot_signals(sigs, c: Parameters, kPlot=0):
     dk = sigs['d']
     fig, axes = plt.subplots(len(c.algos), 1, sharex=True, sharey=True)
     for alg_idx, alg in enumerate(c.algos):
-        axes[alg_idx].plot(dhatk[kPlot][alg][0, :], 'r')
-        axes[alg_idx].plot(dk[kPlot, 0, :], 'k')
+        axes[alg_idx].plot(dhatk[kPlot][alg][0, :], 'c')
+        axes[alg_idx].plot(dk[kPlot, 0, :], 'k', alpha=0.5)
         axes[alg_idx].set_ylabel(alg)
+        axes[alg_idx].set_ylim((np.amin(dk[kPlot, 0, :]) - 0.1, np.amax(dk[kPlot, 0, :]) + 0.1))
     fig.tight_layout()
     plt.show(block=False)
     pass
