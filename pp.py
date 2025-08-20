@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-# resDir = f'{baseResultsDir}/res_20250808_0948_saa_60s'  # specific directory
-resDir = 'latest'  # <-- pick the latest results directory
+resDir = f'{baseResultsDir}/res_20250813_1021_saa_wideband'  # specific directory
+# resDir = 'latest'  # <-- pick the latest results directory
 
 # EXPORT = True  # If True, export the figures to files
 EXPORT = False  # If True, export the figures to files
@@ -35,7 +35,7 @@ FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
 
 # ===== Used in PostProcessor.get_metrics_from_full_signal() =====
 METRICS_CHUNK_DURATION = 3  # Duration of the chunk to compute metrics over (in seconds)
-METRICS_CHUNK_SHIFT = 0.1  # Shift of the chunk to compute metrics over (in seconds)
+METRICS_CHUNK_SHIFT = 0.5  # Shift of the chunk to compute metrics over (in seconds)
 # CUMULATED_AVERAGE = True  # If True, apply a cumulative average (smoothing) to the metrics
 CUMULATED_AVERAGE = False  # If True, apply a cumulative average (smoothing) to the metrics
 # ================================================================
@@ -50,8 +50,8 @@ COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for onlin
 # DELTAS_SNR_SER = True  # If True, show SNR and SER as deltas from the local estimate
 DELTAS_SNR_SER = False  # If True, show SNR and SER as deltas from the local estimate
 
-WHICH_NODES = 'all'  # 'all' or a list of node indices to process
-# WHICH_NODES = [0]  # 'all' or a list of node indices to process
+# WHICH_NODES = 'all'  # 'all' or a list of node indices to process
+WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
 # Metrics computation method for online mode:
 # - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
@@ -66,7 +66,11 @@ METRICS_METHOD = 'entire_signal'
 #   For batch processing, we use 'entire_signal' by default.
 
 # Overriding parameters
-BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging
+BYPASS_STOI = False  # If True, bypass STOI computation (useful for debugging)
+# BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging)
+STOI_INTERVAL = [5, -1]  # Interval over which to compute STOI (in s, -1 = end of signal)
+# EXTENDED_STOI = False  # If True, use extended STOI computation
+EXTENDED_STOI = True  # If True, use extended STOI computation
 METRICS_TO_COMPUTE_OVERRIDE = None  # If not None, override the metrics to compute
 # METRICS_TO_COMPUTE_OVERRIDE = ['msew']
 FORCED_YLIM = {
@@ -123,7 +127,7 @@ def main(resDir=resDir):
         else:
             metrics = []
             for idxMC, f in enumerate(files):
-                print(f"Loading results from {f} ({idxMC + 1}/{len(files)})...")
+                print(f"Loading results from {f.name} ({idxMC + 1}/{len(files)})...")
                 with open(f, 'rb') as f:
                     results = pickle.load(f)
                 # Process the results
@@ -138,6 +142,7 @@ def main(resDir=resDir):
                         c.singleLine is None and c.desSigType == 'speech':  # speech enhancement scenario
                         metricsToCompute += ['stoi']
                     if c.scmEstimation == 'online':
+                        metricsToCompute.remove('msed')  # msed is not computed in online mode
                         metricsToCompute.remove('msew')  # msew is not computed in online mode
 
                 if DELTAS_SNR_SER and ('snr' in metricsToCompute or 'ser' in metricsToCompute) and \
@@ -175,7 +180,7 @@ def main(resDir=resDir):
                     dataIn,
                     metricsToCompute,
                 ))
-                print(f"\nMetrics for file {idxMC + 1}/{len(files)} computed in {time.time() - t0:.2f} seconds.")
+                print(f"\nMetrics for file (MC run) {idxMC + 1}/{len(files)} computed in {time.time() - t0:.2f} seconds.")
 
 
             # Rearrange metrics: place MC runs in the last dimension of the deepest level
@@ -348,8 +353,22 @@ class PostProcessor:
                         dk=dk_chunk, dhatk=dhatk_chunk,
                         shatk=shatk_chunk, nhatk=nhatk_chunk
                     )
-                    for m in metricsToCompute:
+                    for m in metrics_curr.keys():
                         metrics[m][alg][k].append(metrics_curr[m])
+        
+        # Compute STOI
+        if 'stoi' in metricsToCompute:
+            idxBeg = int(STOI_INTERVAL[0] * c.fs)
+            idxEnd = int(STOI_INTERVAL[1] * c.fs) if STOI_INTERVAL[1] != -1 else -1
+            for k in self.nodesToProcess:
+                for alg in c.algos:
+                    print(f"Computing STOI for {alg}, node {k + 1}/{len(self.nodesToProcess)}...", end='\r')
+                    metrics['stoi'][alg][k] = stoi_any_fs(
+                        d[k, 0, idxBeg:idxEnd],
+                        dhatk[k][alg][0, idxBeg:idxEnd],
+                        fs_sig=c.fs,
+                        extended=EXTENDED_STOI
+                    )
 
         if CUMULATED_AVERAGE:
             # Apply smoothing to the metrics
@@ -524,7 +543,7 @@ class PostProcessor:
             dk=None, dhatk=None,
             shatk=None, nhatk=None
         ):
-        metrics_curr = dict([(metric, None) for metric in metricsToCompute])
+        metrics_curr = dict([(metric, None) for metric in metricsToCompute if metric != 'stoi'])
         for m in metricsToCompute:
             if m == 'msew':
                 metrics_curr['msew'] = np.mean(np.abs(Wk - hWk) ** 2)
@@ -540,8 +559,8 @@ class PostProcessor:
                     np.mean(np.abs(dk) ** 2) /
                     np.mean(np.abs(dk - dhatk) ** 2)
                 )
-            if m == 'stoi':
-                metrics_curr['stoi'] = stoi_any_fs(dk, dhatk, fs_sig=self.cfg.fs)
+            # if m == 'stoi':
+            #     metrics_curr['stoi'] = stoi_any_fs(dk, dhatk, fs_sig=self.cfg.fs)
         return metrics_curr
 
     def plot_metrics(self, metrics: dict, placement: list, nMC: int):
@@ -570,13 +589,13 @@ class PostProcessor:
             'tidmwf': 'm',
         }
 
-        fig, axes = plt.subplots(1, len(metrics.keys()), sharex=True)
+        fig, axes = plt.subplots(1, len(metrics.keys()))
         # Convert size from pixels to inches
         for ii, m in enumerate(metrics.keys()):
             ax = axes[ii] if len(metrics.keys()) > 1 else axes
             if m == 'stoi':
                 ax.set_ylim(0, 1)
-            maxX = metrics[list(metrics.keys())[0]]['unprocessed'].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
+            maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
             if c.dynamics == 'moving' and c.scmEstimation == 'online':
                 # Plot a vertical line every time the scenario changes
                 nChanges = int(c.T / c.movingEvery)
@@ -584,7 +603,8 @@ class PostProcessor:
                     x = i * c.movingEvery / c.T * maxX
                     ax.axvline(x=x, color='0.5', linestyle='--')
             flagDelta = m in ['snr', 'ser'] and DELTAS_SNR_SER
-            if any('danse' in alg for alg in c.algos) or c.scmEstimation == 'online':
+            if (any('danse' in alg for alg in c.algos) or\
+                c.scmEstimation == 'online') and m != 'stoi':
                 # Line plot when including iterative algorithms
                 if m in ['msew', 'msed']:
                     ax.set_yscale('log')
@@ -630,14 +650,15 @@ class PostProcessor:
                             marker=markers[jj % len(markers)],
                         )
                 # Format x-axis
-                ax.set_xlim(0, maxX)
+                xAxisStart = int(METRICS_CHUNK_DURATION // METRICS_CHUNK_SHIFT)
+                ax.set_xlim(xAxisStart, maxX)
                 if c.scmEstimation == 'online':
-                    ticksInterval = maxX / 5
+                    ticksInterval = (maxX - xAxisStart) / 5
                     if c.dynamics == 'moving':
                         ticksInterval = np.amin([ticksInterval, c.movingEvery / c.T * maxX])
-                    xTicks = np.arange(0, maxX, ticksInterval)
+                    xTicks = np.arange(xAxisStart, maxX, ticksInterval)
                     ax.set_xticks(xTicks)
-                    ax.set_xticklabels(np.round(xTicks / maxX * c.T, 2))
+                    ax.set_xticklabels(np.round(xTicks / (maxX - xAxisStart) * c.T, 2))
                     ax.set_xlabel('Time [s]')
                 else:
                     ax.set_xlabel('Iteration')
@@ -667,7 +688,7 @@ class PostProcessor:
                 # Ensure y-axis starts at -10, lowest for SNR and SER
                 ax.set_ylim(np.nanargmin([
                     np.amax((-10, ax.get_ylim()[0])),
-                    np.nanargmin(metrics[m]['unprocessed'])
+                    np.nanargmin(metrics[m][c.algos[0]])
                 ]), None)
         supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES}'
         if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
