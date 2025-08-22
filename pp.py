@@ -30,8 +30,8 @@ resDir = f'{baseResultsDir}/res_20250820_1021_6MCs_correct_speech_upDANSEeveryFr
 # EXPORT = True  # If True, export the figures to files
 EXPORT = False  # If True, export the figures to files
 
-# FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
-FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
+FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
+# FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 
 # ===== Used in PostProcessor.get_metrics_from_full_signal() =====
 METRICS_CHUNK_DURATION = 3  # Duration of the chunk to compute metrics over (in seconds)
@@ -50,8 +50,8 @@ COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for onlin
 # DELTAS_SNR_SER = True  # If True, show SNR and SER as deltas from the local estimate
 DELTAS_SNR_SER = False  # If True, show SNR and SER as deltas from the local estimate
 
-WHICH_NODES = 'all'  # 'all' or a list of node indices to process
-# WHICH_NODES = [0]  # 'all' or a list of node indices to process
+# WHICH_NODES = 'all'  # 'all' or a list of node indices to process
+WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
 # Metrics computation method for online mode:
 # - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
@@ -68,14 +68,20 @@ METRICS_METHOD = 'entire_signal'
 # Overriding parameters
 BYPASS_STOI = False  # If True, bypass STOI computation (useful for debugging)
 # BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging)
-STOI_INTERVAL = [5, -1]  # Interval over which to compute STOI (in s, -1 = end of signal)
-# EXTENDED_STOI = False  # If True, use extended STOI computation
-EXTENDED_STOI = True  # If True, use extended STOI computation
+# Interval over which to compute STOI 
+STOI_INTERVAL = [5, -1]
+STOI_INTERVAL = 0.75
+# ^^^ if list: in seconds, -1 = end of signal
+# ^^^ if float: in % of signal, starting from the end 
+EXTENDED_STOI = False  # If True, use extended STOI computation
+# EXTENDED_STOI = True  # If True, use extended STOI computation
 METRICS_TO_COMPUTE_OVERRIDE = None  # If not None, override the metrics to compute
 # METRICS_TO_COMPUTE_OVERRIDE = ['msew']
 FORCED_YLIM = {
     'msew': [1e-27, 1e6],  # If not None, force y-axis limits for msew
 }
+
+STOIREF = 'stoi' if not EXTENDED_STOI else 'estoi'
 
 n_per_col = 2  # Number of figures per column after plt.show()
 margin = 100  # Margin between figures in pixels
@@ -94,7 +100,7 @@ def main(resDir=resDir):
         resDir = Path(resDir)
     
     listOfFiles = list(resDir.glob('*.pkl'))
-    listOfFiles = [file for file in listOfFiles if not file.stem.endswith('_metrics')]
+    listOfFiles = [file for file in listOfFiles if '_metrics' not in file.stem]
     if not listOfFiles:
         print(f"No results found in {resDir}. Please run main.py first.")
         sys.exit(1)
@@ -115,7 +121,12 @@ def main(resDir=resDir):
     for i, (cfgRef, files) in enumerate(groupedFiles.items()):
 
         # Check if metrics have already been computed
-        metricsFileName = cfgRef + '_metrics.pkl'
+        suffixNodes = '_allnodes'
+        if WHICH_NODES != 'all':
+            suffixNodes = f'_nodes_{WHICH_NODES[0]}'
+            for node in WHICH_NODES[1:]:
+                suffixNodes += f'_{node}'
+        metricsFileName = f'{cfgRef}_metrics{suffixNodes}.pkl'
         metricsFile = resDir / metricsFileName
         if not FORCE_RECOMPUTE_METRICS and metricsFile.exists():
             print(f"Metrics already computed for {cfgRef}, loading from {metricsFileName}...")
@@ -143,7 +154,7 @@ def main(resDir=resDir):
                     metricsToCompute = ['msew', 'msed', 'snr', 'ser']
                     if not pp.bypassStoi and c.domain == 'wola' and\
                         c.singleLine is None and c.desSigType == 'speech':  # speech enhancement scenario
-                        metricsToCompute += ['stoi']
+                        metricsToCompute += [STOIREF]
                     if c.scmEstimation == 'online':
                         metricsToCompute.remove('msed')  # msed is not computed in online mode
                         metricsToCompute.remove('msew')  # msew is not computed in online mode
@@ -183,6 +194,18 @@ def main(resDir=resDir):
                     dataIn,
                     metricsToCompute,
                 ))
+                if 0:
+                    import soundfile as sf
+                    soundFileDir = f'{resDir}/soundfiles'
+                    if not Path(soundFileDir).exists():
+                        Path(soundFileDir).mkdir(parents=True, exist_ok=True)
+                    for idxMC in range(len(dataIn['shatk'])):
+                        for alg in c.algos:
+                            sf.write(
+                                f'{soundFileDir}/{alg}_MC{idxMC+1}.wav',
+                                dataIn['shatk'][idxMC][alg][0, :] + dataIn['nhatk'][idxMC][alg][0, :],
+                                c.fs
+                            )
                 print(f"\nMetrics for file (MC run) {idxMC + 1}/{len(files)} computed in {time.time() - t0:.2f} seconds.")
 
 
@@ -222,9 +245,9 @@ def main(resDir=resDir):
             if confirm.lower() != 'y':
                 print("Export cancelled.")
                 continue
-            fig.savefig(f"{resDir}/metrics_{cfgRef}.svg", dpi=300)
-            fig.savefig(f"{resDir}/metrics_{cfgRef}.png", dpi=300)
-            print(f"Metrics figures exported to {resDir}/metrics_{cfgRef}.svg and .png")
+            fig.savefig(f"{resDir}/metrics_{cfgRef}{suffixNodes}.svg", dpi=300)
+            fig.savefig(f"{resDir}/metrics_{cfgRef}{suffixNodes}.png", dpi=300)
+            print(f"Metrics figures exported to {resDir}/metrics_{cfgRef}{suffixNodes}.svg and .png")
 
     plt.show(block=False)  # Show all figures
     print("Post-processing completed.")
@@ -365,13 +388,17 @@ class PostProcessor:
                         metrics[m][alg][k].append(metrics_curr[m])
         
         # Compute STOI
-        if 'stoi' in metricsToCompute:
-            idxBeg = int(STOI_INTERVAL[0] * c.fs)
-            idxEnd = int(STOI_INTERVAL[1] * c.fs) if STOI_INTERVAL[1] != -1 else -1
+        if STOIREF in metricsToCompute:
+            if isinstance(STOI_INTERVAL, list):
+                idxBeg = int(STOI_INTERVAL[0] * c.fs)
+                idxEnd = int(STOI_INTERVAL[1] * c.fs) if STOI_INTERVAL[1] != -1 else -1
+            elif isinstance(STOI_INTERVAL, float):
+                idxBeg = int((1 - STOI_INTERVAL) * d.shape[-1])
+                idxEnd = -1
             for k in self.nodesToProcess:
                 for alg in c.algos:
                     print(f"Computing STOI for {alg}, node {k + 1}/{len(self.nodesToProcess)}...", end='\r')
-                    metrics['stoi'][alg][k] = stoi_any_fs(
+                    metrics[STOIREF][alg][k] = stoi_any_fs(
                         d[k, 0, idxBeg:idxEnd],
                         dhatk[k][alg][0, idxBeg:idxEnd],
                         fs_sig=c.fs,
@@ -551,7 +578,7 @@ class PostProcessor:
             dk=None, dhatk=None,
             shatk=None, nhatk=None
         ):
-        metrics_curr = dict([(metric, None) for metric in metricsToCompute if metric != 'stoi'])
+        metrics_curr = dict([(metric, None) for metric in metricsToCompute if metric != STOIREF])
         for m in metricsToCompute:
             if m == 'msew':
                 metrics_curr['msew'] = np.mean(np.abs(Wk - hWk) ** 2)
@@ -567,8 +594,8 @@ class PostProcessor:
                     np.mean(np.abs(dk) ** 2) /
                     np.mean(np.abs(dk - dhatk) ** 2)
                 )
-            # if m == 'stoi':
-            #     metrics_curr['stoi'] = stoi_any_fs(dk, dhatk, fs_sig=self.cfg.fs)
+            # if m == STOIREF:
+            #     metrics_curr[STOIREF] = stoi_any_fs(dk, dhatk, fs_sig=self.cfg.fs)
         return metrics_curr
 
     def plot_metrics(self, metrics: dict, placement: list, nMC: int):
@@ -601,7 +628,7 @@ class PostProcessor:
         # Convert size from pixels to inches
         for ii, m in enumerate(metrics.keys()):
             ax = axes[ii] if len(metrics.keys()) > 1 else axes
-            if m == 'stoi':
+            if m == STOIREF:
                 ax.set_ylim(0, 1)
             maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
             if c.dynamics == 'moving' and c.scmEstimation == 'online':
@@ -612,7 +639,7 @@ class PostProcessor:
                     ax.axvline(x=x, color='0.5', linestyle='--')
             flagDelta = m in ['snr', 'ser'] and DELTAS_SNR_SER
             if (any('danse' in alg for alg in c.algos) or\
-                c.scmEstimation == 'online') and m != 'stoi':
+                c.scmEstimation == 'online') and m != STOIREF:
                 # Line plot when including iterative algorithms
                 if m in ['msew', 'msed']:
                     ax.set_yscale('log')
@@ -682,7 +709,7 @@ class PostProcessor:
                 # Ensure SNR = 0 dB is visible as a horizontal line
                 ax.axhline(y=0, color='0.75')
             # Add legend
-            if m == 'stoi':
+            if m == STOIREF:
                 ax.legend(loc='lower center')
             if m == 'snr':
                 ax.legend(loc='upper center')
@@ -746,7 +773,7 @@ class PostProcessor:
             # Loop over metrics and algorithms to compute per-segment averages and plot as steps
             for ii, m in enumerate(metrics.keys()):
                 ax2 = axes2[ii] if len(metrics.keys()) > 1 else axes2
-                if m == 'stoi':
+                if m == STOIREF:
                     ax2.set_ylim(0, 1)
                 # Vertical lines at segment boundaries
                 for s in range(len(seg_edges_idx)):
@@ -819,7 +846,7 @@ class PostProcessor:
                 ti2 = (f'$\\Delta${m.upper()}' if (m in ['snr', 'ser'] and DELTAS_SNR_SER) else m.upper())
                 ax2.set_title(ti2)
                 # Legend placement same as main plot
-                if m == 'stoi':
+                if m == STOIREF:
                     ax2.legend(loc='lower center')
                 if m == 'msed':
                     ax2.legend(loc='upper center')

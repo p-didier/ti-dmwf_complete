@@ -1,5 +1,5 @@
 # WASN parameters
-K: 5  # number of nodes
+K: 6  # number of nodes
 # Mk: 1  # number of sensors per node
 Mk:  # number of sensors per node
 - 1
@@ -131,8 +131,8 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 beta: 0.99  # forgetting factor for online processing
 
 # Debug
-# singleLine: null  # if not None, only process this frequency line in WOLA domain
-singleLine: 20  # if not None, only process this frequency line in WOLA domain
+singleLine: null  # if not None, only process this frequency line in WOLA domain
+# singleLine: 20  # if not None, only process this frequency line in WOLA domain
 # unconstrainedRandomPositions: True  # if True, allow random positions for sources
 unconstrainedRandomPositions: False  # if True, allow random positions for sources
 wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
@@ -143,7 +143,7 @@ noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimi
 nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 
 # General simulation set parameters
-nMCruns: 1  # number of Monte Carlo runs
-# nMCruns: 6  # number of Monte Carlo runs
+# nMCruns: 1  # number of Monte Carlo runs
+nMCruns: 6  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: saa_wolaMixtures_viaSTFT  # output file suffix
+suffix: run_whiteNoise  # output file suffix
