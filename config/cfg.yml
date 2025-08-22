@@ -1,5 +1,5 @@
 # WASN parameters
-K: 6  # number of nodes
+K: 5  # number of nodes
 # Mk: 1  # number of sensors per node
 Mk:  # number of sensors per node
 - 1
@@ -22,8 +22,8 @@ roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.03  # radius of the node in meters
-onPlane: True  # if True, all elements are on the same plane
-# onPlane: False  # if True, all elements are on the same plane
+# onPlane: True  # if True, all elements are on the same plane
+onPlane: False  # if True, all elements are on the same plane
 # t60: 0.          # reverberation time in seconds
 t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
@@ -112,8 +112,8 @@ mu: 1  # SDW-MWF factor
 # gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
 gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 # DANSEiterEveryXframes: 20  # DANSE iteration every X frames
-# DANSEiterEveryXframes: -1  # DANSE iteration every X frames
-DANSEiterEveryXframes: 10  # DANSE iteration every X frames
+DANSEiterEveryXframes: -1  # DANSE iteration every X frames
+# DANSEiterEveryXframes: 10  # DANSE iteration every X frames
 #   ^^^ if useVAD is True, new DANSE iteration as soon as both Ryy and Rnn have both been updated at least X times.
 #   ^^^ if -1, new DANSE iteration every frame, regardless of useVAD 
 dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
@@ -131,19 +131,19 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 beta: 0.99  # forgetting factor for online processing
 
 # Debug
-singleLine: null  # if not None, only process this frequency line in WOLA domain
-# singleLine: 20  # if not None, only process this frequency line in WOLA domain
+# singleLine: null  # if not None, only process this frequency line in WOLA domain
+singleLine: 20  # if not None, only process this frequency line in WOLA domain
 # unconstrainedRandomPositions: True  # if True, allow random positions for sources
 unconstrainedRandomPositions: False  # if True, allow random positions for sources
-# wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
-wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
+wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
+# wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 # noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 # nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 
 # General simulation set parameters
-# nMCruns: 1  # number of Monte Carlo runs
-nMCruns: 6  # number of Monte Carlo runs
-seed: 45  # random number generator seed
-suffix: test  # output file suffix
+nMCruns: 1  # number of Monte Carlo runs
+# nMCruns: 6  # number of Monte Carlo runs
+seed: 42  # random number generator seed
+suffix: saa_wolaMixtures_viaSTFT  # output file suffix

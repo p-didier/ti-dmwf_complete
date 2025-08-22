@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from pyinstrument import Profiler
 from dataclasses import dataclass
 from humanfriendly import format_timespan
-from .asc import AcousticScenario, single_update_scm
+from .asc import AcousticScenario, single_update_scm, single_update_scm_inplace
 
 
 @dataclass
@@ -112,6 +112,8 @@ class Run:
             else:
                 Ryy_est, Rss_est, Rnn_est, Ryy_dis, Rss_dis, Rnn_dis = None, None, None, None, None, None  # default -- no alternating dMWF
 
+            beta = float(c.beta)
+
             for l in tqdm(range(c.nFrames), desc=f"Processing frames ({len(c.algos)} algorithms)"):
 
 
@@ -134,45 +136,37 @@ class Run:
                         else: 
                             inner2_prev = np.einsum('ji,ki->ijk', (s + n)[..., l - 1], (s + n)[..., l - 1].conj())  # yyH
                     
-                    # Update the SCMs using the online estimation formula
-                    kwargs = {
-                        'beta': c.beta,
-                        'ssH': inner2,
-                        'nnH': nnH,
-                        'vad': vadSTFT[:, l] if c.useVAD else None
-                    }
-                    if flagAlternating:
-                        kwargs_prev = copy.deepcopy(kwargs)
-                        kwargs_prev['nnH'] = nnHprev
-                        kwargs_prev['ssH'] = inner2_prev
-                    
-                    # Update the SCMs using the online estimation formula
+                    # Precompute values used across betas
+                    vad_vec = vadSTFT[:, l] if c.useVAD else None
+                    even_frame = (l & 1) == 0  # a tiny micro-optim
+
                     if c.noCrossCorrelation:
-                        Rss, Rnn = single_update_scm(Rss, Rnn, **kwargs)
+                        # main
+                        single_update_scm_inplace(Rss, Rnn, inner2, nnH, beta, vad_vec)
+                        # alternating
+                        if flagAlternating:
+                            if even_frame:
+                                single_update_scm_inplace(Rss_est, Rnn_est, inner2, nnH, beta, vad_vec)
+                                single_update_scm_inplace(Rss_dis, Rnn_dis, inner2_prev, nnHprev, beta, vad_vec)
+                            else:
+                                single_update_scm_inplace(Rss_dis, Rnn_dis, inner2, nnH, beta, vad_vec)
+                                single_update_scm_inplace(Rss_est, Rnn_est, inner2_prev, nnHprev, beta, vad_vec)
+                        # complete signal SCMs
+                        np.add(Rss, Rnn, out=Ryy)
+                        if flagAlternating:
+                            np.add(Rss_est, Rnn_est, out=Ryy_est)
+                            np.add(Rss_dis, Rnn_dis, out=Ryy_dis)
                     else:
-                        Ryy, Rnn = single_update_scm(Ryy, Rnn, **kwargs)
-                    
-                    if l % 2 == 0 and flagAlternating:
-                        # If alternating dMWF, update the dMWF estimation SCMs
-                        # using the even frames only, and update the dMWF
-                        # discovery SCMs using the previous chunk of data.
-                        if c.noCrossCorrelation:
-                            Rss_est, Rnn_est = single_update_scm(Rss_est, Rnn_est, **kwargs)
-                            Rss_dis, Rnn_dis = single_update_scm(Rss_dis, Rnn_dis, **kwargs_prev)
-                        else:
-                            Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs)
-                            Ryy_dis, Rnn_dis = single_update_scm(Ryy_dis, Rnn_dis, **kwargs_prev)
-                    
-                    elif l % 2 == 1 and flagAlternating:
-                        # If alternating dMWF, update the dMWF discovery SCMs
-                        # using the odd frames only, and update the dMWF
-                        # estimation SCMs using the previous chunk of data.
-                        if c.noCrossCorrelation:
-                            Rss_dis, Rnn_dis = single_update_scm(Rss_dis, Rnn_dis, **kwargs)
-                            Rss_est, Rnn_est = single_update_scm(Rss_est, Rnn_est, **kwargs_prev)
-                        else:
-                            Ryy_dis, Rnn_dis = single_update_scm(Ryy_dis, Rnn_dis, **kwargs)
-                            Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs_prev)
+                        # main
+                        single_update_scm_inplace(Ryy, Rnn, inner2, nnH, beta, vad_vec)
+                        if flagAlternating:
+                            if even_frame:
+                                single_update_scm_inplace(Ryy_est, Rnn_est, inner2, nnH, beta, vad_vec)
+                                single_update_scm_inplace(Ryy_dis, Rnn_dis, inner2_prev, nnHprev, beta, vad_vec)
+                            else:
+                                single_update_scm_inplace(Ryy_dis, Rnn_dis, inner2, nnH, beta, vad_vec)
+                                single_update_scm_inplace(Ryy_est, Rnn_est, inner2_prev, nnHprev, beta, vad_vec)
+                        # Rss is unused here (can remain None)
 
                     # Complete signal SCM
                     if c.noCrossCorrelation:

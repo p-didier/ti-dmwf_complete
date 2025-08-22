@@ -30,8 +30,8 @@ resDir = f'{baseResultsDir}/res_20250820_1021_6MCs_correct_speech_upDANSEeveryFr
 # EXPORT = True  # If True, export the figures to files
 EXPORT = False  # If True, export the figures to files
 
-FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
-# FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
+# FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
+FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
 
 # ===== Used in PostProcessor.get_metrics_from_full_signal() =====
 METRICS_CHUNK_DURATION = 3  # Duration of the chunk to compute metrics over (in seconds)
@@ -168,7 +168,7 @@ def main(resDir=resDir):
                         'shatk': results['shatk'],
                         'nhatk': results['nhatk']
                     }
-                    if 1:
+                    if 0:
                         plot_signals(dataIn, c)
                 else:
                     raise ValueError("Unknown results format (no 's' or 'shat' key in results dict).")
