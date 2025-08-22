@@ -47,6 +47,7 @@ def main():
             dataOrigin = np.load(file, allow_pickle=True)
             dataAddOn = np.load(combName, allow_pickle=True)
             dataOut = copy.deepcopy(dataOrigin)
+            dataOut['cfg'].algos += list(COMBINE_FOLDERS[addonFolder].values())
             if 'shatk' in dataOrigin.keys():
                 for key in COMBINE_FOLDERS[addonFolder].keys():
                     newKey = COMBINE_FOLDERS[addonFolder][key]

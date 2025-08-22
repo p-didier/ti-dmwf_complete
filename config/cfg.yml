@@ -112,8 +112,10 @@ mu: 1  # SDW-MWF factor
 # gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
 gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 # DANSEiterEveryXframes: 20  # DANSE iteration every X frames
-DANSEiterEveryXframes: 1  # DANSE iteration every X frames
+# DANSEiterEveryXframes: -1  # DANSE iteration every X frames
+DANSEiterEveryXframes: 10  # DANSE iteration every X frames
 #   ^^^ if useVAD is True, new DANSE iteration as soon as both Ryy and Rnn have both been updated at least X times.
+#   ^^^ if -1, new DANSE iteration every frame, regardless of useVAD 
 dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
 # dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 
@@ -139,8 +141,8 @@ singleLine: null  # if not None, only process this frequency line in WOLA domain
 # singleLine: 20  # if not None, only process this frequency line in WOLA domain
 # unconstrainedRandomPositions: True  # if True, allow random positions for sources
 unconstrainedRandomPositions: False  # if True, allow random positions for sources
-wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
-# wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
+# wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
+wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 # noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 # nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
@@ -149,5 +151,5 @@ nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration f
 # General simulation set parameters
 # nMCruns: 1  # number of Monte Carlo runs
 nMCruns: 6  # number of Monte Carlo runs
-seed: 42  # random number generator seed
-suffix: saa_wideband  # output file suffix
+seed: 45  # random number generator seed
+suffix: test  # output file suffix

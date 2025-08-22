@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-resDir = f'{baseResultsDir}/res_20250813_1021_saa_wideband'  # specific directory
+resDir = f'{baseResultsDir}/res_20250820_1021_6MCs_correct_speech_upDANSEeveryFrame'  # specific directory
 # resDir = 'latest'  # <-- pick the latest results directory
 
 # EXPORT = True  # If True, export the figures to files
@@ -50,8 +50,8 @@ COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for onlin
 # DELTAS_SNR_SER = True  # If True, show SNR and SER as deltas from the local estimate
 DELTAS_SNR_SER = False  # If True, show SNR and SER as deltas from the local estimate
 
-# WHICH_NODES = 'all'  # 'all' or a list of node indices to process
-WHICH_NODES = [0]  # 'all' or a list of node indices to process
+WHICH_NODES = 'all'  # 'all' or a list of node indices to process
+# WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
 # Metrics computation method for online mode:
 # - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
@@ -98,6 +98,9 @@ def main(resDir=resDir):
     if not listOfFiles:
         print(f"No results found in {resDir}. Please run main.py first.")
         sys.exit(1)
+    if any([file.stem.endswith('_comb') for file in listOfFiles]):
+        # Only use combined files
+        listOfFiles = [file for file in listOfFiles if file.stem.endswith('_comb')]
 
     # Group files by CFG number
     groupedFiles = {}
@@ -243,6 +246,11 @@ def plot_signals(sigs, c: Parameters, kPlot=0):
         axes[alg_idx].set_ylim((np.amin(dk[kPlot, 0, :]) - 0.1, np.amax(dk[kPlot, 0, :]) + 0.1))
     fig.tight_layout()
     plt.show(block=False)
+    if 0:
+        import simpleaudio as sa
+        audio_array *= 32767 / max(abs(audio_array))
+        audio_array = audio_array.astype(np.int16)
+        sa.play_buffer(audio_array,1,2,c.fs)
     pass
 
 
@@ -612,6 +620,7 @@ class PostProcessor:
                     if (m == 'msew' and alg in ['centralized', 'local','unprocessed']) or \
                         (flagDelta and alg in ['local', 'unprocessed']):
                         continue
+                    col = colors[alg] if alg in colors.keys() else f'C{jj}'
                     if metrics[m][alg].shape[-1] > 1:
                         if WHICH_NODES == 'all':
                             data = np.mean(metrics[m][alg], axis=(0, 1))
@@ -625,7 +634,7 @@ class PostProcessor:
                                 data -= np.mean([
                                     m for i, m in enumerate(metrics[m]['local']) if i in WHICH_NODES
                                 ], axis=(0, 1))
-                        ax.plot(data, label=alg, color=colors[alg],
+                        ax.plot(data, label=alg, color=col,
                                 marker=markers[jj % len(markers)],
                                 markerfacecolor='none', markevery=0.1)
                     else:
@@ -665,16 +674,17 @@ class PostProcessor:
             else:
                 # Bar plot when in batch-mode and not including iterative algorithms
                 for jj, alg in enumerate(metrics[m].keys()):
+                    col = colors[alg] if alg in colors.keys() else f'C{jj}'
                     if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
                         continue
-                    ax.bar(jj, np.mean(metrics[m][alg]), label=alg, color=colors[alg])
+                    ax.bar(jj, np.mean(metrics[m][alg]), label=alg, color=col)
             if m in ['snr', 'ser'] and ax.get_ylim()[0] < 0:
                 # Ensure SNR = 0 dB is visible as a horizontal line
                 ax.axhline(y=0, color='0.75')
             # Add legend
             if m == 'stoi':
                 ax.legend(loc='lower center')
-            if m == 'msed':
+            if m == 'snr':
                 ax.legend(loc='upper center')
             ti = m.upper()
             if m in ['snr', 'ser'] and DELTAS_SNR_SER:
@@ -684,12 +694,12 @@ class PostProcessor:
                 if FORCED_YLIM[m] is not None:
                     # Force y-axis limits if specified
                     ax.set_ylim(FORCED_YLIM[m])
-            elif m in ['snr', 'ser'] and not CUMULATED_AVERAGE and not DELTAS_SNR_SER:
-                # Ensure y-axis starts at -10, lowest for SNR and SER
-                ax.set_ylim(np.nanargmin([
-                    np.amax((-10, ax.get_ylim()[0])),
-                    np.nanargmin(metrics[m][c.algos[0]])
-                ]), None)
+            # elif m in ['snr', 'ser'] and not CUMULATED_AVERAGE and not DELTAS_SNR_SER:
+            #     # Ensure y-axis starts at -10, lowest for SNR and SER
+            #     ax.set_ylim(np.nanargmin([
+            #         np.amax((-10, ax.get_ylim()[0])),
+            #         np.nanargmin(metrics[m][c.algos[0]])
+            #     ]), None)
         supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES}'
         if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
             supti += f', {c.betaString}'

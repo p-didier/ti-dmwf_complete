@@ -876,16 +876,16 @@ class AcousticScenario:
             alreadyUsed = []
             for ii in range(n):
                 # Randomly select one file from the list
-                fr = files[np.random.randint(0, len(files), 1)[0]].name
-                while fr[:d] in alreadyUsed:
-                    fr = files[np.random.randint(0, len(files), 1)[0]].name
-                alreadyUsed.append(fr[:d])
-                if '-' in fr:
-                    prefix = fr.split("-")[0]
-                elif '_' in fr:
-                    prefix = fr.split("_")[0]
+                fr = files[np.random.randint(0, len(files), 1)[0]]
+                while fr.name[:d] in alreadyUsed:
+                    fr = files[np.random.randint(0, len(files), 1)[0]]
+                alreadyUsed.append(fr.name[:d])
+                if '-' in fr.name:
+                    prefix = fr.name.split("-")[0]
+                elif '_' in fr.name:
+                    prefix = fr.name.split("_")[0]
                 # Load file 
-                speech = load_sound_file(files[ii], desFs=c.fs)
+                speech = load_sound_file(fr, desFs=c.fs)
                 idx = 0
                 while len(speech) < nSamples:
                     # Find another file with the same prefix
@@ -893,23 +893,23 @@ class AcousticScenario:
                     if len(filesSamePrefix) == 0:
                         print(f"No more files found with the same prefix as {fr}. Changing prefix at {len(speech)} samples (= {len(speech)/c.fs:.2f} s)...")
                         # Randomly select one file from the list
-                        fr = files[np.random.randint(0, len(files), 1)[0]].name
-                        while fr[:d] in alreadyUsed:
-                            fr = files[np.random.randint(0, len(files), 1)[0]].name
-                        if '-' in fr:
-                            prefix = fr.split("-")[0]
-                        elif '_' in fr:
-                            prefix = fr.split("_")[0]
+                        fr = files[np.random.randint(0, len(files), 1)[0]]
+                        while fr.name[:d] in alreadyUsed:
+                            fr = files[np.random.randint(0, len(files), 1)[0]]
+                        if '-' in fr.name:
+                            prefix = fr.name.split("-")[0]
+                        elif '_' in fr.name:
+                            prefix = fr.name.split("_")[0]
                         filesSamePrefix = [f for f in files if f.name.startswith(prefix) and f.name not in alreadyUsed]
                         idx = 0
                     else:
                         # Randomly select one file from the list
-                        fr = filesSamePrefix[np.random.randint(0, len(filesSamePrefix), 1)[0]].name
-                        while fr[:d] in alreadyUsed:
-                            fr = filesSamePrefix[np.random.randint(0, len(filesSamePrefix), 1)[0]].name
-                    alreadyUsed.append(fr[:d])
+                        fr = filesSamePrefix[np.random.randint(0, len(filesSamePrefix), 1)[0]]
+                        while fr.name[:d] in alreadyUsed:
+                            fr = filesSamePrefix[np.random.randint(0, len(filesSamePrefix), 1)[0]]
+                    alreadyUsed.append(fr.name[:d])
                     # Concat the file to the speech signal
-                    newSig = load_sound_file(filesSamePrefix[idx], desFs=c.fs)
+                    newSig = load_sound_file(fr, desFs=c.fs)
                     speech = np.concatenate((speech, newSig))
                     idx += 1
                 x[ii, :] = speech[:nSamples]
@@ -1054,6 +1054,8 @@ class AcousticScenario:
             Cmat[..., c.Qd:],  # Noise sources steering matrix
             nlatSTFT[..., idxFrameBeg:idxFrameEnd]
         )
+
+        pass
 
         # Store the STFT signals in the nodes
         for k in range(c.K):
@@ -1598,7 +1600,7 @@ def get_upstream_nodes(G: nx.Graph, root):
     return upstreamNodes, upstreamNeighbors
 
 
-def single_update_scm(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
+def single_update_scm_previous(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
     """Update the SCMs using the online estimation formula."""
     Rss = copy.deepcopy(RssPrev)  # by default, copy the previous SCM
     Rnn = copy.deepcopy(RnnPrev)  # by default, copy the previous SCM
@@ -1617,3 +1619,26 @@ def single_update_scm(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
         if RnnPrev is not None:
             Rnn = beta * RnnPrev + (1 - beta) * nnH
     return Rss, Rnn
+
+def single_update_scm(Rss, Rnn, ssH, nnH, beta, vad=None):
+    """In-place exponential SCM updates."""
+    # Note: use ufuncs with `out=` to avoid temporaries.
+    if vad is not None:
+        if bool(np.any(vad)):  # voice active
+            # Rss = beta*Rss + (1-beta)*ssH
+            np.multiply(Rss, beta, out=Rss)
+            np.add(Rss, (1.0 - beta) * ssH, out=Rss)
+            # Rnn unchanged
+        else:                   # voice inactive
+            if Rnn is not None:
+                np.multiply(Rnn, beta, out=Rnn)
+                np.add(Rnn, (1.0 - beta) * nnH, out=Rnn)
+            # Rss unchanged
+    else:
+        np.multiply(Rss, beta, out=Rss)
+        np.add(Rss, (1.0 - beta) * ssH, out=Rss)
+        if Rnn is not None:
+            np.multiply(Rnn, beta, out=Rnn)
+            np.add(Rnn, (1.0 - beta) * nnH, out=Rnn)
+    # return Rss, Rnn
+

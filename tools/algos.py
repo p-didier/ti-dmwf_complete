@@ -70,6 +70,8 @@ class Run:
             'tRyy': baseListDANSEscms[alg],
             'tRss': copy.deepcopy(baseListDANSEscms[alg]),
             'tRnn': copy.deepcopy(baseListDANSEscms[alg]),
+            'nUpdates_tRyy': 0,
+            'nUpdates_tRnn': 0,
             'Pk': [
                 c.init_full((c.nPosFreqs, c.Mk[k], refScn.Qdk[k]), random=True)
                 for k in range(c.K)
@@ -87,7 +89,11 @@ class Run:
             'gamma': np.array([np.eye(c.Qd) for _ in range(c.nPosFreqs)]) if c.domain == 'wola' else np.eye(c.Qd),  # normalization factor for TI-DANSE
         }) for alg in c.algos if 'danse' in alg])  # iteration variable for DANSE algorithms
 
+
         if c.scmEstimation == 'online':
+            # Saving iteration index per frame per DANSE-like algo, for post-processing
+            iSaved = dict([(alg, np.zeros(c.nFrames)) for alg in c.algos if 'danse' in alg])
+
             W_netWide = []
             betas = list(set(c.beta.values()))
 
@@ -112,70 +118,79 @@ class Run:
 
             for l in tqdm(range(c.nFrames), desc=f"Processing frames ({len(c.algos)} algorithms)"):
 
-                # New SCM estimates
-                nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
-                if c.noCrossCorrelation:
-                    inner2 = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())  # ssH
-                else: 
-                    inner2 = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())  # yyH
-                if flagAlternating:
-                    # Prepare previous chunk of data for alternating dMWF
-                    nnHprev = np.einsum('ji,ki->ijk', n[..., l - 1], n[..., l - 1].conj())
-                    if c.noCrossCorrelation:
-                        inner2_prev = np.einsum('ji,ki->ijk', s[..., l - 1], s[..., l - 1].conj())  # ssH
-                    else: 
-                        inner2_prev = np.einsum('ji,ki->ijk', (s + n)[..., l - 1], (s + n)[..., l - 1].conj())  # yyH
-                
-                # Update the SCMs using the online estimation formula
-                for beta in betas:
 
-                    kwargs = {
-                        'beta': beta,
-                        'ssH': inner2,
-                        'nnH': nnH,
-                        'vad': vadSTFT[:, l] if c.useVAD else None
-                    }
+                profiler = Profiler()
+                profiler.start()
+                if c.algos == ['unprocessed']:
+                    pass
+                else:
+                    # New SCM estimates
+                    nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
+                    if c.noCrossCorrelation:
+                        inner2 = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())  # ssH
+                    else: 
+                        inner2 = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())  # yyH
                     if flagAlternating:
-                        kwargs_prev = copy.deepcopy(kwargs)
-                        kwargs_prev['nnH'] = nnHprev
-                        kwargs_prev['ssH'] = inner2_prev
+                        # Prepare previous chunk of data for alternating dMWF
+                        nnHprev = np.einsum('ji,ki->ijk', n[..., l - 1], n[..., l - 1].conj())
+                        if c.noCrossCorrelation:
+                            inner2_prev = np.einsum('ji,ki->ijk', s[..., l - 1], s[..., l - 1].conj())  # ssH
+                        else: 
+                            inner2_prev = np.einsum('ji,ki->ijk', (s + n)[..., l - 1], (s + n)[..., l - 1].conj())  # yyH
                     
                     # Update the SCMs using the online estimation formula
-                    if c.noCrossCorrelation:
-                        Rss[beta], Rnn[beta] = single_update_scm(Rss[beta], Rnn[beta], **kwargs)
-                    else:
-                        Ryy[beta], Rnn[beta] = single_update_scm(Ryy[beta], Rnn[beta], **kwargs)
-                    
-                    if l % 2 == 0 and flagAlternating:
-                        # If alternating dMWF, update the dMWF estimation SCMs
-                        # using the even frames only, and update the dMWF
-                        # discovery SCMs using the previous chunk of data.
-                        if c.noCrossCorrelation:
-                            Rss_est[beta], Rnn_est[beta] = single_update_scm(Rss_est[beta], Rnn_est[beta], **kwargs)
-                            Rss_dis[beta], Rnn_dis[beta] = single_update_scm(Rss_dis[beta], Rnn_dis[beta], **kwargs_prev)
-                        else:
-                            Ryy_est[beta], Rnn_est[beta] = single_update_scm(Ryy_est[beta], Rnn_est[beta], **kwargs)
-                            Ryy_dis[beta], Rnn_dis[beta] = single_update_scm(Ryy_dis[beta], Rnn_dis[beta], **kwargs_prev)
-                    
-                    elif l % 2 == 1 and flagAlternating:
-                        # If alternating dMWF, update the dMWF discovery SCMs
-                        # using the odd frames only, and update the dMWF
-                        # estimation SCMs using the previous chunk of data.
-                        if c.noCrossCorrelation:
-                            Rss_dis[beta], Rnn_dis[beta] = single_update_scm(Rss_dis[beta], Rnn_dis[beta], **kwargs)
-                            Rss_est[beta], Rnn_est[beta] = single_update_scm(Rss_est[beta], Rnn_est[beta], **kwargs_prev)
-                        else:
-                            Ryy_dis[beta], Rnn_dis[beta] = single_update_scm(Ryy_dis[beta], Rnn_dis[beta], **kwargs)
-                            Ryy_est[beta], Rnn_est[beta] = single_update_scm(Ryy_est[beta], Rnn_est[beta], **kwargs_prev)
+                    for beta in betas:
 
-                    # Complete signal SCM
-                    if c.noCrossCorrelation:
-                        Ryy[beta] = Rss[beta] + Rnn[beta]
+                        kwargs = {
+                            'beta': beta,
+                            'ssH': inner2,
+                            'nnH': nnH,
+                            'vad': vadSTFT[:, l] if c.useVAD else None
+                        }
                         if flagAlternating:
-                            Ryy_est[beta] = Rss_est[beta] + Rnn_est[beta]
-                            Ryy_dis[beta] = Rss_dis[beta] + Rnn_dis[beta]
-                    else:
-                        Rss[beta] = None
+                            kwargs_prev = copy.deepcopy(kwargs)
+                            kwargs_prev['nnH'] = nnHprev
+                            kwargs_prev['ssH'] = inner2_prev
+                        
+                        # Update the SCMs using the online estimation formula
+                        if c.noCrossCorrelation:
+                            Rss[beta], Rnn[beta] = single_update_scm(Rss[beta], Rnn[beta], **kwargs)
+                        else:
+                            Ryy[beta], Rnn[beta] = single_update_scm(Ryy[beta], Rnn[beta], **kwargs)
+                        
+                        if l % 2 == 0 and flagAlternating:
+                            # If alternating dMWF, update the dMWF estimation SCMs
+                            # using the even frames only, and update the dMWF
+                            # discovery SCMs using the previous chunk of data.
+                            if c.noCrossCorrelation:
+                                Rss_est[beta], Rnn_est[beta] = single_update_scm(Rss_est[beta], Rnn_est[beta], **kwargs)
+                                Rss_dis[beta], Rnn_dis[beta] = single_update_scm(Rss_dis[beta], Rnn_dis[beta], **kwargs_prev)
+                            else:
+                                Ryy_est[beta], Rnn_est[beta] = single_update_scm(Ryy_est[beta], Rnn_est[beta], **kwargs)
+                                Ryy_dis[beta], Rnn_dis[beta] = single_update_scm(Ryy_dis[beta], Rnn_dis[beta], **kwargs_prev)
+                        
+                        elif l % 2 == 1 and flagAlternating:
+                            # If alternating dMWF, update the dMWF discovery SCMs
+                            # using the odd frames only, and update the dMWF
+                            # estimation SCMs using the previous chunk of data.
+                            if c.noCrossCorrelation:
+                                Rss_dis[beta], Rnn_dis[beta] = single_update_scm(Rss_dis[beta], Rnn_dis[beta], **kwargs)
+                                Rss_est[beta], Rnn_est[beta] = single_update_scm(Rss_est[beta], Rnn_est[beta], **kwargs_prev)
+                            else:
+                                Ryy_dis[beta], Rnn_dis[beta] = single_update_scm(Ryy_dis[beta], Rnn_dis[beta], **kwargs)
+                                Ryy_est[beta], Rnn_est[beta] = single_update_scm(Ryy_est[beta], Rnn_est[beta], **kwargs_prev)
+
+                        # Complete signal SCM
+                        if c.noCrossCorrelation:
+                            Ryy[beta] = Rss[beta] + Rnn[beta]
+                            if flagAlternating:
+                                Ryy_est[beta] = Rss_est[beta] + Rnn_est[beta]
+                                Ryy_dis[beta] = Rss_dis[beta] + Rnn_dis[beta]
+                        else:
+                            Rss[beta] = None
+                profiler.stop()
+                print(profiler.output_text(unicode=True, color=True, show_all=True))
+                pass
 
                 # Current frame information
                 iv['frameIdx'] = l
@@ -216,8 +231,10 @@ class Run:
                 # profile.stop()
                 # print(profile.output_text(unicode=True, color=True, show_all=True))
 
+
                 # Feedback loop: update iterative variables for DANSE-like algorithms
                 for alg in ivOut.keys():
+                    iSaved[alg][l] = ivOut[alg]['i']  # save iteration index at current frame
                     for key, value in ivOut[alg].items():
                         iv[alg][key] = value
         else:
@@ -226,15 +243,16 @@ class Run:
                 asc, graph,
                 ivIn=iv
             )[0]
+            iSaved = None  # placeholder
 
         # Export results
-        self.export_results(W_netWide, s, n)
+        self.export_results(W_netWide, s, n, iSaved)
 
         print(f"\nTotal time taken for this run: {format_timespan(time.time() - tMaster)}")
 
         return 0
 
-    def export_results(self, W_netWide, s, n):
+    def export_results(self, W_netWide, s, n, iSaved):
         """Export results to a file."""
         c = self.cfg
         if c.scmEstimation == 'online' and c.desSigType == 'speech' and c.singleLine is None:
@@ -261,7 +279,15 @@ class Run:
                     nhatkSTFT = np.einsum('ijkl,kji->lji', wCurr.conj(), n)
                     shatk[k][alg] = c.get_istft(shatkSTFT)
                     nhatk[k][alg] = c.get_istft(nhatkSTFT)
-            
+
+            if 0:
+                import simpleaudio as sa
+                tListen = 3
+                audio_array = shatk[0]['unprocessed'][0, :int(tListen * c.fs)]
+                audio_array *= 32767 / max(abs(audio_array))
+                audio_array = audio_array.astype(np.int16)
+                sa.play_buffer(audio_array,1,2,c.fs)
+
             results = {
                 'd': c.get_istft(np.array([s[c.Mkc[k]:c.Mkc[k] + c.D, ...] for k in range(c.K)])),
                 'shatk': shatk,
@@ -275,6 +301,9 @@ class Run:
                 'n': n,
                 'cfg': c,
             }
+        # Saving iter index
+        results['iSaved'] = iSaved
+
         with open(c.outputFilePath, 'wb') as f:
             pickle.dump(results, f)
         # Export cfg as .txt file
@@ -428,13 +457,18 @@ class Run:
                 tRyyPrev = ivIn[alg]['tRyy']
                 tRssPrev = ivIn[alg]['tRss']
                 tRnnPrev = ivIn[alg]['tRnn']
+                nUpdates_tRyy = ivIn[alg]['nUpdates_tRyy']
+                nUpdates_tRnn = ivIn[alg]['nUpdates_tRnn']
                 onlineModeCriterion = True
                 if c.scmEstimation == 'online':
                     frame_y = ivIn['frame_y']
                     frame_s = ivIn['frame_s']
                     frame_n = ivIn['frame_n']
                     iEff = ivIn[alg]['i']  # effective iteration index
-                    onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
+                    if not c.useVAD:
+                        if c.DANSEiterEveryXframes == -1:
+                            c.DANSEiterEveryXframes = 1
+                        onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
                 gamma = ivIn[alg]['gamma']  # normalization factor for TI-DANSE
 
                 W_netWide[alg] = [[] for _ in range(c.K)]
@@ -442,7 +476,7 @@ class Run:
                     if not silent:
                         print(f"Iteration {i + 1}/{c.maxDANSEiter} for {alg}...", end='\r')
                     if c.scmEstimation != 'online':
-                        iEff = i  # effective iteration index
+                        iEff = i  # effective iteration index for batch mode
 
                     # For TI-DANSE, take normalization factor into account
                     Nk = [
@@ -553,6 +587,27 @@ class Run:
                                 tRnnPrev[k] = herm(Nk[k]) @ tRnnPrev[k] @ Nk[k]
 
                             # Update the SCMs
+                            # Counting based on node 0 (/!\ implicitly assumes
+                            # frame-wise VAD is the same for all nodes)
+                            if c.useVAD and k == 0:
+                                # Only iterate DANSE if both SCMs have been
+                                # updated enough times
+                                if any(ivIn['vad']):
+                                    # Speech+noise frame, Ryy is updated, Rnn not
+                                    nUpdates_tRyy += 1
+                                else:
+                                    # Noise-only frame, Rnn is updated, Ryy not
+                                    nUpdates_tRnn += 1
+                                if (nUpdates_tRyy >= c.DANSEiterEveryXframes and\
+                                    nUpdates_tRnn >= c.DANSEiterEveryXframes) or\
+                                    c.DANSEiterEveryXframes == -1:
+                                    # Both Ryy and Rnn have been updated, we can proceed
+                                    nUpdates_tRyy = 0
+                                    nUpdates_tRnn = 0
+                                    onlineModeCriterion = True  # new iteration
+                                else:
+                                    onlineModeCriterion = False  # no new iteration yet
+
                             if c.noCrossCorrelation:
                                 tRss, tRnn = single_update_scm(
                                     tRssPrev[k], tRnnPrev[k],
@@ -597,6 +652,9 @@ class Run:
 
                                 if k == 0:
                                     iEff += 1  # Increment effective iteration index
+                            
+                            elif c.scmEstimation == 'online':
+                                iEff += 1  # effective iteration index for online-mode
                         else:
                             # No update for this node
                             if alg.startswith("tidanse"): # and c.scmEstimation == 'online':
@@ -636,6 +694,8 @@ class Run:
                     'tRyy': tRyyPrev,
                     'tRss': tRssPrev,
                     'tRnn': tRnnPrev,
+                    'nUpdates_tRyy': nUpdates_tRyy,
+                    'nUpdates_tRnn': nUpdates_tRnn,
                     'gamma': gamma,  # normalization factor for TI-DANSE
                 }
             else:
