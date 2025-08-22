@@ -95,12 +95,8 @@ class Run:
             iSaved = dict([(alg, np.zeros(c.nFrames)) for alg in c.algos if 'danse' in alg])
 
             W_netWide = []
-            betas = list(set(c.beta.values()))
 
-            Ryy = {
-                beta: 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
-                for beta in betas
-            }
+            Ryy = 1e-6 * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
             Rss = copy.deepcopy(Ryy)  # Initialize Rss with the same structure as Ryy
             Rnn = copy.deepcopy(Ryy)  # Initialize Rnn with the same structure as Ryy
 
@@ -119,8 +115,8 @@ class Run:
             for l in tqdm(range(c.nFrames), desc=f"Processing frames ({len(c.algos)} algorithms)"):
 
 
-                profiler = Profiler()
-                profiler.start()
+                # profiler = Profiler()
+                # profiler.start()
                 if c.algos == ['unprocessed']:
                     pass
                 else:
@@ -139,57 +135,55 @@ class Run:
                             inner2_prev = np.einsum('ji,ki->ijk', (s + n)[..., l - 1], (s + n)[..., l - 1].conj())  # yyH
                     
                     # Update the SCMs using the online estimation formula
-                    for beta in betas:
+                    kwargs = {
+                        'beta': c.beta,
+                        'ssH': inner2,
+                        'nnH': nnH,
+                        'vad': vadSTFT[:, l] if c.useVAD else None
+                    }
+                    if flagAlternating:
+                        kwargs_prev = copy.deepcopy(kwargs)
+                        kwargs_prev['nnH'] = nnHprev
+                        kwargs_prev['ssH'] = inner2_prev
+                    
+                    # Update the SCMs using the online estimation formula
+                    if c.noCrossCorrelation:
+                        Rss, Rnn = single_update_scm(Rss, Rnn, **kwargs)
+                    else:
+                        Ryy, Rnn = single_update_scm(Ryy, Rnn, **kwargs)
+                    
+                    if l % 2 == 0 and flagAlternating:
+                        # If alternating dMWF, update the dMWF estimation SCMs
+                        # using the even frames only, and update the dMWF
+                        # discovery SCMs using the previous chunk of data.
+                        if c.noCrossCorrelation:
+                            Rss_est, Rnn_est = single_update_scm(Rss_est, Rnn_est, **kwargs)
+                            Rss_dis, Rnn_dis = single_update_scm(Rss_dis, Rnn_dis, **kwargs_prev)
+                        else:
+                            Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs)
+                            Ryy_dis, Rnn_dis = single_update_scm(Ryy_dis, Rnn_dis, **kwargs_prev)
+                    
+                    elif l % 2 == 1 and flagAlternating:
+                        # If alternating dMWF, update the dMWF discovery SCMs
+                        # using the odd frames only, and update the dMWF
+                        # estimation SCMs using the previous chunk of data.
+                        if c.noCrossCorrelation:
+                            Rss_dis, Rnn_dis = single_update_scm(Rss_dis, Rnn_dis, **kwargs)
+                            Rss_est, Rnn_est = single_update_scm(Rss_est, Rnn_est, **kwargs_prev)
+                        else:
+                            Ryy_dis, Rnn_dis = single_update_scm(Ryy_dis, Rnn_dis, **kwargs)
+                            Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs_prev)
 
-                        kwargs = {
-                            'beta': beta,
-                            'ssH': inner2,
-                            'nnH': nnH,
-                            'vad': vadSTFT[:, l] if c.useVAD else None
-                        }
+                    # Complete signal SCM
+                    if c.noCrossCorrelation:
+                        Ryy = Rss + Rnn
                         if flagAlternating:
-                            kwargs_prev = copy.deepcopy(kwargs)
-                            kwargs_prev['nnH'] = nnHprev
-                            kwargs_prev['ssH'] = inner2_prev
-                        
-                        # Update the SCMs using the online estimation formula
-                        if c.noCrossCorrelation:
-                            Rss[beta], Rnn[beta] = single_update_scm(Rss[beta], Rnn[beta], **kwargs)
-                        else:
-                            Ryy[beta], Rnn[beta] = single_update_scm(Ryy[beta], Rnn[beta], **kwargs)
-                        
-                        if l % 2 == 0 and flagAlternating:
-                            # If alternating dMWF, update the dMWF estimation SCMs
-                            # using the even frames only, and update the dMWF
-                            # discovery SCMs using the previous chunk of data.
-                            if c.noCrossCorrelation:
-                                Rss_est[beta], Rnn_est[beta] = single_update_scm(Rss_est[beta], Rnn_est[beta], **kwargs)
-                                Rss_dis[beta], Rnn_dis[beta] = single_update_scm(Rss_dis[beta], Rnn_dis[beta], **kwargs_prev)
-                            else:
-                                Ryy_est[beta], Rnn_est[beta] = single_update_scm(Ryy_est[beta], Rnn_est[beta], **kwargs)
-                                Ryy_dis[beta], Rnn_dis[beta] = single_update_scm(Ryy_dis[beta], Rnn_dis[beta], **kwargs_prev)
-                        
-                        elif l % 2 == 1 and flagAlternating:
-                            # If alternating dMWF, update the dMWF discovery SCMs
-                            # using the odd frames only, and update the dMWF
-                            # estimation SCMs using the previous chunk of data.
-                            if c.noCrossCorrelation:
-                                Rss_dis[beta], Rnn_dis[beta] = single_update_scm(Rss_dis[beta], Rnn_dis[beta], **kwargs)
-                                Rss_est[beta], Rnn_est[beta] = single_update_scm(Rss_est[beta], Rnn_est[beta], **kwargs_prev)
-                            else:
-                                Ryy_dis[beta], Rnn_dis[beta] = single_update_scm(Ryy_dis[beta], Rnn_dis[beta], **kwargs)
-                                Ryy_est[beta], Rnn_est[beta] = single_update_scm(Ryy_est[beta], Rnn_est[beta], **kwargs_prev)
-
-                        # Complete signal SCM
-                        if c.noCrossCorrelation:
-                            Ryy[beta] = Rss[beta] + Rnn[beta]
-                            if flagAlternating:
-                                Ryy_est[beta] = Rss_est[beta] + Rnn_est[beta]
-                                Ryy_dis[beta] = Rss_dis[beta] + Rnn_dis[beta]
-                        else:
-                            Rss[beta] = None
-                profiler.stop()
-                print(profiler.output_text(unicode=True, color=True, show_all=True))
+                            Ryy_est = Rss_est + Rnn_est
+                            Ryy_dis = Rss_dis + Rnn_dis
+                    else:
+                        Rss = None
+                # profiler.stop()
+                # print(profiler.output_text(unicode=True, color=True, show_all=True))
                 pass
 
                 # Current frame information
@@ -223,9 +217,9 @@ class Run:
                     ivIn=iv,
                     silent=True,
                     scenarioIdx=scenarioIdx,
-                    Ryy_dMWF_estAll=Ryy_est,
-                    Rnn_dMWF_estAll=Rnn_est,
-                    Ryy_dMWF_disAll=Ryy_dis,
+                    Ryy_dMWF_est=Ryy_est,
+                    Rnn_dMWF_est=Rnn_est,
+                    Ryy_dMWF_dis=Ryy_dis,
                 )
                 W_netWide.append(tmp)
                 # profile.stop()
@@ -313,30 +307,30 @@ class Run:
 
     def launch(
             self,
-            RyyAll, RssAll, RnnAll,
+            Ryy, Rss, Rnn,
             asc: AcousticScenario, G,
             ivIn=None,
             silent=False,
             scenarioIdx=0,
-            Ryy_dMWF_estAll=None,
-            Rnn_dMWF_estAll=None,
-            Ryy_dMWF_disAll=None,
+            Ryy_dMWF_est=None,
+            Rnn_dMWF_est=None,
+            Ryy_dMWF_dis=None,
         ):
         """
         Launch algorithms.
 
         Parameters:
-            RyyAll (dict[float, np.ndarray]): Full signal covariance matrix, for all beta values.
-            RssAll (dict[float, np.ndarray]): Desired signal covariance matrix, for all beta values.
-            RnnAll (dict[float, np.ndarray]): Noise signal covariance matrix, for all beta values.
+            Ryy (np.ndarray): Full signal covariance matrix.
+            Rss (np.ndarray): Desired signal covariance matrix.
+            Rnn (np.ndarray): Noise signal covariance matrix.
             asc (AcousticScenario): Acoustic scenario object.
             G (nx.Graph): Graph representing the network topology.
             ivDANSE (dict[str, dict]): Iterative variables for each DANSE algorithm.
             silent (bool): If True, suppress output messages.
             scenarioIdx (int): Index of the current scenario (for dynamic scenarios).
-            Ryy_dMWF_estAll (dict[float, np.ndarray]): Full signal covariance matrix for dMWF estimation step with alternating discovery and estimation steps.
-            Rnn_dMWF_estAll (dict[float, np.ndarray]): Noise signal covariance matrix for dMWF estimation step with alternating discovery and estimation steps.
-            Ryy_dMWF_disAll (dict[float, np.ndarray]): Full signal covariance matrix for dMWF discovery step with alternating discovery and estimation steps.
+            Ryy_dMWF_est (np.ndarray): Full signal covariance matrix for dMWF estimation step with alternating discovery and estimation steps.
+            Rnn_dMWF_est (np.ndarray): Noise signal covariance matrix for dMWF estimation step with alternating discovery and estimation steps.
+            Ryy_dMWF_dis (np.ndarray): Full signal covariance matrix for dMWF discovery step with alternating discovery and estimation steps.
         """
         c = self.cfg
         W_netWide = dict([(alg, [
@@ -345,33 +339,11 @@ class Run:
         ]) for alg in c.algos])  # Initialize node-specific filters dictionary
         ivOut = dict([(alg, None) for alg in c.algos if 'danse' in alg])
 
-        if Ryy_dMWF_estAll is None:
-            Ryy_dMWF_estAll = RyyAll
-        if Rnn_dMWF_estAll is None:
-            Rnn_dMWF_estAll = RnnAll
-        if Ryy_dMWF_disAll is None:
-            Ryy_dMWF_disAll = RyyAll
-
         scn = asc.scenarios[scenarioIdx]  # Current acoustic scenario
 
         for alg in c.algos:
             if not silent:
                 print(f"Running algorithm: {alg}...")
-
-            if c.scmEstimation == 'online':
-                Ryy = RyyAll[c.beta[alg]]
-                Rss = RssAll[c.beta[alg]]
-                Rnn = RnnAll[c.beta[alg]]
-                Ryy_dMWF_est = Ryy_dMWF_estAll[c.beta[alg]]
-                Rnn_dMWF_est = Rnn_dMWF_estAll[c.beta[alg]]
-                Ryy_dMWF_dis = Ryy_dMWF_disAll[c.beta[alg]]
-            else:
-                Ryy = RyyAll
-                Rss = RssAll
-                Rnn = RnnAll
-                Ryy_dMWF_est = Ryy_dMWF_estAll
-                Rnn_dMWF_est = Rnn_dMWF_estAll
-                Ryy_dMWF_dis = Ryy_dMWF_disAll
 
             if alg == 'unprocessed':
                 for k in range(c.K):
@@ -611,14 +583,14 @@ class Run:
                             if c.noCrossCorrelation:
                                 tRss, tRnn = single_update_scm(
                                     tRssPrev[k], tRnnPrev[k],
-                                    ssH, nnH, c.beta[alg],
+                                    ssH, nnH, c.beta,
                                     vad=ivIn['vad']
                                 )
                                 tRyy = tRss + tRnn
                             else:
                                 tRyy, tRnn = single_update_scm(
                                     tRyyPrev[k], tRnnPrev[k],
-                                    yyH, nnH, c.beta[alg],
+                                    yyH, nnH, c.beta,
                                     vad=ivIn['vad']
                                 )
                                 tRss = None

@@ -150,10 +150,10 @@ class Parameters:
             # TODO: improve that vvvv
             self.maxDANSEiter = 1  # one iteration per frame for online processing
         # Adjust beta's dictionary
-        if 'default' in self.beta.keys():
-            # Prepare a beta-string for later plotting
-            self.betaString = ', '.join([f'$\\beta_\\text{{{k}}}={v}$' for k, v in self.beta.items()])
-            self.beta = dict([(alg, self.beta.get(alg, self.beta['default'])) for alg in self.algos])
+        # if 'default' in self.beta.keys():
+        #     # Prepare a beta-string for later plotting
+        #     self.betaString = ', '.join([f'$\\beta_\\text{{{k}}}={v}$' for k, v in self.beta.items()])
+        #     self.beta = dict([(alg, self.beta.get(alg, self.beta['default'])) for alg in self.algos])
         # Number of positive frequencies in STFT
         self.nPosFreqs = self.nfft // 2 + 1 if self.singleLine is None else 1
         # Validate parameters

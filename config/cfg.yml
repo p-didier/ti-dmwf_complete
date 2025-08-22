@@ -128,13 +128,7 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 
 # Online mode parameters
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
-beta: {
-    # default: 0.975,
-    # default: 0.9,
-    # default: 0.985,
-    default: 0.99,
-    # dmwf: 0.95,
-}  # forgetting factor for online processing
+beta: 0.99  # forgetting factor for online processing
 
 # Debug
 singleLine: null  # if not None, only process this frequency line in WOLA domain

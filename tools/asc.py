@@ -1600,7 +1600,7 @@ def get_upstream_nodes(G: nx.Graph, root):
     return upstreamNodes, upstreamNeighbors
 
 
-def single_update_scm_previous(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
+def single_update_scm(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
     """Update the SCMs using the online estimation formula."""
     Rss = copy.deepcopy(RssPrev)  # by default, copy the previous SCM
     Rnn = copy.deepcopy(RnnPrev)  # by default, copy the previous SCM
@@ -1620,7 +1620,7 @@ def single_update_scm_previous(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
             Rnn = beta * RnnPrev + (1 - beta) * nnH
     return Rss, Rnn
 
-def single_update_scm(Rss, Rnn, ssH, nnH, beta, vad=None):
+def single_update_scm_inplace(Rss, Rnn, ssH, nnH, beta, vad=None):
     """In-place exponential SCM updates."""
     # Note: use ufuncs with `out=` to avoid temporaries.
     if vad is not None:
