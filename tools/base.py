@@ -83,6 +83,9 @@ class Parameters:
     ssnDatabasePath: str = ""  # path to the SSN database
     speechFiles: list[str] = field(default_factory=list)  # list of speech files
     noiseFiles: list[str] = field(default_factory=list)  # list of noise files
+    friendlyVoiceActivity: bool = False  # if True, let the speech files adopt an
+        # ON-OFF pattern that is ``friendly'' for VAD-based online SCM estimation
+    friendlyVoiceActivityCycleDuration: float = 0.5  # duration of a speech+pause cycle in seconds
 
     # Algorithm(s) parameters
     algos: list[str] = field(default_factory=lambda: [
@@ -108,6 +111,7 @@ class Parameters:
     # Online mode parameters
     frameDuration: float = 0.1  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
     beta: dict = field(default_factory=lambda: {'default': 0.99})  # forgetting factor for online SCM estimation
+    scmInitScaling: float = 1  # initial scaling for online SCM estimation
 
     # General simulation set parameters
     nMCruns: int = 1  # number of Monte Carlo runs
@@ -125,6 +129,9 @@ class Parameters:
     wolaMixtures_viaTD: bool = False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
     noCrossCorrelation: bool = False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
     nodeSpecificDANSEsourceEnum: bool = False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
+    scmHeadStart: bool = False  # head start for SCM estimation
+    #  ^^^ If False: no head start, initialize SCMs randomly
+    #  ^^^ If True: head start, initialize SCMs as batch-mode SCMs
 
     def __post_init__(self):
         np.random.seed(self.seed)

@@ -24,8 +24,8 @@ from dataclasses import dataclass, field
 
 baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 
-resDir = f'{baseResultsDir}/res_20250820_1021_6MCs_correct_speech_upDANSEeveryFrame'  # specific directory
-# resDir = 'latest'  # <-- pick the latest results directory
+resDir = f'{baseResultsDir}/res_20250826_1715_testrun_headstart'  # specific directory
+resDir = 'latest'  # <-- pick the latest results directory
 
 # EXPORT = True  # If True, export the figures to files
 EXPORT = False  # If True, export the figures to files
@@ -51,6 +51,7 @@ COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for onlin
 DELTAS_SNR_SER = False  # If True, show SNR and SER as deltas from the local estimate
 
 # WHICH_NODES = 'all'  # 'all' or a list of node indices to process
+# WHICH_NODES = [3]  # 'all' or a list of node indices to process
 WHICH_NODES = [0]  # 'all' or a list of node indices to process
 
 # Metrics computation method for online mode:
@@ -180,7 +181,7 @@ def main(resDir=resDir):
                         'nhatk': results['nhatk']
                     }
                     if 0:
-                        plot_signals(dataIn, c)
+                        plot_signals(dataIn, c, kPlotIndex=WHICH_NODES[0] if WHICH_NODES != 'all' else 0)
                 else:
                     raise ValueError("Unknown results format (no 's' or 'shat' key in results dict).")
 
@@ -254,7 +255,7 @@ def main(resDir=resDir):
     return 0
 
 
-def plot_signals(sigs, c: Parameters, kPlot=0):
+def plot_signals(sigs, c: Parameters, kPlotIndex=0):
     """Plot the signals."""
     dhatk = [
         dict([(alg, sigs['shatk'][k][alg] + sigs['nhatk'][k][alg]) for alg in c.algos])
@@ -262,11 +263,14 @@ def plot_signals(sigs, c: Parameters, kPlot=0):
     ]
     dk = sigs['d']
     fig, axes = plt.subplots(len(c.algos), 1, sharex=True, sharey=True)
+    fig.set_size_inches(8.5, len(c.algos))
     for alg_idx, alg in enumerate(c.algos):
-        axes[alg_idx].plot(dhatk[kPlot][alg][0, :], 'c')
-        axes[alg_idx].plot(dk[kPlot, 0, :], 'k', alpha=0.5)
-        axes[alg_idx].set_ylabel(alg)
-        axes[alg_idx].set_ylim((np.amin(dk[kPlot, 0, :]) - 0.1, np.amax(dk[kPlot, 0, :]) + 0.1))
+        ax = axes[alg_idx] if len(c.algos) > 1 else axes
+        ax.plot(dhatk[kPlotIndex][alg][0, :], 'c')
+        ax.plot(dk[kPlotIndex, 0, :], 'k', alpha=0.5)
+        ax.set_ylabel(alg)
+        ax.set_ylim((np.amin(dk[kPlotIndex, 0, :]) - 0.1, np.amax(dk[kPlotIndex, 0, :]) + 0.1))
+    fig.suptitle(f"Signal Comparison -- Node {kPlotIndex + 1}")
     fig.tight_layout()
     plt.show(block=False)
     if 0:

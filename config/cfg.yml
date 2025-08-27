@@ -61,8 +61,8 @@ nhop: 512  # number of samples in FFT hop
 # nhop: 256  # number of samples in FFT hop
 win: hann  # STFT window type
 # win: rect  # STFT window type
-dynamics: static  # type of acoustic scenario dynamics
-# dynamics: moving  # type of acoustic scenario dynamics
+# dynamics: static  # type of acoustic scenario dynamics
+dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
@@ -75,9 +75,10 @@ fixedObservabilities: True  # if True, the observabilities are fixed
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
-# T: 2.0  # duration of the signals in seconds
+# T: 4.0  # duration of the signals in seconds
 # T: 15.0  # duration of the signals in seconds
-T: 30.0  # duration of the signals in seconds
+# T: 30.0  # duration of the signals in seconds
+T: 20.0  # duration of the signals in seconds
 # T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
@@ -85,24 +86,27 @@ T: 30.0  # duration of the signals in seconds
 selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
-# noiseSigType: ssn  # random, babble, or ssn
+noiseSigType: ssn  # random, babble, or ssn
 # noiseSigType: random  # random, babble, or ssn
 # desSigType: random  # speech or noise
-noiseSigType: babble  # random, babble, or ssn
+# noiseSigType: babble  # random, babble, or ssn
 desSigType: speech  # speech or noise
 ssnDatabasePath: "C:/Users/pdidier/Dropbox/PC/Documents/sounds-phd/02_data/00_raw_signals/02_noise/ssn"  # path to the SSN database
 babbleDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/02_python/01_local_only/01_algorithms/04_dMWF/sound_files/babble"  # path to the babble database
 # speechDatabasePath: "C:/Users/pdidier/Dropbox/_BELGIUM/KUL/SOUNDS_PhD/02_research/03_simulations/99_datasets/01_signals/01_LibriSpeech_ASR/test-clean"
 speechDatabasePath: "C:/Users/pdidier/Documents/datasets/DS_10283_3443/VCTK-Corpus-0.92/wav48_silence_trimmed"
+friendlyVoiceActivity: True  # if True, let the speech files adopt an
+    # ON-OFF pattern that is ``friendly'' for VAD-based online SCM estimation
+friendlyVoiceActivityCycleDuration: 3  # duration of a speech+pause cycle in seconds
 
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
 - unprocessed
-- local
+# - local
 - centralized
-- dmwf
-- danse
-- rsdanse
+# - dmwf
+# - danse
+# - rsdanse
 # - tidmwf
 # - tidanse
 maxDANSEiter: 30  # maximum number of iterations for DANSE
@@ -128,7 +132,9 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 
 # Online mode parameters
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
-beta: 0.99  # forgetting factor for online processing
+# beta: 0.99  # forgetting factor for online processing
+beta: 0.975  # forgetting factor for online processing
+scmInitScaling: 0.001  # initial scaling for online SCM estimation
 
 # Debug
 singleLine: null  # if not None, only process this frequency line in WOLA domain
@@ -141,9 +147,13 @@ wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) vi
 noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 # nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
+scmHeadStart: False  # head start for SCM estimation
+# scmHeadStart: True  # head start for SCM estimation
+#  ^^^ If False: no head start, initialize SCMs randomly
+#  ^^^ If True: head start, initialize SCMs as batch-mode SCMs
 
 # General simulation set parameters
-# nMCruns: 1  # number of Monte Carlo runs
-nMCruns: 6  # number of Monte Carlo runs
+nMCruns: 1  # number of Monte Carlo runs
+# nMCruns: 6  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: run_whiteNoise  # output file suffix
+suffix: test_friendlyVAD  # output file suffix

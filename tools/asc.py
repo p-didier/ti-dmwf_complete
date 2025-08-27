@@ -593,7 +593,7 @@ class AcousticScenario:
         # Store the parameters for later use
         self.scenarios.append(p)
 
-    def compute_scms(self):
+    def compute_scms(self, force=None):
         """Compute the SCMs for the acoustic scenario."""
         c = self.cfg
 
@@ -607,7 +607,20 @@ class AcousticScenario:
                 stack[st] = np.vstack([self.nodes[k].wd[st] for k in range(c.K)])
         print(f'{c.T} s of signals = {stack["y"].shape[-1]} STFT frames.')
 
-        if c.scmEstimation == 'oracle':
+        if force is None:
+            scmEstType = c.scmEstimation
+        else:
+            scmEstType = force
+
+        if scmEstType == 'batch':
+            Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj())
+            if c.noCrossCorrelation:
+                Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj())
+                Ryy = Rss + Rnn
+            else:
+                Ryy = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj())
+                Rss = None
+        elif scmEstType == 'oracle':
             # Compute FFT of RIRs
             Cmat = np.zeros((c.nPosFreqs, c.M, c.Q), dtype=complex)
             scn = self.scenarios[0]  # Use the first scenario for oracle estimation
@@ -639,40 +652,34 @@ class AcousticScenario:
                 Rnn[f, ...] += np.diag(power_v[:, f])
             # Complete signal SCM
             Ryy = Rss + Rnn
-
-        elif c.scmEstimation == 'batch':
-            nFrames = stack['y'].shape[-1]
-            Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj())
-            if c.noCrossCorrelation:
-                Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj())
-                Ryy = Rss + Rnn
-            else:
-                Ryy = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj())
-                Rss = None
-
-        elif c.scmEstimation == 'online':
+            
+        elif scmEstType == 'online':
             Ryy, Rss, Rnn = None, None, None # nothing to do -- done in `algos.py`
         else:
-            raise ValueError(f"Unknown SCM estimation method: {c.scmEstimation}")
+            raise ValueError(f"Unknown SCM estimation method: {scmEstType}")
 
         return Ryy, Rss, Rnn, stack['s'], stack['n']
+
+    def compute_vad(self, signal):
+        c = self.cfg
+        smoothingLength = int(np.amin((c.vadSmoothingPeriod, c.noiseONOFFperiod)) * c.fs)
+        # Compute the energy of the signal
+        energy = np.mean(np.abs(signal) ** 2)
+        # Compute the threshold for VAD
+        threshold = c.vadThreshold * energy
+        # Smooth the VAD: avoid abrupt changes between 1 and 0
+        return np.convolve(
+            np.abs(signal) ** 2 > threshold,
+            np.ones(smoothingLength) / smoothingLength,
+            mode='same'
+        ) > 0.5
 
     def estimate_vad(self):
         """Estimate the VAD for the latent desired signal."""
         c = self.cfg
-        smoothingLength = int(np.amin((c.vadSmoothingPeriod, c.noiseONOFFperiod)) * c.fs)
         vad = np.zeros((c.Qd, c.N), dtype=bool)
         for ii in range(c.Qd):
-            # Compute the energy of the signal
-            energy = np.mean(np.abs(self.latentDesired[ii, :]) ** 2)
-            # Compute the threshold for VAD
-            threshold = c.vadThreshold * energy
-            # Smooth the VAD: avoid abrupt changes between 1 and 0
-            vad[ii, :] = np.convolve(
-                np.abs(self.latentDesired[ii, :]) ** 2 > threshold,
-                np.ones(smoothingLength) / smoothingLength,
-                mode='same'
-            ) > 0.5
+            vad[ii, :] = self.compute_vad(self.latentDesired[ii, :])
 
         # Convert to VAD in STFT domain: VAD in one frame is True if at least
         # half of the samples are True.
@@ -873,19 +880,24 @@ class AcousticScenario:
                 raise ValueError("No files found in the database path.")
             nSamples = c.N
             x = np.zeros((n, nSamples), dtype='float32')
-            alreadyUsed = []
-            for ii in range(n):
-                # Randomly select one file from the list
-                fr = files[np.random.randint(0, len(files), 1)[0]]
+
+            def _randsel(myfiles):
+                fr = myfiles[np.random.randint(0, len(myfiles), 1)[0]]
                 while fr.name[:d] in alreadyUsed:
-                    fr = files[np.random.randint(0, len(files), 1)[0]]
+                    fr = myfiles[np.random.randint(0, len(myfiles), 1)[0]]
                 alreadyUsed.append(fr.name[:d])
                 if '-' in fr.name:
                     prefix = fr.name.split("-")[0]
                 elif '_' in fr.name:
                     prefix = fr.name.split("_")[0]
+                return fr, prefix, alreadyUsed
+
+            alreadyUsed = []
+            for ii in range(n):
+                # Randomly select one file from the list
+                fr, prefix, alreadyUsed = _randsel(files)
                 # Load file 
-                speech = load_sound_file(fr, desFs=c.fs)
+                speech = self.load_sound_file(fr)
                 idx = 0
                 while len(speech) < nSamples:
                     # Find another file with the same prefix
@@ -893,13 +905,7 @@ class AcousticScenario:
                     if len(filesSamePrefix) == 0:
                         print(f"No more files found with the same prefix as {fr}. Changing prefix at {len(speech)} samples (= {len(speech)/c.fs:.2f} s)...")
                         # Randomly select one file from the list
-                        fr = files[np.random.randint(0, len(files), 1)[0]]
-                        while fr.name[:d] in alreadyUsed:
-                            fr = files[np.random.randint(0, len(files), 1)[0]]
-                        if '-' in fr.name:
-                            prefix = fr.name.split("-")[0]
-                        elif '_' in fr.name:
-                            prefix = fr.name.split("_")[0]
+                        fr, prefix, alreadyUsed = _randsel(files)
                         filesSamePrefix = [f for f in files if f.name.startswith(prefix) and f.name not in alreadyUsed]
                         idx = 0
                     else:
@@ -909,7 +915,7 @@ class AcousticScenario:
                             fr = filesSamePrefix[np.random.randint(0, len(filesSamePrefix), 1)[0]]
                     alreadyUsed.append(fr.name[:d])
                     # Concat the file to the speech signal
-                    newSig = load_sound_file(fr, desFs=c.fs)
+                    newSig = self.load_sound_file(fr)
                     speech = np.concatenate((speech, newSig))
                     idx += 1
                 x[ii, :] = speech[:nSamples]
@@ -939,10 +945,10 @@ class AcousticScenario:
                     raise ValueError(f"Not enough files in the database (asked for {n}, found {len(allFiles)}).")
                 else:
                     currFile = allFiles[ii]
-                tmp = load_sound_file(currFile, desFs=c.fs)
+                tmp = self.load_sound_file(currFile)
                 while len(tmp) < c.N:
                     # If the file is too short, concatenate it with another file
-                    tmp2 = load_sound_file(currFile, desFs=c.fs)
+                    tmp2 = self.load_sound_file(currFile)
                     tmp = np.concatenate((tmp, tmp2))
                 out[ii, :] = tmp[:c.N]
             return out
@@ -1448,18 +1454,42 @@ class AcousticScenario:
         return mat @ herm(mat)
 
 
-def load_sound_file(file_path, desFs):
-    """Load a sound file and resample it to the desired sampling frequency."""
-    soundData, fsRead = sf.read(file_path, dtype='float32')
-    if fsRead != desFs:
-        # Resample the signal to the desired sampling frequency
-        soundData = resample(soundData, fsRead, desFs)
-    # Apply high-pass filter (get rid of potential low-frequency hum from low-quality dataset)
-    # soundData = butter_highpass_filter(soundData, 0.01, 5)
-    # Normalize the signal
-    soundData /= np.amax(np.abs(soundData))  # Normalize
-    soundData -= np.mean(soundData)  # Remove DC offset
-    return soundData
+    def load_sound_file(self, file_path):
+        """Load a sound file and resample it to the desired sampling frequency."""
+        c = self.cfg
+        soundData, fsRead = sf.read(file_path, dtype='float32')
+        if fsRead != c.fs:
+            # Resample the signal to the desired sampling frequency
+            soundData = resample(soundData, fsRead, c.fs)
+        # Apply high-pass filter (get rid of potential low-frequency hum from low-quality dataset)
+        # soundData = butter_highpass_filter(soundData, 0.01, 5)
+        # Normalize the signal
+        soundData /= np.amax(np.abs(soundData))  # Normalize
+        soundData -= np.mean(soundData)  # Remove DC offset
+        if c.friendlyVoiceActivity and c.scmEstimation == 'online' and\
+            c.desSigType == 'speech':
+            # Compute local VAD
+            vad = self.compute_vad(soundData)
+            # Get rid of initial pause (0-VAD)
+            start_idx = np.argmax(vad > 0)
+            soundData = soundData[start_idx:]
+            # Make fade in window
+            durPhase = int(c.fs * c.friendlyVoiceActivityCycleDuration)
+            durFade = durPhase // 10
+            fade_in = np.linspace(1, 0, durFade)[::-1]  # Reverse to fade in
+            # Apply fade in
+            soundData[:durFade] *= fade_in
+            # Truncate signal if too long
+            if len(soundData) > durPhase // 2:
+                # Make fade out window
+                fade_out = np.linspace(1, 0, durFade)
+                # Truncate
+                soundData = soundData[:durPhase // 2]
+                soundData[-durFade:] *= fade_out
+            # Pad with zeros
+            if len(soundData) < durPhase:
+                soundData = np.pad(soundData, (0, durPhase - len(soundData)), mode='constant')
+        return soundData
 
 
 def butter_highpass(cutoff, fs, order=5):

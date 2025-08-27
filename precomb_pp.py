@@ -19,7 +19,7 @@ BASE_FOLDER = './out'
 COMBINE_FOLDERS = {
     'res_20250820_1021_6MCs_correct_speech_upDANSEeveryFrame': None,
     # 'res_20250821_1039_DANSEiterevery10_6MCs': {
-    'res_20250822_1223_DANSEiterevery10_3MCs': {
+    'res_20250822_1610_saa_correctDANSEiterEvery10frames': {
         'danse': 'danse_10',
         'rsdanse': 'rsdanse_10'
     }
