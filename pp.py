@@ -180,7 +180,7 @@ def main(resDir=resDir):
                         'shatk': results['shatk'],
                         'nhatk': results['nhatk']
                     }
-                    if 0:
+                    if 1:
                         plot_signals(dataIn, c, kPlotIndex=WHICH_NODES[0] if WHICH_NODES != 'all' else 0)
                 else:
                     raise ValueError("Unknown results format (no 's' or 'shat' key in results dict).")
@@ -270,6 +270,32 @@ def plot_signals(sigs, c: Parameters, kPlotIndex=0):
         ax.plot(dk[kPlotIndex, 0, :], 'k', alpha=0.5)
         ax.set_ylabel(alg)
         ax.set_ylim((np.amin(dk[kPlotIndex, 0, :]) - 0.1, np.amax(dk[kPlotIndex, 0, :]) + 0.1))
+        if c.dynamics == 'moving' and c.scmEstimation == 'online':
+            # Plot a vertical line every time the scenario changes
+            nChanges = int(c.T / c.movingEvery)
+            for i in range(nChanges):
+                x = i * c.movingEvery * c.fs
+                ax.axvline(x=x, color='0.5', linestyle='--')
+    fig.suptitle(f"Signal Comparison -- Node {kPlotIndex + 1}")
+    fig.tight_layout()
+    plt.show(block=False)
+    # Show spectrograms
+    fig, axes = plt.subplots(1, len(c.algos), sharex=True, sharey=True)
+    fig.set_size_inches(3.5 * len(c.algos), 3)
+    for alg_idx, alg in enumerate(c.algos):
+        ax = axes[alg_idx] if len(c.algos) > 1 else axes
+        ax.pcolormesh(np.log10(np.abs(
+            c.get_stft(
+                dhatk[kPlotIndex][alg][0, :]
+            )
+        )))
+        ax.set_title(alg)
+        if c.dynamics == 'moving' and c.scmEstimation == 'online':
+            # Plot a vertical line every time the scenario changes
+            nChanges = int(c.T / c.movingEvery)
+            for i in range(nChanges):
+                x = i * c.movingEvery / c.T * ax.get_xlim()[1]
+                ax.axvline(x=x, color='0.5', linestyle='--')
     fig.suptitle(f"Signal Comparison -- Node {kPlotIndex + 1}")
     fig.tight_layout()
     plt.show(block=False)

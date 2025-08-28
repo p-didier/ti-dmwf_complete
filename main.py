@@ -23,7 +23,8 @@ PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
 testParams = {
     # 'scmEstimation': ['oracle', 'batch'],
     'scmEstimation': ['online'],
-    'observability': ['foss', 'poss'],
+    # 'observability': ['foss', 'poss'],
+    'observability': ['foss'],
     # 'observability': ['poss'],
 }
 

@@ -487,8 +487,11 @@ class AcousticScenario:
             node.init_signal_vectors(c)
 
         # Define the acoustic scenario
-        room = self.setup_wola_domain_static()
-        if c.dynamics == 'moving' and c.scmEstimation == 'online':
+        if c.dynamics == 'static' and c.scmEstimation != 'online':
+            print(f"Defining base acoustic scenario...")
+            room = self.setup_wola_domain_static()
+            print("Base acoustic scenario defined.")
+        elif c.dynamics == 'moving' and c.scmEstimation == 'online':
             # Dynamic scenario with always-active sources and random source movements
             nScenarios = np.floor(c.T / c.movingEvery).astype(int)
             print(f"Setting up {nScenarios} dynamic scenarios with different sources/nodes positions.")
@@ -498,7 +501,14 @@ class AcousticScenario:
             else:
                 omFixed = None
 
-            for ii in range(nScenarios):
+            print(f"Defining base acoustic scenario...")
+            room = self.setup_wola_domain_static(
+                idxStart=0,
+                idxEnd=int(c.movingEvery * c.fs) - 1,
+                omFixed=omFixed
+            )
+            print("Base acoustic scenario defined.")
+            for ii in range(1, nScenarios):
                 print(f"Setting up scenario {ii + 1}/{nScenarios}...")
                 idxStart = ii * int(c.movingEvery * c.fs)
                 idxEnd = idxStart + int(c.movingEvery * c.fs) - 1
@@ -1035,10 +1045,10 @@ class AcousticScenario:
                     raise ValueError(f"Not enough files in the database (asked for {n}, found {len(allFiles)}).")
                 else:
                     currFile = allFiles[ii]
-                tmp = self.load_sound_file(currFile)
+                tmp = self.load_sound_file(currFile, noise=True)
                 while len(tmp) < c.N:
                     # If the file is too short, concatenate it with another file
-                    tmp2 = self.load_sound_file(currFile)
+                    tmp2 = self.load_sound_file(currFile, noise=True)
                     tmp = np.concatenate((tmp, tmp2))
                 out[ii, :] = tmp[:c.N]
             return out
@@ -1564,7 +1574,7 @@ class AcousticScenario:
         return mat @ herm(mat)
 
 
-    def load_sound_file(self, file_path):
+    def load_sound_file(self, file_path, noise=False):
         """Load a sound file and resample it to the desired sampling frequency."""
         c = self.cfg
         soundData, fsRead = sf.read(file_path, dtype='float32')
@@ -1577,7 +1587,7 @@ class AcousticScenario:
         soundData /= np.amax(np.abs(soundData))  # Normalize
         soundData -= np.mean(soundData)  # Remove DC offset
         if c.friendlyVoiceActivity and c.scmEstimation == 'online' and\
-            c.desSigType == 'speech':
+            c.desSigType == 'speech' and not noise:
             # Compute local VAD
             vad = self.compute_vad(soundData)
             # Get rid of initial pause (0-VAD)
@@ -1749,7 +1759,7 @@ def single_update_scm(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
             Rss = beta * RssPrev + (1 - beta) * ssH
             # no update for noise SCM if VAD is False
         else:  # <-- VOICE ACTIVITY OFF
-            # Rss = beta * RssPrev + (1 - beta) * ssH
+            Rss = beta * RssPrev + (1 - beta) * ssH
             # no update for speech+noise/speech-only SCM if VAD is False
             if RnnPrev is not None:
                 # Rnn = beta * RnnPrev + (1 - beta) * yyH

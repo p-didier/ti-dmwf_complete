@@ -96,10 +96,13 @@ class Parameters:
         # 'oracle' for perfect knowledge,
         # 'batch' for batch time-averaged,
         # 'online' for online
-    maxDANSEiter: int = 100  # maximum number of iterations for DANSE
+    maxDANSEiter: int = 100  # maximum number of iterations for DANSE (only >1 for batch/oracle processing)
     mu: float = 1  # SDW-MWF factor
     gevd: bool = False  # if True, use GEV decomposition instead of regular MWF in estimation filters
     DANSEiterEveryXframes: int = 1  # DANSE iteration every X frames
+        #   ^^^ if useVAD is True, new DANSE iteration as soon as both Ryy and Rnn have both been updated at least X times.
+        #   ^^^ if -1, new DANSE iteration every frame, regardless of useVAD 
+    ignoreVAD_DANSEiterEveryXframes: bool = False  # if True, ignoring VAD for DANSEiterEveryXframes
     refNodeForTInorm: int = 0  # reference node for TI normalization
     dMWFalternating: bool = False  # if True, use alternating discovery/estimation steps in dMWF
 
@@ -133,6 +136,8 @@ class Parameters:
     scmHeadStart: bool = False  # head start for SCM estimation
     #  ^^^ If False: no head start, initialize SCMs randomly
     #  ^^^ If True: head start, initialize SCMs as batch-mode SCMs
+    scmHeadStartNoiseAmount: float = 0  # noise amount added to head start SCMs
+    gevdJustForDANSE: bool = False  # if True, use GEVD for DANSE algorithms
 
     def __post_init__(self):
         np.random.seed(self.seed)
@@ -269,8 +274,13 @@ class Parameters:
             return np.random.randn(*shape)
         else:
             return np.random.randn(*shape) + 1j * np.random.randn(*shape)
-    
-    
+
+
+    def randmat_hermposdef(self, shape, makeComplex=True):
+        """Generate a random Hermitian positive definite matrix."""
+        A = self.randmat(shape, makeComplex=makeComplex)
+        return A @ A.conj().transpose(0, 2, 1)  # A * A^H
+
     def init_full(self, shape, value=0, random=False, selection_matrix=False):
         """Initialize a full matrix."""
         if random:

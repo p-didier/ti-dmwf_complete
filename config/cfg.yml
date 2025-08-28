@@ -39,7 +39,8 @@ hierarchicalObsPruningThrs: 1  # for 'hierarchical' `observabilityCriterion`, th
     # intermediate values stop the pruning between 0 and 1.
 # maxDistForObservability: 0.05  # minimum distance for observability in meters
 maxDistForObservability: null  # minimum distance for observability in meters
-latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
+latentSNR: 3.0  # SNR between the latent desired signals and the latent noise signals in dB
+# latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
 # latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
 diffuseSNR: -9999.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 # diffuseSNR: -10.0  # SNR between the latent desired signals and the diffuse noise signals in dB
@@ -66,20 +67,21 @@ dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
-movingEvery: 10.0  # time in seconds after which sources move in `moving` scenarios
-# movingEvery: 5.0  # time in seconds after which sources move in `moving` scenarios
+# movingEvery: 10.0  # time in seconds after which sources move in `moving` scenarios
+movingEvery: 5.0  # time in seconds after which sources move in `moving` scenarios
 fixedObservabilities: True  # if True, the observabilities are fixed
-dynamicWiggleSize: 0.5  # deviations to be applied to the nodes and sources positions if dynamics == 'moving', in meters
+dynamicWiggleSize: 0.3  # deviations to be applied to the nodes and sources positions if dynamics == 'moving', in meters
 
 # Signals parameters
 # fs: 41000  # sampling frequency
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
-# T: 4.0  # duration of the signals in seconds
+# T: 5.0  # duration of the signals in seconds
+T: 10.0  # duration of the signals in seconds
 # T: 15.0  # duration of the signals in seconds
 # T: 30.0  # duration of the signals in seconds
-T: 20.0  # duration of the signals in seconds
+# T: 20.0  # duration of the signals in seconds
 # T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
@@ -87,8 +89,8 @@ T: 20.0  # duration of the signals in seconds
 selfNoiseFactor: 0.01  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 0.1  # self-noise factor, used to scale the noise covariance
 # selfNoiseFactor: 1  # self-noise factor, used to scale the noise covariance
-noiseSigType: ssn  # random, babble, or ssn
-# noiseSigType: random  # random, babble, or ssn
+# noiseSigType: ssn  # random, babble, or ssn
+noiseSigType: random  # random, babble, or ssn
 # desSigType: random  # speech or noise
 # noiseSigType: babble  # random, babble, or ssn
 desSigType: speech  # speech or noise
@@ -102,25 +104,28 @@ friendlyVoiceActivityCycleDuration: 3  # duration of a speech+pause cycle in sec
 
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
-- unprocessed
+# - unprocessed
 # - local
-- centralized
+# - centralized
 # - dmwf
-# - danse
-# - rsdanse
+- danse
+- rsdanse
 # - tidmwf
 # - tidanse
-maxDANSEiter: 30  # maximum number of iterations for DANSE
-# maxDANSEiter: 10  # maximum number of iterations for DANSE
+maxDANSEiter: 30  # maximum number of iterations for DANSE (only >1 for batch/oracle processing)
+# maxDANSEiter: 10  # maximum number of iterations for DANSE (only >1 for batch/oracle processing)
 mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
 # gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
 gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
-# DANSEiterEveryXframes: 20  # DANSE iteration every X frames
 DANSEiterEveryXframes: -1  # DANSE iteration every X frames
 # DANSEiterEveryXframes: 10  # DANSE iteration every X frames
+# DANSEiterEveryXframes: 20  # DANSE iteration every X frames
+# DANSEiterEveryXframes: 30  # DANSE iteration every X frames
 #   ^^^ if useVAD is True, new DANSE iteration as soon as both Ryy and Rnn have both been updated at least X times.
 #   ^^^ if -1, new DANSE iteration every frame, regardless of useVAD 
+ignoreVAD_DANSEiterEveryXframes: False  # if True, ignoring VAD for DANSEiterEveryXframes
+# ignoreVAD_DANSEiterEveryXframes: True  # if True, ignoring VAD for DANSEiterEveryXframes
 dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
 # dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 
@@ -133,9 +138,11 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 
 # Online mode parameters
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
-# beta: 0.99  # forgetting factor for online processing
+# beta: 0.98  # forgetting factor for online processing
 beta: 0.975  # forgetting factor for online processing
-scmInitScaling: 0.001  # initial scaling for online SCM estimation
+# beta: 0.85  # forgetting factor for online processing
+# beta: 1  # forgetting factor for online processing
+scmInitScaling: 0.1  # initial scaling for online SCM estimation
 
 # Debug
 singleLine: null  # if not None, only process this frequency line in WOLA domain
@@ -148,13 +155,17 @@ wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) vi
 noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 # nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
 nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
-scmHeadStart: False  # head start for SCM estimation
-# scmHeadStart: True  # head start for SCM estimation
+# scmHeadStart: False  # head start for SCM estimation
+scmHeadStart: True  # head start for SCM estimation
 #  ^^^ If False: no head start, initialize SCMs randomly
 #  ^^^ If True: head start, initialize SCMs as batch-mode SCMs
+scmHeadStartNoiseAmount: 0  # noise amount added to head start SCMs 
+# scmHeadStartNoiseAmount: 0.001  # noise amount added to head start SCMs 
+# gevdJustForDANSE: False  # if True, use GEVD for DANSE algorithms
+gevdJustForDANSE: True  # if True, use GEVD for DANSE algorithms
 
 # General simulation set parameters
 nMCruns: 1  # number of Monte Carlo runs
 # nMCruns: 6  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: test_friendlyVAD  # output file suffix
+suffix: saa_10frames_gevdForDANSE  # output file suffix

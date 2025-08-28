@@ -58,7 +58,7 @@ class Run:
         }
         baseListDANSEscms = {
             alg: [
-                c.scmInitScaling * c.randmat(
+                c.scmInitScaling * c.randmat_hermposdef(
                     (c.nPosFreqs, algDims[alg][k], algDims[alg][k])
                     if c.domain == 'wola'
                     else (algDims[alg][k], algDims[alg][k]),
@@ -97,9 +97,12 @@ class Run:
             W_netWide = []
 
             if c.scmHeadStart:
-                Ryy, Rss, Rnn, _, _ = asc.compute_scms(force='oracle')
+                _, Rss, Rnn, _, _ = asc.compute_scms(force='oracle')
+                Rss += c.scmHeadStartNoiseAmount * np.amax(np.abs(Rss)) * np.random.randn(*Rss.shape)
+                Rnn += c.scmHeadStartNoiseAmount * np.amax(np.abs(Rnn)) * np.random.randn(*Rnn.shape)
+                Ryy = Rss + Rnn
             else:
-                Ryy = c.scmInitScaling * c.randmat((c.nPosFreqs, c.M, c.M), makeComplex=True)
+                Ryy = c.scmInitScaling * c.randmat_hermposdef((c.nPosFreqs, c.M, c.M), makeComplex=True)
                 Rss = copy.deepcopy(Ryy)  # Initialize Rss with the same structure as Ryy
                 Rnn = copy.deepcopy(Ryy)  # Initialize Rnn with the same structure as Ryy
 
@@ -122,14 +125,16 @@ class Run:
                     pass
                 else:
                     # New SCM estimates
-                    nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
+                    # nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
+                    nnH = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())  # yyH
                     if c.noCrossCorrelation:
                         inner2 = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())  # ssH
                     else: 
                         inner2 = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())  # yyH
                     if flagAlternating:
                         # Prepare previous chunk of data for alternating dMWF
-                        nnHprev = np.einsum('ji,ki->ijk', n[..., l - 1], n[..., l - 1].conj())
+                        # nnHprev = np.einsum('ji,ki->ijk', n[..., l - 1], n[..., l - 1].conj())
+                        nnHprev = np.einsum('ji,ki->ijk', (s + n)[..., l - 1], (s + n)[..., l - 1].conj())  # yyH
                         if c.noCrossCorrelation:
                             inner2_prev = np.einsum('ji,ki->ijk', s[..., l - 1], s[..., l - 1].conj())  # ssH
                         else: 
@@ -438,7 +443,7 @@ class Run:
                     frame_s = ivIn['frame_s']
                     frame_n = ivIn['frame_n']
                     iEff = ivIn[alg]['i']  # effective iteration index
-                    if not c.useVAD:
+                    if not c.useVAD or c.ignoreVAD_DANSEiterEveryXframes:
                         if c.DANSEiterEveryXframes == -1:
                             c.DANSEiterEveryXframes = 1
                         onlineModeCriterion = ivIn['frameIdx'] % c.DANSEiterEveryXframes == 0
@@ -571,15 +576,16 @@ class Run:
                                 else:
                                     # Noise-only frame, Rnn is updated, Ryy not
                                     nUpdates_tRnn += 1
-                                if (nUpdates_tRyy >= c.DANSEiterEveryXframes and\
-                                    nUpdates_tRnn >= c.DANSEiterEveryXframes) or\
-                                    c.DANSEiterEveryXframes == -1:
-                                    # Both Ryy and Rnn have been updated, we can proceed
-                                    nUpdates_tRyy = 0
-                                    nUpdates_tRnn = 0
-                                    onlineModeCriterion = True  # new iteration
-                                else:
-                                    onlineModeCriterion = False  # no new iteration yet
+                                if not c.ignoreVAD_DANSEiterEveryXframes:
+                                    if (nUpdates_tRyy >= c.DANSEiterEveryXframes and\
+                                        nUpdates_tRnn >= c.DANSEiterEveryXframes) or\
+                                        c.DANSEiterEveryXframes == -1:
+                                        # Both Ryy and Rnn have been updated, we can proceed
+                                        nUpdates_tRyy = 0
+                                        nUpdates_tRnn = 0
+                                        onlineModeCriterion = True  # new iteration
+                                    else:
+                                        onlineModeCriterion = False  # no new iteration yet
 
                             if c.noCrossCorrelation:
                                 tRss, tRnn = single_update_scm(
@@ -610,8 +616,12 @@ class Run:
 
                         # Update the filters
                         if (k == u or alg.startswith("rsdanse")) and onlineModeCriterion:
-                            # Compute the filter
-                            Wk[k] = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=scn.Qdk[k])
+                            # ========== Compute the filter ==========
+                            Wk[k] = self.filtup(
+                                tRyy, tRnn,
+                                gevd=c.gevd if not c.gevdJustForDANSE else True,
+                                gevdRank=scn.Qdk[k]
+                            )
 
                             if alg.startswith("rsdanse"):
                                 # For rS-DANSE, we apply a relaxation
@@ -696,7 +706,7 @@ class Run:
                 # tmp = np.linalg.solve(c.mu * Ryy + (1 - c.mu) * Rss, Rss)
                 tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
             except np.linalg.LinAlgError:
-                print("Matrix inversion failed, using pseudo-inverse instead.", end='\r')
+                print("\nMatrix inversion failed, using pseudo-inverse instead.", end='\r')
                 tmp = np.linalg.pinv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
             return tmp
 
@@ -707,7 +717,7 @@ class Run:
                 try:
                     sigma, Xmat = sla.eigh(Ryy[f, ...], Rnn[f, ...])
                 except np.linalg.LinAlgError:
-                    print("GEVD failed, using pseudo-inverse instead.", end='\r')
+                    print(f"\nGEVD failed at bin #{f}, aborting GEVD entirely and computing regular MWF instead.", end='\r')
                     return _regular_mwf(Ryy, Rss)[..., :finalSize]
 
                 idx = np.flip(np.argsort(sigma))
