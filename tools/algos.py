@@ -406,7 +406,7 @@ class Run:
                     for q in range(c.K):
                         dim = c.Mk[q] + c.Q * len(upstreamNeighs[q])
                         Cqk[q] = c.init_full((c.nPosFreqs, c.M, dim))
-                        Cqk[q][..., c.Mk[q]:c.Mk[q + 1], :c.Mk[q]] = np.eye(c.Mk[q])
+                        Cqk[q][..., c.Mkc[q]:c.Mkc[q + 1], :c.Mk[q]] = np.eye(c.Mk[q])
                     # Compute fusion matrices
                     Pk = [None for _ in range(c.K)]
                     for q in flatten_list(tree_levels(G, k)):
@@ -648,8 +648,6 @@ class Run:
                         if alg.startswith("tidanse"):
                             Pk[k] = Wk[k][..., :c.Mk[k], :c.Qd] @\
                                 np.linalg.inv(Wk[k][..., c.Mk[k]:, :c.Qd])
-                            if k == 0:
-                                print(f'\nNorm of Pk[{k}]: {np.linalg.norm(Pk[k])}')
                         else:
                             Pk[k] = Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
 

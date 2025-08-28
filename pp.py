@@ -27,7 +27,7 @@ baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
 resDir = f'{baseResultsDir}/res_20250826_1715_testrun_headstart'  # specific directory
 resDir = 'latest'  # <-- pick the latest results directory
 
-# EXPORT = True  # If True, export the figures to files
+EXPORT = True  # If True, export the figures to files
 EXPORT = False  # If True, export the figures to files
 
 FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist

@@ -275,11 +275,10 @@ class Parameters:
         else:
             return np.random.randn(*shape) + 1j * np.random.randn(*shape)
 
-
     def randmat_hermposdef(self, shape, makeComplex=True):
         """Generate a random Hermitian positive definite matrix."""
         A = self.randmat(shape, makeComplex=makeComplex)
-        return A @ A.conj().transpose(0, 2, 1)  # A * A^H
+        return A @ herm(A)  # A * A^H
 
     def init_full(self, shape, value=0, random=False, selection_matrix=False):
         """Initialize a full matrix."""

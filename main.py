@@ -11,6 +11,7 @@
 import sys
 import time
 import copy
+# import argparse
 import itertools
 import numpy as np
 from pathlib import Path
@@ -18,14 +19,21 @@ from tools.base import *
 from tools.algos import *
 from pp import main as main_pp
 
-PATH_TO_CFG = ".\\config\\cfg.yml"  # Path to the configuration file
+# parser = argparse.ArgumentParser(description="(TI-)dMWF framework")
+# parser.add_argument("--cfg", type=int, help="Config file name", default=0)
+
+# args = parser.parse_args()
+
+# PATH_TO_CFG = f".\\config\\{args.cfg}.yml"  # Path to the configuration file
+PATH_TO_CFG = f".\\config\\cfg.yml"  # Path to the configuration file
+# PATH_TO_CFG = f".\\config\\cfg_tidmwf.yml"  # Path to the configuration file
 
 testParams = {
     # 'scmEstimation': ['oracle', 'batch'],
     'scmEstimation': ['online'],
     # 'observability': ['foss', 'poss'],
-    'observability': ['foss'],
-    # 'observability': ['poss'],
+    # 'observability': ['foss'],
+    'observability': ['poss'],
 }
 
 # Build TEST_SET based on testParams

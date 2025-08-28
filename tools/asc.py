@@ -513,7 +513,7 @@ class AcousticScenario:
                 idxStart = ii * int(c.movingEvery * c.fs)
                 idxEnd = idxStart + int(c.movingEvery * c.fs) - 1
                 # Setup the static scenario
-                self.shuffle_scenario(room, idxStart, idxEnd, omFixed=omFixed)
+                self.shuffle_scenario(idxStart, idxEnd)
 
         if c.diffuseSNR is not None and c.diffuseSNR > -50:
             # Compute and add diffuse noise
@@ -574,7 +574,7 @@ class AcousticScenario:
         # Compute SCMs (from steering matrices if oracle, from signals if batch)
         return self.compute_scms()
     
-    def shuffle_scenario(self, room: pra.room.ShoeBox, idxStart=0, idxEnd=-1, omFixed=None):
+    def shuffle_scenario(self, idxStart=0, idxEnd=-1):
         """Shuffle the last existing acoustic scenario by applying small
         deviations to source/node positions."""
         c = self.cfg
@@ -599,8 +599,7 @@ class AcousticScenario:
             return ascOut
         
         def _valid_asc(testAsc: StaticScenarioParameters):
-            # Check if the minimum distance from any node to any source is
-            # respected
+            # Check if the minimum distance from any node to any source is respected
             rd = [c.roomLength, c.roomWidth, c.roomHeight]
             allSources = np.vstack([testAsc.speechSourcesPos, testAsc.noiseSourcesPos])
             for k in range(c.K):
@@ -608,9 +607,9 @@ class AcousticScenario:
                     if np.linalg.norm(testAsc.nodesPos[k, :] - srcPos) < c.minDistNodeSource:
                         return False
             # Check if the minimum distance from any object to the walls is respected
-            if np.any([rd - testAsc.nodesPos < c.minDistFromWall]):
+            if np.any([rd - testAsc.sensorsPos < c.minDistFromWall]) or np.any([testAsc.sensorsPos < c.minDistFromWall]):
                 return False
-            if np.any([rd - allSources < c.minDistFromWall]):
+            if np.any([rd - allSources < c.minDistFromWall]) or np.any([allSources < c.minDistFromWall]):
                 return False
             return True
 
@@ -622,13 +621,25 @@ class AcousticScenario:
             idxTrial += 1
         print(f'\nWiggled scenario created in {idxTrial+1} trials.')
 
-        # Delete all sources and sensors from room
-        room.sources = []
-        room.mic_array = None
+        # Make a new room
+        rd = [c.roomLength, c.roomWidth, c.roomHeight]
+        if c.t60 == 0:
+            maxOrd = 0
+            eAbs = 0.5  # <-- arbitrary
+        else:
+            eAbs, maxOrd = pra.inverse_sabine(c.t60, rd)
+        newRoom = pra.ShoeBox(
+            rd,
+            fs=c.fs,
+            max_order=maxOrd,
+            air_absorption=True if c.t60 > 0 else False,
+            materials=pra.Material(eAbs),
+            use_rand_ism=False
+        )
+
         # Add elements to room again and simulate new RIRs
         rirs = self.simulate_room(
-            room,
-            wiggledAsc.nodesPos,
+            newRoom,
             wiggledAsc.sensorsPos,
             wiggledAsc.speechSourcesPos,
             wiggledAsc.noiseSourcesPos
@@ -1280,7 +1291,6 @@ class AcousticScenario:
     def simulate_room(
             self,
             room: pra.ShoeBox,
-            nodesPos: np.ndarray,
             sensorsPos: np.ndarray,
             speechSourcesPos: np.ndarray,
             noiseSourcesPos: np.ndarray
@@ -1359,7 +1369,6 @@ class AcousticScenario:
 
         rirs = self.simulate_room(
             room,
-            nodesPos,
             sensorsPos,
             speechSourcesPos,
             noiseSourcesPos
@@ -1791,4 +1800,3 @@ def single_update_scm_inplace(Rss, Rnn, ssH, nnH, beta, vad=None):
             np.multiply(Rnn, beta, out=Rnn)
             np.add(Rnn, (1.0 - beta) * nnH, out=Rnn)
     # return Rss, Rnn
-
