@@ -24,8 +24,8 @@ roomHeight: 3.0   # height of the room in meters
 nodeRadius: 0.03  # radius of the node in meters
 # onPlane: True  # if True, all elements are on the same plane
 onPlane: False  # if True, all elements are on the same plane
-# t60: 0.          # reverberation time in seconds
-t60: 0.2          # reverberation time in seconds
+t60: 0.          # reverberation time in seconds
+# t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
@@ -69,6 +69,7 @@ dynamics: moving  # type of acoustic scenario dynamics
 movingEvery: 10.0  # time in seconds after which sources move in `moving` scenarios
 # movingEvery: 5.0  # time in seconds after which sources move in `moving` scenarios
 fixedObservabilities: True  # if True, the observabilities are fixed
+dynamicWiggleSize: 0.5  # deviations to be applied to the nodes and sources positions if dynamics == 'moving', in meters
 
 # Signals parameters
 # fs: 41000  # sampling frequency

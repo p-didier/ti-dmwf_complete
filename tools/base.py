@@ -70,6 +70,7 @@ class Parameters:
         # 'switching' for dynamic scenario with sources that can appear and disappear
     movingEvery: float = 1.0  # time in seconds after which sources move in `moving` scenarios
     fixedObservabilities: bool = True  # if True, the observabilities are fixed
+    dynamicWiggleSize: float = 0.1  # deviations to be applied to the nodes and sources positions if dynamics == 'moving', in meters
 
     # Signals parameters
     fs: int = 16000  # sampling frequency

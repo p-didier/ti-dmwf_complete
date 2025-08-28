@@ -487,10 +487,8 @@ class AcousticScenario:
             node.init_signal_vectors(c)
 
         # Define the acoustic scenario
-        if c.dynamics == 'static' or c.scmEstimation != 'online':
-            self.setup_wola_domain_static()
-        
-        elif c.dynamics == 'moving':
+        room = self.setup_wola_domain_static()
+        if c.dynamics == 'moving' and c.scmEstimation == 'online':
             # Dynamic scenario with always-active sources and random source movements
             nScenarios = np.floor(c.T / c.movingEvery).astype(int)
             print(f"Setting up {nScenarios} dynamic scenarios with different sources/nodes positions.")
@@ -505,7 +503,7 @@ class AcousticScenario:
                 idxStart = ii * int(c.movingEvery * c.fs)
                 idxEnd = idxStart + int(c.movingEvery * c.fs) - 1
                 # Setup the static scenario
-                self.setup_wola_domain_static(idxStart, idxEnd, omFixed=omFixed)
+                self.shuffle_scenario(room, idxStart, idxEnd, omFixed=omFixed)
 
         if c.diffuseSNR is not None and c.diffuseSNR > -50:
             # Compute and add diffuse noise
@@ -565,6 +563,80 @@ class AcousticScenario:
         print("Acoustic environment generated successfully, computing SCMs...")
         # Compute SCMs (from steering matrices if oracle, from signals if batch)
         return self.compute_scms()
+    
+    def shuffle_scenario(self, room: pra.room.ShoeBox, idxStart=0, idxEnd=-1, omFixed=None):
+        """Shuffle the last existing acoustic scenario by applying small
+        deviations to source/node positions."""
+        c = self.cfg
+        asc = self.scenarios[-1]  # use last scenario
+
+        # Apply small deviations to the nodes and sources positions
+        def _wiggle_array(arr: np.ndarray):
+            wiggles = np.random.uniform(
+                -c.dynamicWiggleSize, c.dynamicWiggleSize, size=arr.shape
+            )
+            return arr + wiggles, wiggles
+        
+        def _wiggle(currAsc: StaticScenarioParameters):
+            ascOut = copy.deepcopy(currAsc)
+            ascOut.nodesPos, wiggles = _wiggle_array(asc.nodesPos)
+            # Apply node wiggles to sensor positions
+            ascOut.sensorsPos = asc.sensorsPos.copy()
+            for k in range(c.K):
+                ascOut.sensorsPos[c.Mkc[k]:c.Mkc[k + 1], :] += wiggles[k, :]
+            ascOut.noiseSourcesPos = _wiggle_array(asc.noiseSourcesPos)[0]
+            ascOut.speechSourcesPos = _wiggle_array(asc.speechSourcesPos)[0]
+            return ascOut
+        
+        def _valid_asc(testAsc: StaticScenarioParameters):
+            # Check if the minimum distance from any node to any source is
+            # respected
+            rd = [c.roomLength, c.roomWidth, c.roomHeight]
+            allSources = np.vstack([testAsc.speechSourcesPos, testAsc.noiseSourcesPos])
+            for k in range(c.K):
+                for srcPos in allSources:
+                    if np.linalg.norm(testAsc.nodesPos[k, :] - srcPos) < c.minDistNodeSource:
+                        return False
+            # Check if the minimum distance from any object to the walls is respected
+            if np.any([rd - testAsc.nodesPos < c.minDistFromWall]):
+                return False
+            if np.any([rd - allSources < c.minDistFromWall]):
+                return False
+            return True
+
+        wiggledAsc = _wiggle(asc)
+        idxTrial = 0
+        while not _valid_asc(wiggledAsc):
+            print(f'Trial {idxTrial+1}: Invalid scenario, retrying...', end='\r')
+            wiggledAsc = _wiggle(asc)
+            idxTrial += 1
+        print(f'\nWiggled scenario created in {idxTrial+1} trials.')
+
+        # Delete all sources and sensors from room
+        room.sources = []
+        room.mic_array = None
+        # Add elements to room again and simulate new RIRs
+        rirs = self.simulate_room(
+            room,
+            wiggledAsc.nodesPos,
+            wiggledAsc.sensorsPos,
+            wiggledAsc.speechSourcesPos,
+            wiggledAsc.noiseSourcesPos
+        )
+        p = StaticScenarioParameters(
+            nodesPos=wiggledAsc.nodesPos,
+            sensorsPos=wiggledAsc.sensorsPos,
+            speechSourcesPos=wiggledAsc.speechSourcesPos,
+            noiseSourcesPos=wiggledAsc.noiseSourcesPos,
+            obsMat=asc.obsMat,
+            Qkq=asc.Qkq,
+            rirs=rirs,
+            aMat=asc.aMat,
+            trees=asc.trees,
+        )
+        self.apply_static_scenario(p, smIdx=[idxStart, idxEnd])
+        # Store the parameters for later use
+        self.scenarios.append(p)
 
     def setup_wola_domain_static(self, idxStart=0, idxEnd=-1, omFixed=None):
         """Setup a static acoustic scenario in the WOLA domain."""
@@ -592,6 +664,7 @@ class AcousticScenario:
         self.apply_static_scenario(p, smIdx=[idxStart, idxEnd])
         # Store the parameters for later use
         self.scenarios.append(p)
+        return room
 
     def compute_scms(self, force=None):
         """Compute the SCMs for the acoustic scenario."""
@@ -692,10 +765,10 @@ class AcousticScenario:
 
         return vad.astype(bool), vadSTFT.astype(bool)
 
-    def plot(self):
+    def plot(self, scenarioIdx=0):
         """Export the environment to a TXT file and to a plot."""
         c = self.cfg
-        scn = self.scenarios[0]  # Use the first scenario for plotting
+        scn = self.scenarios[scenarioIdx]  # Use the first scenario for plotting
         # Make a plot of the environment
         if c.onPlane:
             figObs, axes = plt.subplots(1, 1)
@@ -747,7 +820,7 @@ class AcousticScenario:
             # Plot the observability matrix
             axes.grid()
             axes.set_aspect('equal')
-            axes.set_title(f"Acoustic environment")
+            axes.set_title(f"Acoustic environment (scenario {scenarioIdx+1}/{len(self.scenarios)})")
             figObs.tight_layout()
 
             # Create a copy of the figure without observability lines
@@ -836,7 +909,21 @@ class AcousticScenario:
             ax.set_xlabel('Length [m]')
             ax.set_ylabel('Width [m]')
             ax.set_zlabel('Height [m]')
+            ax.set_title(f"Acoustic environment (scenario {scenarioIdx+1}/{len(self.scenarios)})")
         return fig, figObs
+
+    def plot_dynamic(self):
+        # Overlay several scenarios
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        for scenarioIdx, scn in enumerate(self.scenarios):
+            ax.scatter(scn.nodesPos[:, 0], scn.nodesPos[:, 1], scn.nodesPos[:, 2], label=f'Scenario {scenarioIdx+1}')
+        ax.set_xlabel('Length [m]')
+        ax.set_ylabel('Width [m]')
+        ax.set_zlabel('Height [m]')
+        ax.set_title('Acoustic environment (dynamic)')
+        ax.legend()
+        plt.show()
 
     def store_scenario_parameters(self, p: StaticScenarioParameters):
         """Store the scenario parameters in the environment."""
@@ -894,12 +981,14 @@ class AcousticScenario:
 
             alreadyUsed = []
             for ii in range(n):
+                print(f'Building latent speech signal {ii+1}/{n}...')
                 # Randomly select one file from the list
                 fr, prefix, alreadyUsed = _randsel(files)
                 # Load file 
                 speech = self.load_sound_file(fr)
                 idx = 0
                 while len(speech) < nSamples:
+                    print(f'Loading and processing speech snippet #{idx+1}...', end='\r')
                     # Find another file with the same prefix
                     filesSamePrefix = [f for f in files if f.name.startswith(prefix) and f.name not in alreadyUsed]
                     if len(filesSamePrefix) == 0:
@@ -919,6 +1008,7 @@ class AcousticScenario:
                     speech = np.concatenate((speech, newSig))
                     idx += 1
                 x[ii, :] = speech[:nSamples]
+            print(f"\nBuilt latent speech signal.")
             return x
         
     def get_latent_noise(self, n: int) -> np.ndarray:
@@ -1097,6 +1187,7 @@ class AcousticScenario:
             while np.any(
                 np.linalg.norm(tmp - np.array(nodesPos[:k, :]), axis=1) < c.nodeRadius * 2.5
             ):
+                print(f"Node {k + 1}/{c.K} too close to another node, generating a new position...", end='\r')
                 # If the node is too close to another node, generate a new position
                 tmp = np.random.rand(3) *\
                     (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
@@ -1118,6 +1209,7 @@ class AcousticScenario:
                 if c.onPlane:
                     tmp[2] = zPlane
                 while np.any(np.linalg.norm(tmp - np.array(sensors), axis=1) < c.nodeRadius / c.Mk[k]):
+                    print(f"Sensor {m + 1}/{c.Mk[k]} of node {k + 1}/{c.K} too close to another sensor, generating a new position...", end='\r')
                     # If the sensor is too close to another sensor, generate a new position
                     tmp = nodesPos[k, :] + np.random.randn(3) * (c.nodeRadius / 2)
                     if c.onPlane:
@@ -1175,6 +1267,43 @@ class AcousticScenario:
 
         return nodesPos, sensorsPos, speechSourcesPos, noiseSourcesPos
 
+    def simulate_room(
+            self,
+            room: pra.ShoeBox,
+            nodesPos: np.ndarray,
+            sensorsPos: np.ndarray,
+            speechSourcesPos: np.ndarray,
+            noiseSourcesPos: np.ndarray
+        ):
+        c = self.cfg
+        # Add sources to the room
+        for ii in range(c.Qd):
+            room.add_source(speechSourcesPos[ii, :])
+        for ii in range(c.Qn):
+            room.add_source(noiseSourcesPos[ii, :])
+        # Add sensors to the room
+        room.add_microphone_array(pra.MicrophoneArray(sensorsPos.T, c.fs))
+        # Simulate the room
+        print("\nComputing the room impulse responses...")
+        t0 = time.time()
+        room.compute_rir()
+        print("Room impulse responses computed in {:.2f} s".format(time.time() - t0))
+
+        # Truncate RIRs to ensure respect of narrowband assumption
+        for ii in range(len(room.rir)):
+            for jj in range(len(room.rir[ii])):
+                # Truncate the RIRs to the first c.nfft samples
+                if len(room.rir[ii][jj]) > c.nfft:
+                    room.rir[ii][jj] = room.rir[ii][jj][:c.nfft]
+                elif len(room.rir[ii][jj]) < c.nfft:
+                    # Pad the RIRs with zeros to the first c.nfft samples
+                    room.rir[ii][jj] = np.pad(
+                        room.rir[ii][jj],
+                        (0, c.nfft - len(room.rir[ii][jj])),
+                        mode='constant'
+                    )
+        return room.rir
+
     def define_static_scenario(self, room: pra.ShoeBox, omFixed=None) -> StaticScenarioParameters:
         c = self.cfg  # Configuration object
 
@@ -1218,32 +1347,13 @@ class AcousticScenario:
                 for k in range(c.K)
             ]
 
-        # Add sources to the room
-        for ii in range(c.Qd):
-            room.add_source(speechSourcesPos[ii, :])
-        for ii in range(c.Qn):
-            room.add_source(noiseSourcesPos[ii, :])
-        # Add sensors to the room
-        room.add_microphone_array(pra.MicrophoneArray(sensorsPos.T, c.fs))
-        # Simulate the room
-        print("\nComputing the room impulse responses...")
-        t0 = time.time()
-        room.compute_rir()
-        print("Room impulse responses computed in {:.2f} s".format(time.time() - t0))
-
-        # Truncate RIRs to ensure respect of narrowband assumption
-        for ii in range(len(room.rir)):
-            for jj in range(len(room.rir[ii])):
-                # Truncate the RIRs to the first c.nfft samples
-                if len(room.rir[ii][jj]) > c.nfft:
-                    room.rir[ii][jj] = room.rir[ii][jj][:c.nfft]
-                elif len(room.rir[ii][jj]) < c.nfft:
-                    # Pad the RIRs with zeros to the first c.nfft samples
-                    room.rir[ii][jj] = np.pad(
-                        room.rir[ii][jj],
-                        (0, c.nfft - len(room.rir[ii][jj])),
-                        mode='constant'
-                    )
+        rirs = self.simulate_room(
+            room,
+            nodesPos,
+            sensorsPos,
+            speechSourcesPos,
+            noiseSourcesPos
+        )
 
         return StaticScenarioParameters(
             nodesPos=nodesPos,
@@ -1252,7 +1362,7 @@ class AcousticScenario:
             noiseSourcesPos=noiseSourcesPos,
             obsMat=obsMat,
             Qkq=Qkq,
-            rirs=room.rir,
+            rirs=rirs,
             aMat=aMat if flagTI else None,
             trees=trees if flagTI else None,
         )
