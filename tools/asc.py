@@ -487,7 +487,7 @@ class AcousticScenario:
             node.init_signal_vectors(c)
 
         # Define the acoustic scenario
-        if c.dynamics == 'static' and c.scmEstimation != 'online':
+        if c.dynamics == 'static' or c.scmEstimation != 'online':
             print(f"Defining base acoustic scenario...")
             room = self.setup_wola_domain_static()
             print("Base acoustic scenario defined.")

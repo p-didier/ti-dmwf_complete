@@ -38,6 +38,7 @@ class PostProcParameters:
     forcedYlim: dict = field(default_factory=lambda: {
         'msew': [1e-27, 1e6],  # If not None, force y-axis limits for msew
     })
+    stairsPlot: bool = False  # If True, plot a metrics stairs plot for each static segment (only used in online mode with dynamic scenarios)
     stoiRef: str = field(init=False)  # Will be set in __post_init__
     n_per_col: int = 2  # Number of figures per column after plt.show()
     margin: int = 100  # Margin between figures in pixels

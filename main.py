@@ -11,29 +11,21 @@
 import sys
 import time
 import copy
-# import argparse
 import itertools
 import numpy as np
 from pathlib import Path
 from tools.base import *
 from tools.algos import *
-from pp import main as main_pp
+from pp import main as postprocessing
 
-# parser = argparse.ArgumentParser(description="(TI-)dMWF framework")
-# parser.add_argument("--cfg", type=int, help="Config file name", default=0)
-
-# args = parser.parse_args()
-
-# PATH_TO_CFG = f".\\config\\{args.cfg}.yml"  # Path to the configuration file
 PATH_TO_CFG = f".\\config\\cfg.yml"  # Path to the configuration file
-# PATH_TO_CFG = f".\\config\\cfg_tidmwf.yml"  # Path to the configuration file
 
 testParams = {
     # 'scmEstimation': ['oracle', 'batch'],
     'scmEstimation': ['online'],
     # 'observability': ['foss', 'poss'],
-    # 'observability': ['foss'],
-    'observability': ['poss'],
+    'observability': ['foss'],
+    # 'observability': ['poss'],
 }
 
 # Build TEST_SET based on testParams
@@ -88,9 +80,9 @@ def main():
     print(f"\nAll runs completed in {time.time() - tMaster:.2f} seconds.")
 
     # Post-processing
-    main_pp()
+    postprocessing()
 
-    pass
+    return 0
 
 
 def clean_output_dir(output_dir):

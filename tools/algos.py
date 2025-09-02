@@ -106,8 +106,8 @@ class Run:
                 Rss = copy.deepcopy(Ryy)  # Initialize Rss with the same structure as Ryy
                 Rnn = copy.deepcopy(Ryy)  # Initialize Rnn with the same structure as Ryy
 
-            flagAlternating = np.any('dmwf' in alg for alg in c.algos) and c.dMWFalternating
-            if flagAlternating:
+            flagdMWF_alternating = np.any(['dmwf' in alg for alg in c.algos]) and c.dMWFalternating
+            if flagdMWF_alternating:
                 # For alternating dMWF, we compute SCMs using every other frame
                 Ryy_est = copy.deepcopy(Ryy)
                 Rss_est = copy.deepcopy(Rss)
@@ -119,27 +119,34 @@ class Run:
                 Ryy_est, Rss_est, Rnn_est, Ryy_dis, Rss_dis, Rnn_dis = None, None, None, None, None, None  # default -- no alternating dMWF
 
             for l in tqdm(range(c.nFrames), desc=f"Processing frames ({len(c.algos)} algorithms)"):
+                sl = s[..., l]  # current frame of desired signal
+                nl = n[..., l]  # current frame of noise
+                yl = sl + nl
+
                 # profiler = Profiler()
                 # profiler.start()
                 if c.algos == ['unprocessed']:
                     pass
                 else:
                     # New SCM estimates
-                    # nnH = np.einsum('ji,ki->ijk', n[..., l], n[..., l].conj())
-                    nnH = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())  # yyH
+                    # nnH = np.einsum('ji,ki->ijk', nl, nl.conj())
+                    nnH = np.einsum('ji,ki->ijk', yl, np.conjugate(yl))  # yyH
                     if c.noCrossCorrelation:
-                        inner2 = np.einsum('ji,ki->ijk', s[..., l], s[..., l].conj())  # ssH
+                        inner2 = np.einsum('ji,ki->ijk', sl, np.conjugate(sl))  # ssH
                     else: 
-                        inner2 = np.einsum('ji,ki->ijk', (s + n)[..., l], (s + n)[..., l].conj())  # yyH
-                    if flagAlternating:
+                        inner2 = np.einsum('ji,ki->ijk', yl, np.conjugate(yl))  # yyH
+                    if flagdMWF_alternating:
+                        slprev = s[..., l - 1]  # last frame of desired signal
+                        nlprev = n[..., l - 1]  # last frame of noise
+                        ylprev = slprev + nlprev
                         # Prepare previous chunk of data for alternating dMWF
                         # nnHprev = np.einsum('ji,ki->ijk', n[..., l - 1], n[..., l - 1].conj())
-                        nnHprev = np.einsum('ji,ki->ijk', (s + n)[..., l - 1], (s + n)[..., l - 1].conj())  # yyH
+                        nnHprev = np.einsum('ji,ki->ijk', ylprev, np.conjugate(ylprev))  # yyH
                         if c.noCrossCorrelation:
-                            inner2_prev = np.einsum('ji,ki->ijk', s[..., l - 1], s[..., l - 1].conj())  # ssH
+                            inner2_prev = np.einsum('ji,ki->ijk', slprev, np.conjugate(slprev))  # ssH
                         else: 
-                            inner2_prev = np.einsum('ji,ki->ijk', (s + n)[..., l - 1], (s + n)[..., l - 1].conj())  # yyH
-                    
+                            inner2_prev = np.einsum('ji,ki->ijk', ylprev, np.conjugate(ylprev))  # yyH
+
                     # Update the SCMs using the online estimation formula
                     kwargs = {
                         'beta': c.beta,
@@ -147,7 +154,7 @@ class Run:
                         'nnH': nnH,
                         'vad': vadSTFT[:, l] if c.useVAD else None
                     }
-                    if flagAlternating:
+                    if flagdMWF_alternating:
                         kwargs_prev = copy.deepcopy(kwargs)
                         kwargs_prev['nnH'] = nnHprev
                         kwargs_prev['ssH'] = inner2_prev
@@ -158,7 +165,7 @@ class Run:
                     else:
                         Ryy, Rnn = single_update_scm(Ryy, Rnn, **kwargs)
                     
-                    if l % 2 == 0 and flagAlternating:
+                    if l % 2 == 0 and flagdMWF_alternating:
                         # If alternating dMWF, update the dMWF estimation SCMs
                         # using the even frames only, and update the dMWF
                         # discovery SCMs using the previous chunk of data.
@@ -169,7 +176,7 @@ class Run:
                             Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs)
                             Ryy_dis, Rnn_dis = single_update_scm(Ryy_dis, Rnn_dis, **kwargs_prev)
                     
-                    elif l % 2 == 1 and flagAlternating:
+                    elif l % 2 == 1 and flagdMWF_alternating:
                         # If alternating dMWF, update the dMWF discovery SCMs
                         # using the odd frames only, and update the dMWF
                         # estimation SCMs using the previous chunk of data.
@@ -183,7 +190,7 @@ class Run:
                     # Complete signal SCM
                     if c.noCrossCorrelation:
                         Ryy = Rss + Rnn
-                        if flagAlternating:
+                        if flagdMWF_alternating:
                             Ryy_est = Rss_est + Rnn_est
                             Ryy_dis = Rss_dis + Rnn_dis
                     else:
@@ -197,9 +204,9 @@ class Run:
                 iv['vad'] = vadSTFT[:, l] if c.useVAD else None
                 scenarioIdx = 0  # by default
                 if c.domain == 'wola':
-                    iv['frame_y'] = s[..., l].T + n[..., l].T
-                    iv['frame_s'] = s[..., l].T
-                    iv['frame_n'] = n[..., l].T
+                    iv['frame_y'] = sl.T + nl.T
+                    iv['frame_s'] = sl.T
+                    iv['frame_n'] = nl.T
                     # Identify current acoustic scenario (for oQq and Qkq values in dMWF)
                     if c.dynamics == 'moving':
                         scenarioIdx = int((l * (c.nfft - c.nhop) / c.fs) // c.movingEvery)

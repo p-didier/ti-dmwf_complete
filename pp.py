@@ -27,7 +27,7 @@ def main():
     """Main function (called by default when running script)."""
     # Load parameters from YAML file
     p = PostProcParameters()
-    p.load_from_yaml('config.yaml')
+    p.load_from_yaml(PP_CFG_FILE)
 
     # Load the results from the directory
     if p.resultsDir == 'latest':
@@ -78,7 +78,7 @@ def main():
             with open(files[0], 'rb') as f:
                 results = pickle.load(f)
             c: Parameters = results['cfg']  # Configuration parameters
-            pp = PostProcessor(cfg=c)
+            pp = PostProcessor(cfg=c, pp_cfg=p)
         else:
             metrics = []
             for idxMC, f in enumerate(files):
@@ -87,13 +87,13 @@ def main():
                     results = pickle.load(f)
                 # Process the results
                 c: Parameters = results['cfg']  # Configuration parameters
-                pp = PostProcessor(cfg=c)
+                pp = PostProcessor(cfg=c, pp_cfg=p)
                 
                 if p.metricsToComputeOverride is not None:
                     metricsToCompute = p.metricsToComputeOverride
                 else:
                     metricsToCompute = ['msew', 'msed', 'snr', 'ser']
-                    if not pp.bypassStoi and c.domain == 'wola' and\
+                    if not p.bypassStoi and c.domain == 'wola' and\
                         c.singleLine is None and c.desSigType == 'speech':  # speech enhancement scenario
                         metricsToCompute += [p.stoiRef]
                     if c.scmEstimation == 'online':
@@ -120,7 +120,7 @@ def main():
                         'shatk': results['shatk'],
                         'nhatk': results['nhatk']
                     }
-                    if 1:
+                    if p.plotWaveforms:
                         plot_signals(dataIn, c, kPlotIndex=p.whichNodes[0] if p.whichNodes != 'all' else 0)
                 else:
                     raise ValueError("Unknown results format (no 's' or 'shat' key in results dict).")
@@ -207,17 +207,24 @@ def plot_signals(sigs, c: Parameters, kPlotIndex=0):
     fig.suptitle(f"Signal Comparison -- Node {kPlotIndex + 1}")
     fig.tight_layout()
     plt.show(block=False)
+    
     # Show spectrograms
+    spectros = dict([(alg, None) for alg in c.algos])
+    for alg in c.algos:
+        spectros[alg] = 20 * np.log10(np.abs(
+            c.get_stft(dhatk[kPlotIndex][alg][0, :])
+        ))
+    # Compute colorbar limits
+    vmin = min(spectro.min() for spectro in spectros.values())
+    vmax = max(spectro.max() for spectro in spectros.values())
+    vmin = max(vmin, vmax - 100)  # Limit dynamic range to 100 dB
     fig, axes = plt.subplots(1, len(c.algos), sharex=True, sharey=True)
     fig.set_size_inches(3.5 * len(c.algos), 3)
     for alg_idx, alg in enumerate(c.algos):
         ax = axes[alg_idx] if len(c.algos) > 1 else axes
-        ax.pcolormesh(np.log10(np.abs(
-            c.get_stft(
-                dhatk[kPlotIndex][alg][0, :]
-            )
-        )))
+        mapp = ax.pcolormesh(spectros[alg], vmin=vmin, vmax=vmax)
         ax.set_title(alg)
+        fig.colorbar(mapp, ax=ax)
         if c.dynamics == 'moving' and c.scmEstimation == 'online':
             # Plot a vertical line every time the scenario changes
             nChanges = int(c.T / c.movingEvery)
@@ -249,10 +256,10 @@ class PostProcessor:
             self.metricsMethod = 'recent_seconds'  # Use recent seconds for non-static dynamics
         else:
             self.metricsMethod = p.metricsMethod  # Use the specified method for online processing
-        if self.metricsMethod == 'recent_seconds':
-            self.bypassStoi = True  # Bypass STOI computation for 'recent_seconds' method
-        else:
-            self.bypassStoi = p.bypassStoi
+        # if self.metricsMethod == 'recent_seconds':
+        #     self.bypassStoi = True  # Bypass STOI computation for 'recent_seconds' method
+        # else:
+        #     self.bypassStoi = p.bypassStoi
         self.nodesToProcess = range(c.K) if p.whichNodes == 'all' else p.whichNodes
         if isinstance(c.Mk, int):
             self.Mk = [c.Mk] * c.K
@@ -349,7 +356,7 @@ class PostProcessor:
                         metrics[m][alg][k].append(metrics_curr[m])
         
         # Compute STOI
-        if p.p.stoiRef in metricsToCompute:
+        if p.stoiRef in metricsToCompute:
             if isinstance(p.stoiInterval, list):
                 idxBeg = int(p.stoiInterval[0] * c.fs)
                 idxEnd = int(p.stoiInterval[1] * c.fs) if p.stoiInterval[1] != -1 else -1
@@ -359,12 +366,23 @@ class PostProcessor:
             for k in self.nodesToProcess:
                 for alg in c.algos:
                     print(f"Computing STOI for {alg}, node {k + 1}/{len(self.nodesToProcess)}...", end='\r')
-                    metrics[p.p.stoiRef][alg][k] = stoi_any_fs(
+                    metrics[p.stoiRef][alg][k] = stoi_any_fs(
                         d[k, 0, idxBeg:idxEnd],
                         dhatk[k][alg][0, idxBeg:idxEnd],
                         fs_sig=c.fs,
-                        extended=p.extendedStoi
+                        # extended=p.extendedStoi
+                        extended=True
                     )
+                    pass
+                if 0:
+                    fig, axes = plt.subplots(1, 1)
+                    fig.set_size_inches(8.5, 3.5)
+                    axes.plot(dhatk[k][alg][0, idxBeg:idxEnd], label=f'estimate ({alg})')
+                    axes.plot(d[k, 0, idxBeg:idxEnd], label='true target')
+                    axes.legend()
+                    axes.set_title(f'{p.stoiRef}: {metrics[p.stoiRef][alg][k]:.3f}')
+                    fig.tight_layout()
+                    plt.show()
         
         return metrics
 
@@ -517,7 +535,7 @@ class PostProcessor:
         metrics_curr = dict([
             (metric, None)
             for metric in metricsToCompute
-            if metric != self.pp_cfg.p.stoiRef
+            if metric != self.pp_cfg.stoiRef
         ])
         for m in metricsToCompute:
             if m == 'msew':
@@ -570,7 +588,8 @@ class PostProcessor:
             if m == p.stoiRef:
                 ax.set_ylim(0, 1)
             maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
-            if c.dynamics == 'moving' and c.scmEstimation == 'online':
+            if c.dynamics == 'moving' and c.scmEstimation == 'online' and\
+                m != p.stoiRef:
                 # Plot a vertical line every time the scenario changes
                 nChanges = int(c.T / c.movingEvery)
                 for i in range(nChanges):
@@ -680,7 +699,9 @@ class PostProcessor:
 
 
         # === Additional figure: metrics aggregated per static segment as stairs ===
-        if c.scmEstimation == 'online' and getattr(c, 'dynamics', None) == 'moving' and hasattr(c, 'movingEvery'):
+        if c.scmEstimation == 'online' and\
+            getattr(c, 'dynamics', None) == 'moving' and\
+            hasattr(c, 'movingEvery') and p.stairsPlot:
             # Compute mapping from frame index -> time [s]
             maxX = metrics[list(metrics.keys())[0]]['unprocessed'].shape[-1]
             # Segment edges in time
@@ -794,8 +815,6 @@ class PostProcessor:
             fig2.tight_layout()
         fig.tight_layout()
         return fig
-
-
 
 
 if __name__ == '__main__':
