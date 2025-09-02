@@ -80,10 +80,10 @@ fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
 # T: 5.0  # duration of the signals in seconds
-T: 10.0  # duration of the signals in seconds
+# T: 10.0  # duration of the signals in seconds
 # T: 15.0  # duration of the signals in seconds
 # T: 20.0  # duration of the signals in seconds
-# T: 30.0  # duration of the signals in seconds
+T: 30.0  # duration of the signals in seconds
 # T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
@@ -107,10 +107,10 @@ friendlyVoiceActivityCycleDuration: 3  # duration of a speech+pause cycle in sec
 
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
-- unprocessed
-- local
+# - unprocessed
+# - local
 # - centralized
-# - dmwf
+- dmwf
 # - danse
 # - rsdanse
 # - tidmwf
@@ -152,8 +152,8 @@ singleLine: null  # if not None, only process this frequency line in WOLA domain
 # singleLine: 20  # if not None, only process this frequency line in WOLA domain
 # unconstrainedRandomPositions: True  # if True, allow random positions for sources
 unconstrainedRandomPositions: False  # if True, allow random positions for sources
-wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
-# wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
+# wolaMixtures_viaTD: False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
+wolaMixtures_viaTD: True  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
 # noCrossCorrelation: True  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 noCrossCorrelation: False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
 # nodeSpecificDANSEsourceEnum: True  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
@@ -162,8 +162,8 @@ nodeSpecificDANSEsourceEnum: False  # if True, use a node-specific enumeration f
 scmHeadStart: True  # head start for SCM estimation
 #  ^^^ If False: no head start, initialize SCMs randomly
 #  ^^^ If True: head start, initialize SCMs as batch-mode SCMs
-# scmHeadStartNoiseAmount: 0  # noise amount added to head start SCMs 
-scmHeadStartNoiseAmount: 0.001  # noise amount added to head start SCMs 
+scmHeadStartNoiseAmount: 0  # noise amount added to head start SCMs 
+# scmHeadStartNoiseAmount: 0.01  # noise amount added to head start SCMs 
 # gevdJustForDANSE: False  # if True, use GEVD for DANSE algorithms
 gevdJustForDANSE: True  # if True, use GEVD for DANSE algorithms
 
@@ -171,4 +171,5 @@ gevdJustForDANSE: True  # if True, use GEVD for DANSE algorithms
 nMCruns: 1  # number of Monte Carlo runs
 # nMCruns: 10  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: saa_scmHeadStartNoiseAmount0p001  # output file suffix
+# suffix: saa_batch_headstart_allAlgos_dynASC_noGEVD  # output file suffix
+suffix: saa_oracle_headstart_allAlgos_dynASC_noGEVD  # output file suffix

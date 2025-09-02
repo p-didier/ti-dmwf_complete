@@ -143,6 +143,16 @@ class Parameters:
         np.random.seed(self.seed)
         self.N = int(self.fs * self.T)
 
+        # Datatype
+        if self.domain == 'wola':
+            self.mydtype = np.complex128
+        elif self.domain == 'time_complex':
+            self.mydtype = np.complex128
+        elif 'time' in self.domain:
+            self.mydtype = np.float64
+        else:
+            self.mydtype = np.float64
+
         if isinstance(self.Mk, int):
             self.Mk = [self.Mk] * self.K
         elif isinstance(self.Mk, list):
@@ -281,25 +291,43 @@ class Parameters:
         return A @ herm(A)  # A * A^H
 
     def init_full(self, shape, value=0, random=False, selection_matrix=False):
-        """Initialize a full matrix."""
+        """Initialize a full matrix."""        
+        # Adjust shape if needed
+        if 'time' in self.domain and not selection_matrix:
+            shape = (shape[1], shape[2])
+
         if random:
-            if 'time' in self.domain and not selection_matrix:
-                shape = (shape[1], shape[2])  # get rid of the frequency dimension
-            return self.randmat(shape)
-        if self.domain == 'wola':
-            return np.full(shape, value, dtype=complex)
-        elif 'time' in self.domain:
-            if not selection_matrix:
-                shape = (shape[1], shape[2])  # get rid of the frequency dimension
-            return np.full(shape, value, dtype=complex if self.domain == 'time_complex' else float)
+            return self.randmat(shape)   # assume this makes dtype-correct matrices
+        else:
+            return np.full(shape, value, dtype=self.mydtype)
+
+        # if random:
+        #     if 'time' in self.domain and not selection_matrix:
+        #         shape = (shape[1], shape[2])  # get rid of the frequency dimension
+        #     return self.randmat(shape)
+        # if self.domain == 'wola':
+        #     return np.full(shape, value, dtype=complex)
+        # elif 'time' in self.domain:
+        #     if not selection_matrix:
+        #         shape = (shape[1], shape[2])  # get rid of the frequency dimension
+        #     return np.full(shape, value, dtype=complex if self.domain == 'time_complex' else float)
 
 
-def herm(x: np.ndarray) -> np.ndarray:
-    """Hermitian transpose."""
+def herm(x: np.ndarray, out: np.ndarray | None = None) -> np.ndarray:
+    """
+    Hermitian (conjugate transpose).
+    
+    Works for 2D and 3D arrays.
+    - For 2D: returns xᴴ.
+    - For 3D: assumes batch of matrices, shape (N, M, K) → (N, K, M).
+    If `out` is provided, writes result there to avoid allocations.
+    """
     if x.ndim == 2:
-        return x.conj().T
+        return np.conjugate(x, out=out).T
     elif x.ndim == 3:
-        return x.conj().transpose(0, 2, 1)
+        return np.conjugate(x, out=out).transpose(0, 2, 1)
+    else:
+        raise ValueError("Input must be 2D or 3D array")
 
 
 def get_git_info():

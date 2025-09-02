@@ -370,8 +370,8 @@ class PostProcessor:
                         d[k, 0, idxBeg:idxEnd],
                         dhatk[k][alg][0, idxBeg:idxEnd],
                         fs_sig=c.fs,
-                        # extended=p.extendedStoi
-                        extended=True
+                        extended=p.extendedStoi
+                        # extended=True
                     )
                     pass
                 if 0:

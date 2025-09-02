@@ -1,5 +1,6 @@
 # ==== File and Directory Parameters ====
 baseResultsDir: './out'  # Base directory for results
+# resultsDir: './out/res_20250902_1304_saa_wolaMixtures_viaTD_static'  # Results subdirectory
 resultsDir: 'latest'  # Results subdirectory
 
 # ==== Export and Recompute Flags ====
@@ -41,4 +42,4 @@ margin: 100  # Margin between figures in pixels
 
 # ==== Debug Parameters ====
 plotWaveforms: true  # If True, plot waveforms for debugging
-# plotWaveforms: false  # If True, plot waveforms for debugging
+plotWaveforms: false  # If True, plot waveforms for debugging

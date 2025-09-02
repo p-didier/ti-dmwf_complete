@@ -474,8 +474,9 @@ class AcousticScenario:
         # Scale the latent noise signals to match the target SNR
         if c.latentSNR is not None:
             # Scale the latent noise signals to match the target SNR
-            nPower = np.mean(np.abs(self.latentNoise) ** 2)
-            sPower = np.mean(np.abs(self.latentDesired) ** 2)
+            vad = self.compute_vad(np.sum(self.latentDesired, axis=0))
+            nPower = np.mean(np.abs(self.latentNoise[:, vad]) ** 2)
+            sPower = np.mean(np.abs(self.latentDesired[:, vad]) ** 2)
             if nPower > 0 and sPower > 0:
                 currentSNR = 10 * np.log10(sPower / nPower)
                 scalingFactor = 10 ** ((c.latentSNR - currentSNR) / 20)
@@ -708,12 +709,11 @@ class AcousticScenario:
 
         if scmEstType == 'batch':
             Rnn = np.einsum('ijk,ljk->jil', stack['n'], stack['n'].conj())
+            Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj())
             if c.noCrossCorrelation:
-                Rss = np.einsum('ijk,ljk->jil', stack['s'], stack['s'].conj())
                 Ryy = Rss + Rnn
             else:
                 Ryy = np.einsum('ijk,ljk->jil', stack['y'], stack['y'].conj())
-                Rss = None
         elif scmEstType == 'oracle':
             # Compute FFT of RIRs
             Cmat = np.zeros((c.nPosFreqs, c.M, c.Q), dtype=complex)
@@ -1759,25 +1759,74 @@ def get_upstream_nodes(G: nx.Graph, root):
     return upstreamNodes, upstreamNeighbors
 
 
-def single_update_scm(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
-    """Update the SCMs using the online estimation formula."""
-    Rss = copy.deepcopy(RssPrev)  # by default, copy the previous SCM
-    Rnn = copy.deepcopy(RnnPrev)  # by default, copy the previous SCM
-    if vad is not None:
-        if any(vad):  # <-- VOICE ACTIVITY ON
-            Rss = beta * RssPrev + (1 - beta) * ssH
-            # no update for noise SCM if VAD is False
-        else:  # <-- VOICE ACTIVITY OFF
-            Rss = beta * RssPrev + (1 - beta) * ssH
-            # no update for speech+noise/speech-only SCM if VAD is False
-            if RnnPrev is not None:
-                # Rnn = beta * RnnPrev + (1 - beta) * yyH
-                Rnn = beta * RnnPrev + (1 - beta) * nnH
-    else:
-        Rss = beta * RssPrev + (1 - beta) * ssH
-        if RnnPrev is not None:
-            Rnn = beta * RnnPrev + (1 - beta) * nnH
-    return Rss, Rnn
+# def single_update_scm(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
+#     """Update the SCMs using the online estimation formula."""
+#     Rss = copy.deepcopy(RssPrev)  # by default, copy the previous SCM
+#     Rnn = copy.deepcopy(RnnPrev)  # by default, copy the previous SCM
+#     if vad is not None:
+#         if any(vad):  # <-- VOICE ACTIVITY ON
+#             Rss = beta * RssPrev + (1 - beta) * ssH
+#             # no update for noise SCM if VAD is False
+#         else:  # <-- VOICE ACTIVITY OFF
+#             Rss = beta * RssPrev + (1 - beta) * ssH
+#             # no update for speech+noise/speech-only SCM if VAD is False
+#             if RnnPrev is not None:
+#                 # Rnn = beta * RnnPrev + (1 - beta) * yyH
+#                 Rnn = beta * RnnPrev + (1 - beta) * nnH
+#     else:
+#         Rss = beta * RssPrev + (1 - beta) * ssH
+#         if RnnPrev is not None:
+#             Rnn = beta * RnnPrev + (1 - beta) * nnH
+#     return Rss, Rnn
+
+# import numpy as np
+
+def single_update_scm(Rss, Rnn, *, ssH, nnH, beta, vad=None, inplace=True):
+    """
+    Online SCM update:
+      Rss <- beta * Rss + (1 - beta) * ssH
+      Rnn <- beta * Rnn + (1 - beta) * nnH   (only when VAD == False or VAD is None)
+
+    Parameters
+    ----------
+    Rss, Rnn : np.ndarray or None
+        Current SCMs (will be updated in-place if `inplace=True`).
+    ssH, nnH : np.ndarray
+        New instantaneous SCM estimates.
+    beta : float
+        Forgetting factor in [0, 1).
+    vad : None, bool, or array-like
+        If provided, noise SCM is updated **only when** np.any(vad) is False.
+        (Speech SCM is always updated, matching your original code.)
+    inplace : bool
+        If True, modify Rss/Rnn in place; otherwise return new arrays.
+
+    Returns
+    -------
+    (Rss_out, Rnn_out)
+    """
+    alpha = 1.0 - beta
+
+    # Decide outputs (views or fresh arrays)
+    Rss_out = Rss if (inplace and Rss is not None) else (None if Rss is None else Rss.copy())
+    Rnn_out = Rnn if (inplace and Rnn is not None) else (None if Rnn is None else (None if Rnn is None else Rnn.copy()))
+
+    # --- Rss update ---
+    update_rss = (Rss_out is not None) and (np.any(vad))
+    # update_rss = (Rss_out is not None) # and (np.any(vad))
+    if update_rss:
+        # In-place axpby: Rss = beta*Rss + alpha*ssH
+        Rss_out *= beta
+        Rss_out += alpha * ssH  # (one temp for ssH*alpha; cheap vs deepcopy)
+
+    # --- Rnn update: only when VAD is False (or VAD not provided) ---
+    update_rnn = (Rnn_out is not None) and (vad is None or not np.any(vad))
+    if update_rnn:
+        Rnn_out *= beta
+        Rnn_out += alpha * nnH
+
+    return Rss_out, Rnn_out
+
 
 def single_update_scm_inplace(Rss, Rnn, ssH, nnH, beta, vad=None):
     """In-place exponential SCM updates."""

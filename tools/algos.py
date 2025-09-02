@@ -97,26 +97,29 @@ class Run:
             W_netWide = []
 
             if c.scmHeadStart:
-                _, Rss, Rnn, _, _ = asc.compute_scms(force='oracle')
-                Rss += c.scmHeadStartNoiseAmount * np.amax(np.abs(Rss)) * np.random.randn(*Rss.shape)
-                Rnn += c.scmHeadStartNoiseAmount * np.amax(np.abs(Rnn)) * np.random.randn(*Rnn.shape)
+                _, Rss, Rnn, _, _ = asc.compute_scms(force='batch')
+                # _, Rss, Rnn, _, _ = asc.compute_scms(force='oracle')
+                Rss += c.scmHeadStartNoiseAmount * np.amax(np.abs(Rss)) *\
+                    c.randmat_hermposdef(Rss.shape, makeComplex=True)
+                Rnn += c.scmHeadStartNoiseAmount * np.amax(np.abs(Rnn)) *\
+                    c.randmat_hermposdef(Rnn.shape, makeComplex=True)
                 Ryy = Rss + Rnn
+                Ryy = np.ascontiguousarray(Ryy, dtype=c.mydtype)
+                Rss = np.ascontiguousarray(Rss, dtype=c.mydtype)
+                Rnn = np.ascontiguousarray(Rnn, dtype=c.mydtype)
             else:
                 Ryy = c.scmInitScaling * c.randmat_hermposdef((c.nPosFreqs, c.M, c.M), makeComplex=True)
                 Rss = copy.deepcopy(Ryy)  # Initialize Rss with the same structure as Ryy
                 Rnn = copy.deepcopy(Ryy)  # Initialize Rnn with the same structure as Ryy
 
+            # For alternating dMWF, we compute SCMs using every other frame
             flagdMWF_alternating = np.any(['dmwf' in alg for alg in c.algos]) and c.dMWFalternating
-            if flagdMWF_alternating:
-                # For alternating dMWF, we compute SCMs using every other frame
-                Ryy_est = copy.deepcopy(Ryy)
-                Rss_est = copy.deepcopy(Rss)
-                Rnn_est = copy.deepcopy(Rnn)
-                Ryy_dis = copy.deepcopy(Ryy)
-                Rss_dis = copy.deepcopy(Rss)
-                Rnn_dis = copy.deepcopy(Rnn)
-            else:
-                Ryy_est, Rss_est, Rnn_est, Ryy_dis, Rss_dis, Rnn_dis = None, None, None, None, None, None  # default -- no alternating dMWF
+            Ryy_est = copy.deepcopy(Ryy)
+            Rss_est = copy.deepcopy(Rss)
+            Rnn_est = copy.deepcopy(Rnn)
+            Ryy_dis = copy.deepcopy(Ryy)
+            Rss_dis = copy.deepcopy(Rss)
+            Rnn_dis = copy.deepcopy(Rnn)
 
             for l in tqdm(range(c.nFrames), desc=f"Processing frames ({len(c.algos)} algorithms)"):
                 sl = s[..., l]  # current frame of desired signal
@@ -237,7 +240,7 @@ class Run:
                 W_netWide.append(tmp)
                 # profile.stop()
                 # print(profile.output_text(unicode=True, color=True, show_all=True))
-
+                pass
 
                 # Feedback loop: update iterative variables for DANSE-like algorithms
                 for alg in ivOut.keys():
@@ -387,10 +390,18 @@ class Run:
                             c.Mkc[p]:c.Mkc[p + 1]
                         ] @ scn.Eqps[q][p]
                     Pk[q] = self.filtup(Ryqyq, Rss=Ryqrhoq)
+                
                 # Estimation filters
                 for k in range(c.K):
-                    # ty = C^H.y
+                    # profiler = Profiler()
+                    # profiler.start()
+                    # Compute C to get ty = C^H.y
                     QkqNeighs = np.delete(scn.oQq, k)  # Remove k
+                    # # For efficiency: preallocate Ck
+                    # if "Ck" not in locals() or Ck.shape[2] != (c.Mk[k] + int(np.sum(QkqNeighs))):
+                    #     Ck = np.zeros((c.nPosFreqs, c.M, c.Mk[k] + int(np.sum(QkqNeighs))), dtype=c.mydtype)
+                    # else:
+                    #     Ck.fill(0)   # reset instead of reallocating
                     Ck = c.init_full((c.nPosFreqs, c.M, c.Mk[k] + int(np.sum(QkqNeighs))))
                     Ck[..., c.Mkc[k]:c.Mkc[k + 1], :c.Mk[k]] = np.eye(c.Mk[k])
                     idxNei = 0
@@ -401,12 +412,19 @@ class Run:
                             Ck[..., c.Mkc[q]:c.Mkc[q + 1], idxBeg:idxEnd] = Pk[q]
                             idxNei += 1
                     # Compute the filters
-                    tRyy = herm(Ck) @ Ryy_dMWF_est @ Ck
-                    tRnn = herm(Ck) @ Rnn_dMWF_est @ Ck
+                    tRyy = matmul_CRC(Ck, Ryy_dMWF_est)
+                    tRnn = matmul_CRC(Ck, Rnn_dMWF_est)
+                    # tRyy = herm(Ck) @ Ryy_dMWF_est @ Ck
+                    # tRnn = herm(Ck) @ Rnn_dMWF_est @ Ck
                     tW = self.filtup(tRyy, tRnn, gevd=c.gevd, gevdRank=c.Qd)[..., :c.D]
                     W_netWide[alg][k] = Ck @ tW
+                    # profiler.stop()
+                    # print(profiler.output_text(unicode=True, color=True, show_all=True))
+                    pass
+
 
             elif alg == "tidmwf":
+                # NB: alternating steps not implemented yet.
                 for k in range(c.K):
                     _, upstreamNeighs = get_upstream_nodes(G, k)
                     Cqk = [None for _ in range(c.K)]
@@ -597,14 +615,14 @@ class Run:
                             if c.noCrossCorrelation:
                                 tRss, tRnn = single_update_scm(
                                     tRssPrev[k], tRnnPrev[k],
-                                    ssH, nnH, c.beta,
+                                    ssH=ssH, nnH=nnH, beta=c.beta,
                                     vad=ivIn['vad']
                                 )
                                 tRyy = tRss + tRnn
                             else:
                                 tRyy, tRnn = single_update_scm(
                                     tRyyPrev[k], tRnnPrev[k],
-                                    yyH, nnH, c.beta,
+                                    ssH=yyH, nnH=nnH, beta=c.beta,
                                     vad=ivIn['vad']
                                 )
                                 tRss = None
@@ -706,14 +724,6 @@ class Run:
             elif 'time' in c.domain:
                 Rss = np.pad(Rss, ((0, 0), (0, Ryy.shape[-1] - finalSize)), mode='constant')
 
-        def _regular_mwf(Ryy, Rss):
-            try:
-                # tmp = np.linalg.solve(c.mu * Ryy + (1 - c.mu) * Rss, Rss)
-                tmp = np.linalg.inv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
-            except np.linalg.LinAlgError:
-                print("\nMatrix inversion failed, using pseudo-inverse instead.", end='\r')
-                tmp = np.linalg.pinv(c.mu * Ryy + (1 - c.mu) * Rss) @ Rss
-            return tmp
 
         if gevd:
             sigFull = np.zeros((Ryy.shape[0], Ryy.shape[1]), dtype=complex)
@@ -723,7 +733,7 @@ class Run:
                     sigma, Xmat = sla.eigh(Ryy[f, ...], Rnn[f, ...])
                 except np.linalg.LinAlgError:
                     print(f"\nGEVD failed at bin #{f}, aborting GEVD entirely and computing regular MWF instead.", end='\r')
-                    return _regular_mwf(Ryy, Rss)[..., :finalSize]
+                    return regular_mwf(Ryy, Rss, c.mu)[..., :finalSize]
 
                 idx = np.flip(np.argsort(sigma))
                 sigFull[f, :] = sigma[idx]
@@ -738,7 +748,8 @@ class Run:
             w = Xfull @ Dmat @ Qmat.conj().transpose(0, 2, 1)
             return w[..., :finalSize]
         else:
-            tmp = _regular_mwf(Ryy, Rss)
+            tmp = regular_mwf(Ryy, Rss, c.mu)
+
         return tmp[..., :finalSize]
     
     def init_full(self, shape, value=0, random=False, selection_matrix=False):
@@ -758,3 +769,20 @@ class Run:
 def flatten_list(l):
     """Flatten a list of lists."""
     return [item for sublist in l for item in sublist]
+
+
+def regular_mwf(Ryy, Rss, mu):
+    try:
+        tmp = np.linalg.solve(mu * Ryy + (1 - mu) * Rss, Rss)
+        # tmp = np.linalg.inv(mu * Ryy + (1 - mu) * Rss) @ Rss
+    except np.linalg.LinAlgError:
+        print("\nMatrix inversion failed, using pseudo-inverse instead.", end='\r')
+        tmp = np.linalg.pinv(mu * Ryy + (1 - mu) * Rss) @ Rss
+    return tmp
+
+
+def matmul_CRC(C: np.ndarray, R: np.ndarray):
+    # (F, M, M) @ (F, M, N) → (F, M, N)
+    tmp = np.matmul(R, C)
+    # (F, N, M) @ (F, M, N) → (F, N, N)
+    return np.matmul(C.conj().transpose(0, 2, 1), tmp)

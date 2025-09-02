@@ -43,7 +43,7 @@ def main():
     clean_output_dir(cfgBase.outputDir)  # Clean the output directory if it exists
 
     tMaster = time.time()
-    print(f"Starting simulation with configuration: {cfgBase}")
+    # print(f"Starting simulation with configuration: {cfgBase}")
     for idxMC in range(cfgBase.nMCruns):
         tMC = time.time()
         if cfgBase.nMCruns > 1:
