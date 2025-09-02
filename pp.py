@@ -18,92 +18,32 @@ from tools.algos import herm
 import matplotlib.pyplot as plt
 from mypystoi import stoi_any_fs
 from tools.base import Parameters
-from screeninfo import get_monitors
 from dataclasses import dataclass, field
+from tools.pp_base import PostProcParameters
 
+PP_CFG_FILE = f'{Path(__file__).parent}/config/pp_cfg.yml'
 
-baseResultsDir = f'{Path(__file__).parent}/out'  # Base directory for results
-
-resDir = f'{baseResultsDir}/res_20250826_1715_testrun_headstart'  # specific directory
-resDir = 'latest'  # <-- pick the latest results directory
-
-EXPORT = True  # If True, export the figures to files
-EXPORT = False  # If True, export the figures to files
-
-FORCE_RECOMPUTE_METRICS = True  # If True, recompute metrics even if they exist
-# FORCE_RECOMPUTE_METRICS = False  # If True, recompute metrics even if they exist
-
-# ===== Used in PostProcessor.get_metrics_from_full_signal() =====
-METRICS_CHUNK_DURATION = 3  # Duration of the chunk to compute metrics over (in seconds)
-METRICS_CHUNK_SHIFT = 0.5  # Shift of the chunk to compute metrics over (in seconds)
-# CUMULATED_AVERAGE = True  # If True, apply a cumulative average (smoothing) to the metrics
-CUMULATED_AVERAGE = False  # If True, apply a cumulative average (smoothing) to the metrics
-# ================================================================
-
-# ===== Used in PostProcessor.get_metrics() =====
-# METRICS_OVER_FIRST_SECONDS = None  # Number of seconds to consider for waveform-based metrics computation
-METRICS_OVER_FIRST_SECONDS = 2  # Number of seconds to consider for waveform-based metrics computation
-COMPUTE_METRICS_EVERY_N_FRAMES = 10  # Compute metrics every N frames (for online processing)
-# COMPUTE_METRICS_EVERY_N_FRAMES = 30  # Compute metrics every N frames (for online processing)
-# ================================================================
-
-# DELTAS_SNR_SER = True  # If True, show SNR and SER as deltas from the local estimate
-DELTAS_SNR_SER = False  # If True, show SNR and SER as deltas from the local estimate
-
-# WHICH_NODES = 'all'  # 'all' or a list of node indices to process
-# WHICH_NODES = [3]  # 'all' or a list of node indices to process
-WHICH_NODES = [0]  # 'all' or a list of node indices to process
-
-# Metrics computation method for online mode:
-# - 'entire_signal' to compute metrics over the first `METRICS_OVER_FIRST_SECONDS`
-#   seconds of signal using the filter at the frame considered
-#   (STOI is computed).
-# - 'recent_seconds' to compute metrics over the most recent `METRICS_OVER_FIRST_SECONDS`
-#   seconds of signal using the filter at the frame considered
-#   (STOI is not computed).
-METRICS_METHOD = 'entire_signal'
-# METRICS_METHOD = 'recent_seconds'
-# NB: 'recent_seconds' can only be meaningfully used for online processing.
-#   For batch processing, we use 'entire_signal' by default.
-
-# Overriding parameters
-BYPASS_STOI = False  # If True, bypass STOI computation (useful for debugging)
-# BYPASS_STOI = True  # If True, bypass STOI computation (useful for debugging)
-# Interval over which to compute STOI 
-STOI_INTERVAL = [5, -1]
-STOI_INTERVAL = 0.75
-# ^^^ if list: in seconds, -1 = end of signal
-# ^^^ if float: in % of signal, starting from the end 
-EXTENDED_STOI = False  # If True, use extended STOI computation
-# EXTENDED_STOI = True  # If True, use extended STOI computation
-METRICS_TO_COMPUTE_OVERRIDE = None  # If not None, override the metrics to compute
-# METRICS_TO_COMPUTE_OVERRIDE = ['msew']
-FORCED_YLIM = {
-    'msew': [1e-27, 1e6],  # If not None, force y-axis limits for msew
-}
-
-STOIREF = 'stoi' if not EXTENDED_STOI else 'estoi'
-
-n_per_col = 2  # Number of figures per column after plt.show()
-margin = 100  # Margin between figures in pixels
-
-def main(resDir=resDir):
+def main():
     """Main function (called by default when running script)."""
+    # Load parameters from YAML file
+    p = PostProcParameters()
+    p.load_from_yaml('config.yaml')
+
     # Load the results from the directory
-    if resDir == 'latest':
+    if p.resultsDir == 'latest':
         # Find the latest results directory
-        listOfDirs = sorted(Path(baseResultsDir).glob('res_*'), key=lambda x: x.stat().st_birthtime, reverse=True)
+        listOfDirs = sorted(Path(p.baseResultsDir).glob('res_*'), key=lambda x: x.stat().st_birthtime, reverse=True)
         if not listOfDirs:
             print("No results directories found.")
             sys.exit(1)
-        resDir = listOfDirs[0]  # Take the most recent directory
+        p.resultsDir = listOfDirs[0]  # Take the most recent directory
     else:
-        resDir = Path(resDir)
+        p.resultsDir = Path(p.resultsDir)
     
-    listOfFiles = list(resDir.glob('*.pkl'))
+    listOfFiles = list(p.resultsDir.glob('*.pkl'))
     listOfFiles = [file for file in listOfFiles if '_metrics' not in file.stem]
     if not listOfFiles:
-        print(f"No results found in {resDir}. Please run main.py first.")
+        print(f"No results found in {p.resultsDir}. Please run main.py first.")
         sys.exit(1)
     if any([file.stem.endswith('_comb') for file in listOfFiles]):
         # Only use combined files
@@ -117,19 +57,19 @@ def main(resDir=resDir):
     print(f"Grouped files by CFG number.")
 
     # Derive appropriate figure size and position based on screen resolution
-    fig_w, fig_h, screen_x, screen_y, num_cols = get_figsize(n=len(groupedFiles))
+    fig_w, fig_h, screen_x, screen_y, num_cols = p.get_figsize(n=len(groupedFiles))
 
     for i, (cfgRef, files) in enumerate(groupedFiles.items()):
 
         # Check if metrics have already been computed
         suffixNodes = '_allnodes'
-        if WHICH_NODES != 'all':
-            suffixNodes = f'_nodes_{WHICH_NODES[0]}'
-            for node in WHICH_NODES[1:]:
+        if p.whichNodes != 'all':
+            suffixNodes = f'_nodes_{p.whichNodes[0]}'
+            for node in p.whichNodes[1:]:
                 suffixNodes += f'_{node}'
         metricsFileName = f'{cfgRef}_metrics{suffixNodes}.pkl'
-        metricsFile = resDir / metricsFileName
-        if not FORCE_RECOMPUTE_METRICS and metricsFile.exists():
+        metricsFile = p.resultsDir / metricsFileName
+        if not p.forceRecomputeMetrics and metricsFile.exists():
             print(f"Metrics already computed for {cfgRef}, loading from {metricsFileName}...")
             with open(metricsFile, 'rb') as f:
                 metrics = pickle.load(f)
@@ -149,20 +89,20 @@ def main(resDir=resDir):
                 c: Parameters = results['cfg']  # Configuration parameters
                 pp = PostProcessor(cfg=c)
                 
-                if METRICS_TO_COMPUTE_OVERRIDE is not None:
-                    metricsToCompute = METRICS_TO_COMPUTE_OVERRIDE
+                if p.metricsToComputeOverride is not None:
+                    metricsToCompute = p.metricsToComputeOverride
                 else:
                     metricsToCompute = ['msew', 'msed', 'snr', 'ser']
                     if not pp.bypassStoi and c.domain == 'wola' and\
                         c.singleLine is None and c.desSigType == 'speech':  # speech enhancement scenario
-                        metricsToCompute += [STOIREF]
+                        metricsToCompute += [p.stoiRef]
                     if c.scmEstimation == 'online':
                         metricsToCompute.remove('msed')  # msed is not computed in online mode
                         metricsToCompute.remove('msew')  # msew is not computed in online mode
 
-                if DELTAS_SNR_SER and ('snr' in metricsToCompute or 'ser' in metricsToCompute) and \
+                if p.deltasSnrSer and ('snr' in metricsToCompute or 'ser' in metricsToCompute) and \
                     'local' not in c.algos:
-                    raise ValueError("DELTAS_SNR_SER is enabled but 'local' algorithm is not included.")
+                    raise ValueError("p.deltasSnrSer is enabled but 'local' algorithm is not included.")
 
                 if 's' in results.keys():
                     # Format 1: time-domain raw mic signals and filter weights
@@ -181,7 +121,7 @@ def main(resDir=resDir):
                         'nhatk': results['nhatk']
                     }
                     if 1:
-                        plot_signals(dataIn, c, kPlotIndex=WHICH_NODES[0] if WHICH_NODES != 'all' else 0)
+                        plot_signals(dataIn, c, kPlotIndex=p.whichNodes[0] if p.whichNodes != 'all' else 0)
                 else:
                     raise ValueError("Unknown results format (no 's' or 'shat' key in results dict).")
 
@@ -195,18 +135,6 @@ def main(resDir=resDir):
                     dataIn,
                     metricsToCompute,
                 ))
-                if 0:
-                    import soundfile as sf
-                    soundFileDir = f'{resDir}/soundfiles'
-                    if not Path(soundFileDir).exists():
-                        Path(soundFileDir).mkdir(parents=True, exist_ok=True)
-                    for idxMC in range(len(dataIn['shatk'])):
-                        for alg in c.algos:
-                            sf.write(
-                                f'{soundFileDir}/{alg}_MC{idxMC+1}.wav',
-                                dataIn['shatk'][idxMC][alg][0, :] + dataIn['nhatk'][idxMC][alg][0, :],
-                                c.fs
-                            )
                 print(f"\nMetrics for file (MC run) {idxMC + 1}/{len(files)} computed in {time.time() - t0:.2f} seconds.")
 
 
@@ -232,23 +160,23 @@ def main(resDir=resDir):
         # Derive figure positioning parameters
         row = i // num_cols
         col = i % num_cols
-        pos_x = screen_x + margin + col * (fig_w + 10)
-        pos_y = screen_y + margin + row * (fig_h + 10)
+        pos_x = screen_x + p.margin + col * (fig_w + 10)
+        pos_y = screen_y + p.margin + row * (fig_h + 10)
         # Post-process results
         fig = pp.plot_metrics(
             metrics,
             placement=[pos_x, pos_y, fig_w, fig_h],
             nMC=len(files)
         )
-        if EXPORT:
+        if p.export:
             # Prompt user: are you sure?
             confirm = input(f"☝️ Are you sure you want to export metrics figures to {Path(c.outputDir).stem}? (y/n) ")
             if confirm.lower() != 'y':
                 print("Export cancelled.")
                 continue
-            fig.savefig(f"{resDir}/metrics_{cfgRef}{suffixNodes}.svg", dpi=300)
-            fig.savefig(f"{resDir}/metrics_{cfgRef}{suffixNodes}.png", dpi=300)
-            print(f"Metrics figures exported to {resDir}/metrics_{cfgRef}{suffixNodes}.svg and .png")
+            fig.savefig(f"{p.resultsDir}/metrics_{cfgRef}{suffixNodes}.svg", dpi=300)
+            fig.savefig(f"{p.resultsDir}/metrics_{cfgRef}{suffixNodes}.png", dpi=300)
+            print(f"Metrics figures exported to {p.resultsDir}/metrics_{cfgRef}{suffixNodes}.svg and .png")
 
     plt.show(block=False)  # Show all figures
     print("Post-processing completed.")
@@ -310,20 +238,22 @@ def plot_signals(sigs, c: Parameters, kPlotIndex=0):
 @dataclass
 class PostProcessor:
     cfg: Parameters = field(default_factory=lambda: Parameters())
+    pp_cfg: PostProcParameters = field(default_factory=lambda: PostProcParameters())
 
     def __post_init__(self):
         c = self.cfg
+        p = self.pp_cfg
         if c.scmEstimation != 'online':
             self.metricsMethod = 'entire_signal'  # Use entire signal for batch processing
         elif c.dynamics != 'static':
             self.metricsMethod = 'recent_seconds'  # Use recent seconds for non-static dynamics
         else:
-            self.metricsMethod = METRICS_METHOD  # Use the specified method for online processing
+            self.metricsMethod = p.metricsMethod  # Use the specified method for online processing
         if self.metricsMethod == 'recent_seconds':
             self.bypassStoi = True  # Bypass STOI computation for 'recent_seconds' method
         else:
-            self.bypassStoi = BYPASS_STOI
-        self.nodesToProcess = range(c.K) if WHICH_NODES == 'all' else WHICH_NODES
+            self.bypassStoi = p.bypassStoi
+        self.nodesToProcess = range(c.K) if p.whichNodes == 'all' else p.whichNodes
         if isinstance(c.Mk, int):
             self.Mk = [c.Mk] * c.K
             self.Mkc = np.cumsum([0] + self.Mk)
@@ -334,6 +264,7 @@ class PostProcessor:
             metricsToCompute=[],
         ):
         c = self.cfg
+        p = self.pp_cfg
 
         if 's' in dataIn.keys():
             W_netWide = dataIn['W_netWide']
@@ -375,13 +306,13 @@ class PostProcessor:
         wolaFlag = c.domain == 'wola' and c.singleLine is not None
         if wolaFlag:
             # We are in the WOLA domain
-            nFramesPerChunkShift = int(np.ceil(METRICS_CHUNK_SHIFT * c.fs / (c.nfft - c.nhop)))
-            nFramesPerChunk = int(np.ceil(METRICS_CHUNK_DURATION * c.fs / (c.nfft - c.nhop)))
+            nFramesPerChunkShift = int(np.ceil(p.metricsChunkShift * c.fs / (c.nfft - c.nhop)))
+            nFramesPerChunk = int(np.ceil(p.metricsChunkDuration * c.fs / (c.nfft - c.nhop)))
             nChunks = int(np.ceil(y.shape[-1] / nFramesPerChunkShift))
         else:
             # We are in the time domain
-            nSamplesPerChunkShift = int(np.ceil(METRICS_CHUNK_SHIFT * c.fs))
-            nSamplesPerChunk = int(np.ceil(METRICS_CHUNK_DURATION * c.fs))
+            nSamplesPerChunkShift = int(np.ceil(p.metricsChunkShift * c.fs))
+            nSamplesPerChunk = int(np.ceil(p.metricsChunkDuration * c.fs))
             nChunks = int(np.ceil(list(dhatk[0].values())[0].shape[-1] / nSamplesPerChunkShift))
 
         if c.scmEstimation == 'online':
@@ -418,54 +349,22 @@ class PostProcessor:
                         metrics[m][alg][k].append(metrics_curr[m])
         
         # Compute STOI
-        if STOIREF in metricsToCompute:
-            if isinstance(STOI_INTERVAL, list):
-                idxBeg = int(STOI_INTERVAL[0] * c.fs)
-                idxEnd = int(STOI_INTERVAL[1] * c.fs) if STOI_INTERVAL[1] != -1 else -1
-            elif isinstance(STOI_INTERVAL, float):
-                idxBeg = int((1 - STOI_INTERVAL) * d.shape[-1])
+        if p.p.stoiRef in metricsToCompute:
+            if isinstance(p.stoiInterval, list):
+                idxBeg = int(p.stoiInterval[0] * c.fs)
+                idxEnd = int(p.stoiInterval[1] * c.fs) if p.stoiInterval[1] != -1 else -1
+            elif isinstance(p.stoiInterval, float):
+                idxBeg = int((1 - p.stoiInterval) * d.shape[-1])
                 idxEnd = -1
             for k in self.nodesToProcess:
                 for alg in c.algos:
                     print(f"Computing STOI for {alg}, node {k + 1}/{len(self.nodesToProcess)}...", end='\r')
-                    metrics[STOIREF][alg][k] = stoi_any_fs(
+                    metrics[p.p.stoiRef][alg][k] = stoi_any_fs(
                         d[k, 0, idxBeg:idxEnd],
                         dhatk[k][alg][0, idxBeg:idxEnd],
                         fs_sig=c.fs,
-                        extended=EXTENDED_STOI
+                        extended=p.extendedStoi
                     )
-
-        if CUMULATED_AVERAGE:
-            # Apply smoothing to the metrics
-            for m in metricsToCompute:
-                for alg in c.algos:
-                    for k in self.nodesToProcess:
-                        if 0:
-                            # Full cumulated averaging (all data)
-                            metrics[m][alg][k] = np.cumsum(
-                                metrics[m][alg][k]
-                            ) / np.arange(1, len(metrics[m][alg][k]) + 1)
-                        else:
-                            # Cumulative average over the last `nFramesPerChunk` frames
-                            metrics[m][alg][k] = np.convolve(
-                                metrics[m][alg][k],
-                                np.ones(nFramesPerChunk) / nFramesPerChunk,
-                                mode='valid'
-                            )
-
-        if 0:
-            nCols = int(np.sqrt(len(c.algos)))
-            nRows = int(np.ceil(len(c.algos) / nCols))
-            fig, axes = plt.subplots(nRows, nCols, sharex=True, sharey=True)
-            fig.set_size_inches(8.5, 3.5)
-            for i, alg in enumerate(c.algos):
-                ax = axes[i // nCols, i % nCols]
-                ax.plot(np.abs(dhatk[0][alg][0, 0, :]), 'b', label='dhatk')
-                ax.plot(np.abs(d[0, 0, 0, :]), 'k', label='dk')
-                ax.legend()
-                ax.set_title(f"{alg} - Node {0 + 1}")
-            fig.tight_layout()
-            plt.show()
         
         return metrics
 
@@ -475,6 +374,7 @@ class PostProcessor:
             metricsToCompute=[],
         ):
         c = self.cfg
+        p = self.pp_cfg
 
         if 's' in dataIn.keys():
             W_netWide = dataIn['W_netWide']
@@ -547,11 +447,11 @@ class PostProcessor:
 
         if self.metricsMethod == 'entire_signal':
             # Get metrics signals to be used for all frames
-            yc, sc, nc, dkTD = _get_metrics_signals(endTime=METRICS_OVER_FIRST_SECONDS)
+            yc, sc, nc, dkTD = _get_metrics_signals(endTime=p.metricsOverFirstSeconds)
 
         # Initialize `metrics` dictionary
-        self.nodesToProcess = range(c.K) if WHICH_NODES == 'all' else WHICH_NODES
-        nFramesActual = int(np.ceil(len(W_netWide) / COMPUTE_METRICS_EVERY_N_FRAMES))
+        self.nodesToProcess = range(c.K) if p.whichNodes == 'all' else p.whichNodes
+        nFramesActual = int(np.ceil(len(W_netWide) / p.computeMetricsEveryNFrames))
         if c.scmEstimation == 'online':
             metrics = dict([(metric, dict([
                 (alg, [
@@ -570,20 +470,26 @@ class PostProcessor:
             if isinstance(W_netWide, list) and c.scmEstimation == 'online':
                 # Online-mode processing
                 for l, w in enumerate(W_netWide):
-                    if l % COMPUTE_METRICS_EVERY_N_FRAMES != 0 or l == 0:
+                    if l % p.computeMetricsEveryNFrames != 0 or l == 0:
                         continue
                     print(f"Computing metrics at node {k+1}/{len(self.nodesToProcess)}, frame {l + 1}/{len(W_netWide)}...", end='\r')
                     if self.metricsMethod == 'recent_seconds':
                         if c.domain == 'wola':
                             # Get metrics signals for the current frame
                             yc, sc, nc, dkTD = _get_metrics_signals(
-                                startTime=np.amax((0, l * (c.nfft - c.nhop) / c.fs - METRICS_OVER_FIRST_SECONDS)),
+                                startTime=np.amax(
+                                    (0, l * (c.nfft - c.nhop) /\
+                                        c.fs - p.metricsOverFirstSeconds)
+                                ),
                                 endTime=(l + 1) * (c.nfft - c.nhop) / c.fs
                             )
                         elif 'time' in c.domain:
                             # Get metrics signals for the current frame
                             yc, sc, nc, dkTD = _get_metrics_signals(
-                                startTime=np.amax((0, l * c.frameDuration / c.fs - METRICS_OVER_FIRST_SECONDS)),
+                                startTime=np.amax(
+                                    (0, l * c.frameDuration /\
+                                        c.fs - p.metricsOverFirstSeconds)
+                                ),
                                 endTime=(l + 1) * c.frameDuration / c.fs
                             )
                     metricsCurrAlg = _processing_loop(k, w, dkTD, silent=True)
@@ -608,7 +514,11 @@ class PostProcessor:
             dk=None, dhatk=None,
             shatk=None, nhatk=None
         ):
-        metrics_curr = dict([(metric, None) for metric in metricsToCompute if metric != STOIREF])
+        metrics_curr = dict([
+            (metric, None)
+            for metric in metricsToCompute
+            if metric != self.pp_cfg.p.stoiRef
+        ])
         for m in metricsToCompute:
             if m == 'msew':
                 metrics_curr['msew'] = np.mean(np.abs(Wk - hWk) ** 2)
@@ -624,12 +534,11 @@ class PostProcessor:
                     np.mean(np.abs(dk) ** 2) /
                     np.mean(np.abs(dk - dhatk) ** 2)
                 )
-            # if m == STOIREF:
-            #     metrics_curr[STOIREF] = stoi_any_fs(dk, dhatk, fs_sig=self.cfg.fs)
         return metrics_curr
 
     def plot_metrics(self, metrics: dict, placement: list, nMC: int):
         c = self.cfg
+        p = self.pp_cfg
 
         def plot_h(ax, val, label, color='C0', marker='o'):
             """Plot horizontal line."""
@@ -658,7 +567,7 @@ class PostProcessor:
         # Convert size from pixels to inches
         for ii, m in enumerate(metrics.keys()):
             ax = axes[ii] if len(metrics.keys()) > 1 else axes
-            if m == STOIREF:
+            if m == p.stoiRef:
                 ax.set_ylim(0, 1)
             maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
             if c.dynamics == 'moving' and c.scmEstimation == 'online':
@@ -667,9 +576,9 @@ class PostProcessor:
                 for i in range(nChanges):
                     x = i * c.movingEvery / c.T * maxX
                     ax.axvline(x=x, color='0.5', linestyle='--')
-            flagDelta = m in ['snr', 'ser'] and DELTAS_SNR_SER
+            flagDelta = m in ['snr', 'ser'] and p.deltasSnrSer
             if (any('danse' in alg for alg in c.algos) or\
-                c.scmEstimation == 'online') and m != STOIREF:
+                c.scmEstimation == 'online') and m != p.stoiRef:
                 # Line plot when including iterative algorithms
                 if m in ['msew', 'msed']:
                     ax.set_yscale('log')
@@ -679,34 +588,34 @@ class PostProcessor:
                         continue
                     col = colors[alg] if alg in colors.keys() else f'C{jj}'
                     if metrics[m][alg].shape[-1] > 1:
-                        if WHICH_NODES == 'all':
+                        if p.whichNodes == 'all':
                             data = np.mean(metrics[m][alg], axis=(0, 1))
                             if flagDelta:
                                 data -= np.mean(metrics[m]['local'], axis=(0, 1))
                         else:
                             data = np.mean([
-                                m for i, m in enumerate(metrics[m][alg]) if i in WHICH_NODES
+                                m for i, m in enumerate(metrics[m][alg]) if i in p.whichNodes
                             ], axis=(0, 1))
                             if flagDelta:
                                 data -= np.mean([
-                                    m for i, m in enumerate(metrics[m]['local']) if i in WHICH_NODES
+                                    m for i, m in enumerate(metrics[m]['local']) if i in p.whichNodes
                                 ], axis=(0, 1))
                         ax.plot(data, label=alg, color=col,
                                 marker=markers[jj % len(markers)],
                                 markerfacecolor='none', markevery=0.1)
                     else:
                         # Non-iterative algorithms in batch-mode: horizontal lines
-                        if WHICH_NODES == 'all':
+                        if p.whichNodes == 'all':
                             data = np.mean(metrics[m][alg])
                             if flagDelta:
                                 data -= np.mean(metrics[m]['local'])
                         else:
                             data = np.mean([
-                                m for i, m in enumerate(metrics[m][alg]) if i in WHICH_NODES
+                                m for i, m in enumerate(metrics[m][alg]) if i in p.whichNodes
                             ])
                             if flagDelta:
                                 data -= np.mean([
-                                    m for i, m in enumerate(metrics[m]['local']) if i in WHICH_NODES
+                                    m for i, m in enumerate(metrics[m]['local']) if i in p.whichNodes
                                 ])
                         plot_h(
                             ax,
@@ -716,7 +625,7 @@ class PostProcessor:
                             marker=markers[jj % len(markers)],
                         )
                 # Format x-axis
-                xAxisStart = int(METRICS_CHUNK_DURATION // METRICS_CHUNK_SHIFT)
+                xAxisStart = int(p.metricsChunkDuration // p.metricsChunkShift)
                 ax.set_xlim(xAxisStart, maxX)
                 if c.scmEstimation == 'online':
                     ticksInterval = (maxX - xAxisStart) / 5
@@ -739,25 +648,19 @@ class PostProcessor:
                 # Ensure SNR = 0 dB is visible as a horizontal line
                 ax.axhline(y=0, color='0.75')
             # Add legend
-            if m == STOIREF:
+            if m == p.stoiRef:
                 ax.legend(loc='lower center')
             if m == 'snr':
                 ax.legend(loc='upper center')
             ti = m.upper()
-            if m in ['snr', 'ser'] and DELTAS_SNR_SER:
+            if m in ['snr', 'ser'] and p.deltasSnrSer:
                 ti = f'$\\Delta${ti}'
             ax.set_title(ti)
-            if m in FORCED_YLIM.keys():
-                if FORCED_YLIM[m] is not None:
+            if m in p.forcedYlim.keys():
+                if p.forcedYlim[m] is not None:
                     # Force y-axis limits if specified
-                    ax.set_ylim(FORCED_YLIM[m])
-            # elif m in ['snr', 'ser'] and not CUMULATED_AVERAGE and not DELTAS_SNR_SER:
-            #     # Ensure y-axis starts at -10, lowest for SNR and SER
-            #     ax.set_ylim(np.nanargmin([
-            #         np.amax((-10, ax.get_ylim()[0])),
-            #         np.nanargmin(metrics[m][c.algos[0]])
-            #     ]), None)
-        supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES}'
+                    ax.set_ylim(p.forcedYlim[m])
+        supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {p.whichNodes}'
         if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
             supti += f', {c.betaString}'
         if nMC > 1:
@@ -803,13 +706,13 @@ class PostProcessor:
             # Loop over metrics and algorithms to compute per-segment averages and plot as steps
             for ii, m in enumerate(metrics.keys()):
                 ax2 = axes2[ii] if len(metrics.keys()) > 1 else axes2
-                if m == STOIREF:
+                if m == p.stoiRef:
                     ax2.set_ylim(0, 1)
                 # Vertical lines at segment boundaries
                 for s in range(len(seg_edges_idx)):
                     x = seg_edges_idx[s]
                     ax2.axvline(x=x, color='0.5', linestyle='--')
-                flagDelta = m in ['snr', 'ser'] and DELTAS_SNR_SER
+                flagDelta = m in ['snr', 'ser'] and p.deltasSnrSer
                 # y-values per algorithm: list of length nSegments-1
                 for jj, alg in enumerate(metrics[m].keys()):
                     if (m == 'msew' and alg in ['centralized', 'local', 'unprocessed']) or \
@@ -817,31 +720,31 @@ class PostProcessor:
                         continue
                     # Build the time series data first, averaged over nodes/MC like in the main plot
                     if metrics[m][alg].shape[-1] > 1:
-                        if WHICH_NODES == 'all':
+                        if p.whichNodes == 'all':
                             series = np.mean(metrics[m][alg], axis=(0, 1))
                             if flagDelta:
                                 series -= np.mean(metrics[m]['local'], axis=(0, 1))
                         else:
                             series = np.mean([
-                                mm for i, mm in enumerate(metrics[m][alg]) if i in WHICH_NODES
+                                mm for i, mm in enumerate(metrics[m][alg]) if i in p.whichNodes
                             ], axis=(0, 1))
                             if flagDelta:
                                 series -= np.mean([
-                                    mm for i, mm in enumerate(metrics[m]['local']) if i in WHICH_NODES
+                                    mm for i, mm in enumerate(metrics[m]['local']) if i in p.whichNodes
                                 ], axis=(0, 1))
                     else:
                         # Non-iterative/batch lines are plotted as constants
-                        if WHICH_NODES == 'all':
+                        if p.whichNodes == 'all':
                             series = np.array([np.mean(metrics[m][alg])])
                             if flagDelta:
                                 series -= np.mean(metrics[m]['local'])
                         else:
                             series = np.array([np.mean([
-                                mm for i, mm in enumerate(metrics[m][alg]) if i in WHICH_NODES
+                                mm for i, mm in enumerate(metrics[m][alg]) if i in p.whichNodes
                             ])])
                             if flagDelta:
                                 series -= np.mean([
-                                    mm for i, mm in enumerate(metrics[m]['local']) if i in WHICH_NODES
+                                    mm for i, mm in enumerate(metrics[m]['local']) if i in p.whichNodes
                                 ])
                         # Expand constant across all segments
                         series = np.full(len(seg_edges_idx)-1, series.item())
@@ -873,16 +776,16 @@ class PostProcessor:
                 ax2.set_xlabel('Time [s]')
                 if m in ['snr', 'ser'] and ax2.get_ylim()[0] < 0:
                     ax2.axhline(y=0, color='0.75')
-                ti2 = (f'$\\Delta${m.upper()}' if (m in ['snr', 'ser'] and DELTAS_SNR_SER) else m.upper())
+                ti2 = (f'$\\Delta${m.upper()}' if (m in ['snr', 'ser'] and p.deltasSnrSer) else m.upper())
                 ax2.set_title(ti2)
                 # Legend placement same as main plot
-                if m == STOIREF:
+                if m == p.stoiRef:
                     ax2.legend(loc='lower center')
                 if m == 'msed':
                     ax2.legend(loc='upper center')
-                if m in FORCED_YLIM.keys() and FORCED_YLIM[m] is not None:
-                    ax2.set_ylim(FORCED_YLIM[m])
-            supti2 = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {WHICH_NODES} — static-segment stairs'
+                if m in p.forcedYlim.keys() and p.forcedYlim[m] is not None:
+                    ax2.set_ylim(p.forcedYlim[m])
+            supti2 = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {p.whichNodes} — static-segment stairs'
             if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
                 supti2 += f', {c.betaString}'
             if nMC > 1:
@@ -893,35 +796,6 @@ class PostProcessor:
         return fig
 
 
-def get_largest_screen_index():
-    """Returns the index of the largest screen."""
-    monitors = get_monitors()
-    # Fallback: return largest screen by area
-    largest_index = 0
-    largest_area = 0
-    for i, monitor in enumerate(monitors):
-        area = monitor.width * monitor.height
-        if area >= largest_area:
-            largest_area = area
-            largest_index = i
-
-    return largest_index
-
-
-def get_figsize(n):
-    """Returns the figure size based on the screen resolution."""
-    screen_index = get_largest_screen_index()
-    monitors = get_monitors()
-    if screen_index >= len(monitors):
-        raise ValueError(f"Invalid screen_index {screen_index}. Only {len(monitors)} screens detected.")
-    screen = monitors[screen_index]
-    screen_x, screen_y = screen.x, screen.y
-    screen_w, screen_h = screen.width, screen.height
-    num_cols = n_per_col
-    num_rows = np.ceil(n / num_cols)
-    fig_w = (screen_w - (num_cols + 1) * margin) // num_cols
-    fig_h = np.amin([(screen_h - (num_rows + 1) * margin) // num_rows, fig_w / 2])
-    return fig_w, fig_h, screen_x, screen_y, num_cols
 
 
 if __name__ == '__main__':

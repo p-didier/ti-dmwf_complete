@@ -1,0 +1,35 @@
+# ==== File and Directory Parameters ====
+baseResultsDir: './out'  # Base directory for results
+resultsDir: 'latest'  # Results subdirectory
+
+# ==== Export and Recompute Flags ====
+export: false  # If True, export the figures to files
+forceRecomputeMetrics: true  # If True, recompute metrics even if they exist
+
+# ==== Metrics Computation Parameters ====
+metricsChunkDuration: 2  # Duration of the chunk to compute metrics over (in seconds)
+metricsChunkShift: 0.5  # Shift of the chunk to compute metrics over (in seconds)
+cumulatedAverage: false  # If True, apply a cumulative average (smoothing) to the metrics
+metricsOverFirstSeconds: 2  # Number of seconds to consider for waveform-based metrics computation
+computeMetricsEveryNFrames: 10  # Compute metrics every N frames (for online processing)
+deltasSnrSer: false  # If True, show SNR and SER as deltas from the local estimate
+metricsMethod: 'entire_signal'  # Method for metrics computation
+bypassStoi: false  # If True, bypass STOI computation (useful for debugging)
+stoiInterval: 0.75  # STOI interval specification
+extendedStoi: false  # If True, use extended STOI computation
+metricsToComputeOverride: null  # If not None, override the metrics to compute
+
+# ==== Node Selection Parameters ====
+whichNodes: 'all'  # 'all' or a list of node indices to process
+
+# ==== Plotting Parameters ====
+forcedYlim:  # If not None, force y-axis limits for msew
+  msew:
+    - 1e-27
+    - 1e6
+stoiRef: null  # Will be set in __post_init__
+n_per_col: 2  # Number of figures per column after plt.show()
+margin: 100  # Margin between figures in pixels
+
+# ==== Debug Parameters ====
+plotWaveforms: false  # If True, plot waveforms for debugging
