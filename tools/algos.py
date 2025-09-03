@@ -267,13 +267,13 @@ class Run:
             iSaved = None  # placeholder
 
         # Export results
-        self.export_results(W_netWide, sigStack, iSaved)
+        self.export_results(W_netWide, sigStack, asc, iSaved)
 
         print(f"\nTotal time taken for this run: {format_timespan(time.time() - tMaster)}")
 
         return 0
 
-    def export_results(self, W_netWide, sigStack, iSaved):
+    def export_results(self, W_netWide, sigStack, asc: AcousticScenario, iSaved):
         """Export results to a file."""
         c = self.cfg
         if c.scmEstimation == 'online' and c.desSigType == 'speech' and c.singleLine is None:
@@ -312,14 +312,6 @@ class Run:
                         )
                         nhatk[k][alg][ii] = c.get_istft(nhatkSTFT)
 
-            if 0:
-                import simpleaudio as sa
-                tListen = 3
-                audio_array = shatk[0]['unprocessed'][0, :int(tListen * c.fs)]
-                audio_array *= 32767 / max(abs(audio_array))
-                audio_array = audio_array.astype(np.int16)
-                sa.play_buffer(audio_array,1,2,c.fs)
-
             results = {
                 'd': [
                     c.get_istft(np.array([
@@ -330,14 +322,14 @@ class Run:
                 ],
                 'shatk': shatk,
                 'nhatk': nhatk,
-                'cfg': c,
+                'asc': asc,  # (contains `Parameters` cfg)
             }
         else:
             results = {
                 'W_netWide': W_netWide,
                 's': sigStack['s'],
                 'n': sigStack['n'],
-                'cfg': c,
+                'asc': asc,  # (contains `Parameters` cfg)
             }
         # Saving iter index
         results['iSaved'] = iSaved

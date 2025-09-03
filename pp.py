@@ -138,19 +138,30 @@ def main():
                     metricsToCompute,
                 ))
                 print(f"\nMetrics for file (MC run) {idxMC + 1}/{len(files)} computed in {time.time() - t0:.2f} seconds.")
+            # At end of loop, `metrics` is [MCrun]{metric}{algo}[node][source][<value(s)>]
 
 
             # Rearrange metrics: place MC runs in the last dimension of the deepest level
-            metricsRearranged = dict([(m, dict([(alg, []) for alg in c.algos])) for m in metricsToCompute])
+            metricsRearranged = dict([
+                (m, dict([
+                    (alg, [
+                        [
+                            [] for ii in range(c.Qd)
+                        ] for k in pp.nodesToProcess
+                    ]) for alg in c.algos
+                ])) for m in metricsToCompute
+            ])
             for m in metricsToCompute:
                 for alg in c.algos:
                     for k in pp.nodesToProcess:
-                        metricsRearranged[m][alg].append(
-                            np.array([mm[m][alg][k] for mm in metrics])
-                        )
+                        for idxS in range(c.Qd):
+                            metricsRearranged[m][alg][k][idxS].append(
+                                np.squeeze(np.array([mm[m][alg][k][idxS] for mm in metrics]))
+                            )
                     # Convert to numpy array
                     metricsRearranged[m][alg] = np.array(metricsRearranged[m][alg])
             metrics = metricsRearranged
+            # `metrics` is now {metric}{algo}[node][source x MCrun x <value(s)>]
 
             # Export metrics to file
             with open(metricsFile, 'wb') as f:
@@ -306,11 +317,14 @@ class PostProcessor:
         elif 'shatk' in dataIn.keys():
             d = np.array(dataIn['d'])
             shatk = dataIn['shatk']
-            nhatk = dataIn['nhatk']
-            dhatk = [
-                dict([(alg, shatk[k][alg] + nhatk[k][alg]) for alg in c.algos])
-                for k in range(c.K)
-            ]
+            nhatk = [dict([(alg, None) for alg in c.algos]) for k in range(c.K)]
+            dhatk = [dict([(alg, [None for _ in range(c.Qd)]) for alg in c.algos]) for k in range(c.K)]
+            for k in range(c.K):
+                for alg in c.algos:
+                    # Summing up contributions from all noise sources (no need for individual contributions)
+                    nhatk[k][alg] = np.array(dataIn['nhatk'][k][alg]).sum(axis=0)
+                    for ii in range(c.Qd):
+                        dhatk[k][alg][ii] = shatk[k][alg][ii] + nhatk[k][alg]
         
         wolaFlag = c.domain == 'wola' and c.singleLine is not None
         if wolaFlag:
@@ -322,16 +336,18 @@ class PostProcessor:
             # We are in the time domain
             nSamplesPerChunkShift = int(np.ceil(p.metricsChunkShift * c.fs))
             nSamplesPerChunk = int(np.ceil(p.metricsChunkDuration * c.fs))
-            nChunks = int(np.ceil(list(dhatk[0].values())[0].shape[-1] / nSamplesPerChunkShift))
+            nChunks = int(np.ceil(list(nhatk[0].values())[0].shape[-1] / nSamplesPerChunkShift))
 
         if c.scmEstimation == 'online':
             metrics = dict([(metric, dict([
                 (alg, [
-                    []
-                    for _ in self.nodesToProcess
+                    [[] for ii_ in range(c.Qd)]
+                    for jj in self.nodesToProcess
                 ]) for alg in c.algos
             ])) for metric in metricsToCompute])
         else:
+            if np.any(m in metricsToCompute for m in ['stoi', 'estoi', 'pesq', 'dnsmos']):
+                raise NotImplementedError("Offline-mode processing of intelligibility metrics is not implemented.")
             metrics = dict([(metric, dict([
                 (alg, [None for _ in self.nodesToProcess]) for alg in c.algos
             ])) for metric in metricsToCompute])
@@ -344,20 +360,21 @@ class PostProcessor:
                 idxEnd = ii * nSamplesPerChunkShift
                 idxBeg = max(idxEnd - nSamplesPerChunk, 0)
             for k in self.nodesToProcess:
-                dk_chunk = d[k, ..., idxBeg:idxEnd]
                 for alg in c.algos:
-                    dhatk_chunk = dhatk[k][alg][..., idxBeg:idxEnd]
-                    shatk_chunk = shatk[k][alg][..., idxBeg:idxEnd]
                     nhatk_chunk = nhatk[k][alg][..., idxBeg:idxEnd]
-                    metrics_curr = self.compute_metrics(
-                        metricsToCompute=metricsToCompute,
-                        dk=dk_chunk, dhatk=dhatk_chunk,
-                        shatk=shatk_chunk, nhatk=nhatk_chunk
-                    )
-                    for m in metrics_curr.keys():
-                        metrics[m][alg][k].append(metrics_curr[m])
+                    for idxS in range(c.Qd):
+                        dk_chunk = d[idxS, k, ..., idxBeg:idxEnd]
+                        dhatk_chunk = dhatk[k][alg][idxS][..., idxBeg:idxEnd]
+                        shatk_chunk = shatk[k][alg][idxS][..., idxBeg:idxEnd]
+                        metrics_curr = self.compute_metrics(
+                            metricsToCompute=metricsToCompute,
+                            dk=dk_chunk, dhatk=dhatk_chunk,
+                            shatk=shatk_chunk, nhatk=nhatk_chunk
+                        )
+                        for m in metrics_curr.keys():
+                            metrics[m][alg][k][idxS].append(metrics_curr[m])
         
-        # Compute STOI
+        # Compute intelligibility metrics (STOI, etc.)
         if np.any(m in metricsToCompute for m in p.intelligibilityMetrics):
             if isinstance(p.stoiInterval, list):
                 idxBeg = int(p.stoiInterval[0] * c.fs)
@@ -367,28 +384,30 @@ class PostProcessor:
                 idxEnd = -1
             for k in self.nodesToProcess:
                 for alg in c.algos:
-                    print(f"Computing STOI for {alg}, node {k + 1}/{len(self.nodesToProcess)}...", end='\r')
-                    # Compute VAD
-                    target = d[k, 0, idxBeg:idxEnd]
-                    estimate = dhatk[k][alg][0, idxBeg:idxEnd]
-                    vad = self.compute_vad(target)
-                    for m in p.intelligibilityMetrics:
-                        if 'stoi' in m:
-                            metrics[m][alg][k] = stoi_any_fs(
-                                target[vad],
-                                estimate[vad],
-                                fs_sig=c.fs,
-                                extended=p.extendedStoi
-                                # extended=True
-                            )
-                        elif m == 'pesq':
-                            metrics[m][alg][k] = pesq(c.fs, target[vad], estimate[vad], 'wb')
-                        elif m == 'dnsmos':
-                            metrics[m][alg][k] = dnsmos.run(
-                                estimate[vad] / np.amax(np.abs(estimate)),
-                                c.fs, model_type='dnsmos', return_df=False
-                            )['ovrl_mos']
-                    pass
+                    for idxS in range(c.Qd):
+                        print(f"Computing STOI for {alg}, node {k + 1}/{len(self.nodesToProcess)}, speech source {idxS + 1}/{c.Qd}...", end='\r')
+                        # Compute VAD
+                        target = d[idxS, k, 0, idxBeg:idxEnd]
+                        estimate = dhatk[k][alg][idxS][0, idxBeg:idxEnd]
+                        vad = self.compute_vad(target)
+                        for m in p.intelligibilityMetrics:
+                            if 'stoi' in m:
+                                tmp = stoi_any_fs(
+                                    target[vad],
+                                    estimate[vad],
+                                    fs_sig=c.fs,
+                                    extended=p.extendedStoi
+                                    # extended=True
+                                )
+                            elif m == 'pesq':
+                                tmp = pesq(c.fs, target[vad], estimate[vad], 'wb')
+                            elif m == 'dnsmos':
+                                tmp = dnsmos.run(
+                                    estimate / np.amax(np.abs(estimate)),
+                                    c.fs, model_type='dnsmos', return_df=False
+                                )['ovrl_mos']
+                            metrics[m][alg][k][idxS] = tmp
+                        pass
         
         return metrics
 
@@ -588,122 +607,129 @@ class PostProcessor:
             'tidmwf': 'm',
         }
 
-        fig, axes = plt.subplots(1, len(metrics.keys()))
-        # Convert size from pixels to inches
-        for ii, m in enumerate(metrics.keys()):
-            ax = axes[ii] if len(metrics.keys()) > 1 else axes
-            if 'stoi' in m:
-                ax.set_ylim(0, 1)
-            maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
-            if c.dynamics == 'moving' and c.scmEstimation == 'online' and\
-                m not in p.intelligibilityMetrics:
-                # Plot a vertical line every time the scenario changes
-                nChanges = int(c.T / c.movingEvery)
-                for i in range(nChanges):
-                    x = i * c.movingEvery / c.T * maxX
-                    ax.axvline(x=x, color='0.5', linestyle='--')
-            flagDelta = m in ['snr', 'ser'] and p.deltasSnrSer
-            if (any('danse' in alg for alg in c.algos) or\
-                c.scmEstimation == 'online') and m not in p.intelligibilityMetrics:
-                # Line plot when including iterative algorithms
-                if m in ['msew', 'msed']:
-                    ax.set_yscale('log')
-                for jj, alg in enumerate(metrics[m].keys()):
-                    if (m == 'msew' and alg in ['centralized', 'local','unprocessed']) or \
-                        (flagDelta and alg in ['local', 'unprocessed']):
-                        continue
-                    col = colors[alg] if alg in colors.keys() else f'C{jj}'
-                    if metrics[m][alg].shape[-1] > 1:
-                        if p.whichNodes == 'all':
-                            data = np.mean(metrics[m][alg], axis=(0, 1))
-                            if flagDelta:
-                                data -= np.mean(metrics[m]['local'], axis=(0, 1))
-                        else:
-                            data = np.mean([
-                                m for i, m in enumerate(metrics[m][alg]) if i in p.whichNodes
-                            ], axis=(0, 1))
-                            if flagDelta:
-                                data -= np.mean([
-                                    m for i, m in enumerate(metrics[m]['local']) if i in p.whichNodes
-                                ], axis=(0, 1))
-                        ax.plot(data, label=alg, color=col,
-                                marker=markers[jj % len(markers)],
-                                markerfacecolor='none', markevery=0.1)
-                    else:
-                        # Non-iterative algorithms in batch-mode: horizontal lines
-                        if p.whichNodes == 'all':
-                            data = np.mean(metrics[m][alg])
-                            if flagDelta:
-                                data -= np.mean(metrics[m]['local'])
-                        else:
-                            data = np.mean([
-                                m for i, m in enumerate(metrics[m][alg]) if i in p.whichNodes
-                            ])
-                            if flagDelta:
-                                data -= np.mean([
-                                    m for i, m in enumerate(metrics[m]['local']) if i in p.whichNodes
-                                ])
-                        plot_h(
-                            ax,
-                            data,
-                            label=alg,
-                            color=colors[alg],
-                            marker=markers[jj % len(markers)],
-                        )
-                # Format x-axis
-                xAxisStart = int(p.metricsChunkDuration // p.metricsChunkShift)
-                xAxisStart = 0  # <-- FORCE start at zero
-                ax.set_xlim(xAxisStart, maxX)
-                if c.scmEstimation == 'online':
-                    ticksInterval = (maxX - xAxisStart) / 5
-                    if c.dynamics == 'moving':
-                        ticksInterval = np.amin([ticksInterval, c.movingEvery / c.T * maxX])
-                    xTicks = np.arange(xAxisStart, maxX, ticksInterval)
-                    ax.set_xticks(xTicks)
-                    ax.set_xticklabels(np.round(xTicks / (maxX - xAxisStart) * c.T, 2))
-                    ax.set_xlabel('Time [s]')
-                else:
-                    ax.set_xlabel('Iteration')
-            else:
-                # Bar plot when in batch-mode and not including iterative algorithms
-                for jj, alg in enumerate(metrics[m].keys()):
-                    col = colors[alg] if alg in colors.keys() else f'C{jj}'
-                    if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
-                        continue
-                    ax.bar(jj, np.mean(metrics[m][alg]), label=alg, color=col)
-            if m in ['snr', 'ser'] and ax.get_ylim()[0] < 0:
-                # Ensure SNR = 0 dB is visible as a horizontal line
-                ax.axhline(y=0, color='0.75')
-            # Add legend
-            if m == p.intelligibilityMetrics[-1]:
-                ax.legend(loc='lower center')
-            if m == 'snr':
-                ax.legend(loc='upper center')
-            ti = m.upper()
-            if m in ['snr', 'ser'] and p.deltasSnrSer:
-                ti = f'$\\Delta${ti}'
-            ax.set_title(ti)
-            if m in p.forcedYlim.keys():
-                if p.forcedYlim[m] is not None:
-                    # Force y-axis limits if specified
-                    ax.set_ylim(p.forcedYlim[m])
-        supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {p.whichNodes}'
-        if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
-            supti += f', {c.betaString}'
-        if nMC > 1:
-            supti += f', #MCs: {nMC}'
-        fig.suptitle(supti)
+        for idxS in range(c.Qd):
+            fig, axes = plt.subplots(1, len(metrics.keys()))
+            # Convert size from pixels to inches
+            for ii, m in enumerate(metrics.keys()):
+                ax = axes[ii] if len(metrics.keys()) > 1 else axes
+                if 'stoi' in m:
+                    ax.set_ylim(0, 1)
+                maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
+                if c.dynamics == 'moving' and c.scmEstimation == 'online' and\
+                    m not in p.intelligibilityMetrics:
+                    # Plot a vertical line every time the scenario changes
+                    nChanges = int(c.T / c.movingEvery)
+                    for i in range(nChanges):
+                        x = i * c.movingEvery / c.T * maxX
+                        ax.axvline(x=x, color='0.5', linestyle='--')
+                flagDelta = m in ['snr', 'ser'] and p.deltasSnrSer
+                if (any('danse' in alg for alg in c.algos) or\
+                    c.scmEstimation == 'online') and m not in p.intelligibilityMetrics:
+                    # Line plot when including iterative algorithms
+                    if m in ['msew', 'msed']:
+                        ax.set_yscale('log')
+                    for jj, alg in enumerate(metrics[m].keys()):
+                        if (m == 'msew' and alg in ['centralized', 'local','unprocessed']) or \
+                            (flagDelta and alg in ['local', 'unprocessed']):
+                            continue
+                        col = colors[alg] if alg in colors.keys() else f'C{jj}'
+                        if metrics[m][alg].shape[-1] > 1:
+                            # `metrics[m][alg]` is an array, [node x source x nMC x <value(s)>]
+                            if p.whichNodes == 'all':
+                                data = np.mean(metrics[m][alg], axis=(0, 1))
+                                if flagDelta:
+                                    data -= np.mean(metrics[m]['local'], axis=(0, 2))
+                            else:
+                                data = np.mean([
+                                    m for i, m in enumerate(metrics[m][alg]) if i in p.whichNodes
+                                ], axis=(0, 2))
+                                if flagDelta:
+                                    data -= np.mean([
+                                        m for i, m in enumerate(metrics[m]['local']) if i in p.whichNodes
+                                    ], axis=(0, 2))
+                            # FOR NOW: select source at this point
+                            data = data[idxS, :]
+                            # FOR NOW: select source at this point
 
-        backend = matplotlib.get_backend().lower()
-        manager = fig.canvas.manager
-        # Set position
-        fig_w, fig_h = placement[2], placement[3]
-        if 'tkagg' in backend:
-            manager.window.wm_geometry(f"{int(fig_w)}x{int(fig_h)}+{int(placement[0])}+{int(placement[1])}")
-        elif 'qt' in backend:
-            manager.window.setGeometry(placement[0], placement[1], fig_w, fig_h)
-        else:
-            print(f"Unsupported backend '{backend}' for window positioning.")
+                            ax.plot(data, label=alg, color=col,
+                                    marker=markers[jj % len(markers)],
+                                    markerfacecolor='none', markevery=0.1)
+                        else:
+                            # Non-iterative algorithms in batch-mode: horizontal lines
+                            if p.whichNodes == 'all':
+                                data = np.mean(metrics[m][alg])
+                                if flagDelta:
+                                    data -= np.mean(metrics[m]['local'])
+                            else:
+                                data = np.mean([
+                                    m for i, m in enumerate(metrics[m][alg]) if i in p.whichNodes
+                                ])
+                                if flagDelta:
+                                    data -= np.mean([
+                                        m for i, m in enumerate(metrics[m]['local']) if i in p.whichNodes
+                                    ])
+                            plot_h(
+                                ax,
+                                data,
+                                label=alg,
+                                color=colors[alg],
+                                marker=markers[jj % len(markers)],
+                            )
+                    # Format x-axis
+                    xAxisStart = int(p.metricsChunkDuration // p.metricsChunkShift)
+                    xAxisStart = 0  # <-- FORCE start at zero
+                    ax.set_xlim(xAxisStart, maxX)
+                    if c.scmEstimation == 'online':
+                        ticksInterval = (maxX - xAxisStart) / 5
+                        if c.dynamics == 'moving':
+                            ticksInterval = np.amin([ticksInterval, c.movingEvery / c.T * maxX])
+                        xTicks = np.arange(xAxisStart, maxX, ticksInterval)
+                        ax.set_xticks(xTicks)
+                        ax.set_xticklabels(np.round(xTicks / (maxX - xAxisStart) * c.T, 2))
+                        ax.set_xlabel('Time [s]')
+                    else:
+                        ax.set_xlabel('Iteration')
+                else:
+                    # Bar plot when in batch-mode and not including iterative algorithms
+                    for jj, alg in enumerate(metrics[m].keys()):
+                        col = colors[alg] if alg in colors.keys() else f'C{jj}'
+                        if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
+                            continue
+                        ax.bar(jj, np.mean(metrics[m][alg][:, idxS, ...]), label=alg, color=col)
+                if m in ['snr', 'ser'] and ax.get_ylim()[0] < 0:
+                    # Ensure SNR = 0 dB is visible as a horizontal line
+                    ax.axhline(y=0, color='0.75')
+                # Add legend
+                if m == p.intelligibilityMetrics[-1]:
+                    ax.legend(loc='lower center')
+                if m == 'snr':
+                    ax.legend(loc='upper center')
+                ti = m.upper()
+                if m in ['snr', 'ser'] and p.deltasSnrSer:
+                    ti = f'$\\Delta${ti}'
+                ax.set_title(ti)
+                if m in p.forcedYlim.keys():
+                    if p.forcedYlim[m] is not None:
+                        # Force y-axis limits if specified
+                        ax.set_ylim(p.forcedYlim[m])
+            supti = f'{c.observability.upper()}, {c.scmEstimation} SCMs, node(s): {p.whichNodes}'
+            if c.scmEstimation == 'online' and 'betaString' in c.__dict__.keys():
+                supti += f', {c.betaString}'
+            if nMC > 1:
+                supti += f', #MCs: {nMC}'
+            supti += f', speech source {idxS + 1}/{c.Qd}'
+            fig.suptitle(supti)
+
+            backend = matplotlib.get_backend().lower()
+            manager = fig.canvas.manager
+            # Set position
+            fig_w, fig_h = placement[2], placement[3]
+            if 'tkagg' in backend:
+                manager.window.wm_geometry(f"{int(fig_w)}x{int(fig_h)}+{int(placement[0])}+{int(placement[1])}")
+            elif 'qt' in backend:
+                manager.window.setGeometry(placement[0], placement[1], fig_w, fig_h)
+            else:
+                print(f"Unsupported backend '{backend}' for window positioning.")
 
 
         # === Additional figure: metrics aggregated per static segment as stairs ===

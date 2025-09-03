@@ -1103,6 +1103,23 @@ class AcousticScenario:
             The indices of the signal segments to process (default is the whole signal).
         """
         c = self.cfg  # Configuration object
+        # Prepare potential window smoothing
+        if c.dynamics == 'moving':
+            smIdxEff = [
+                np.amax((0, smIdx[0] - c.dynTransLen)),
+                np.amin((c.N, smIdx[1] + c.dynTransLen))
+            ]
+            smoothInLen = smIdx[0] - smIdxEff[0]
+            smoothOutLen = smIdxEff[1] - smIdx[1]
+            # Prepare smoothing windows
+            smoothInWin = sig.get_window(c.win, 2 * smoothInLen)
+            smoothIn = smoothInWin[:smoothInLen]
+            smoothOutWin = sig.get_window(c.win, 2 * smoothOutLen)
+            smoothOut = smoothOutWin[smoothOutLen:]
+            fullSmoothWin = np.concatenate((smoothIn, np.ones(smIdx[1] - smIdx[0]), smoothOut))
+        else:
+            smIdxEff = smIdx
+            fullSmoothWin = np.ones(smIdx[1] - smIdx[0])
         # Apply the room impulse responses to the latent signals
         for k in range(c.K):
             # Get the indices of the microphones for this node
@@ -1115,12 +1132,10 @@ class AcousticScenario:
                 # ---------------------------------------
                 for jj, m in enumerate(micIdx):
                     tmp = sig.fftconvolve(
-                        self.latentDesired[ii, smIdx[0]:smIdx[1]],
+                        self.latentDesired[ii, smIdxEff[0]:smIdxEff[1]],
                         p.rirs[m][ii],
-                    )
-                    self.nodes[k].td['sIndiv'][ii, jj, smIdx[0]:smIdx[1]] = tmp[
-                        :int(smIdx[1] - smIdx[0])
-                    ]
+                    )[:-(c.nfft - 1)] * fullSmoothWin
+                    self.nodes[k].td['sIndiv'][ii, jj, smIdxEff[0]:smIdxEff[1]] += tmp
             for ii in range(c.Qn):
                 # ---------------------------------------
                 if p.obsMat[k, c.Qd + ii] == 0:
@@ -1128,12 +1143,10 @@ class AcousticScenario:
                 # ---------------------------------------
                 for jj, m in enumerate(micIdx):
                     tmp = sig.fftconvolve(
-                        self.latentNoise[ii, smIdx[0]:smIdx[1]],
+                        self.latentNoise[ii, smIdxEff[0]:smIdxEff[1]],
                         p.rirs[m][c.Qd + ii]
-                    )
-                    self.nodes[k].td['nIndiv'][ii, jj, smIdx[0]:smIdx[1]] = tmp[
-                        :int(smIdx[1] - smIdx[0])
-                    ]
+                    )[:-(c.nfft - 1)] * fullSmoothWin
+                    self.nodes[k].td['nIndiv'][ii, jj, smIdxEff[0]:smIdxEff[1]] += tmp
             self.nodes[k].td['s'] = np.sum(self.nodes[k].td['sIndiv'], axis=0)
             self.nodes[k].td['n'] = np.sum(self.nodes[k].td['nIndiv'], axis=0)
 

@@ -71,6 +71,7 @@ class Parameters:
     movingEvery: float = 1.0  # time in seconds after which sources move in `moving` scenarios
     fixedObservabilities: bool = True  # if True, the observabilities are fixed
     dynamicWiggleSize: float = 0.1  # deviations to be applied to the nodes and sources positions if dynamics == 'moving', in meters
+    dynamicTransitionDuration: float = 0.1  # duration of the transition period for dynamic scenarios (smoothing)
 
     # Signals parameters
     fs: int = 16000  # sampling frequency
@@ -144,6 +145,8 @@ class Parameters:
     def __post_init__(self):
         np.random.seed(self.seed)
         self.N = int(self.fs * self.T)
+
+        self.dynTransLen = int(self.dynamicTransitionDuration * self.fs)
 
         # Datatype
         if self.domain == 'wola':
