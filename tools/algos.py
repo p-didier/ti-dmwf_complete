@@ -37,7 +37,17 @@ class Run:
             graph = nx.minimum_spanning_tree(graph)
 
         # Launch algorithms
-        Ryy, Rss, Rnn, s, n = asc.setup()
+        out = asc.setup()
+        Ryy, Rss, Rnn = out[0], out[1], out[2]
+        if c.domain == 'wola':
+            sigStack = out[3]
+            s, n = sigStack['s'], sigStack['n']
+        else:
+            s, n = out[3], out[4]
+            sigStack = {
+                's': s,
+                'n': n
+            }
         if c.useVAD:
             vad, vadSTFT = asc.estimate_vad()
 
@@ -96,9 +106,9 @@ class Run:
 
             W_netWide = []
 
-            if c.scmHeadStart:
-                _, Rss, Rnn, _, _ = asc.compute_scms(force='batch')
-                # _, Rss, Rnn, _, _ = asc.compute_scms(force='oracle')
+            if c.scmHeadStart is not None:
+                outtt = asc.compute_scms(force=c.scmHeadStart)
+                Rss, Rnn = outtt[1], outtt[2]
                 Rss += c.scmHeadStartNoiseAmount * np.amax(np.abs(Rss)) *\
                     c.randmat_hermposdef(Rss.shape, makeComplex=True)
                 Rnn += c.scmHeadStartNoiseAmount * np.amax(np.abs(Rnn)) *\
@@ -155,7 +165,8 @@ class Run:
                         'beta': c.beta,
                         'ssH': inner2,
                         'nnH': nnH,
-                        'vad': vadSTFT[:, l] if c.useVAD else None
+                        'vad': vadSTFT[:, l] if c.useVAD else None,
+                        # 'forceRyyUp': True if l < 107 else False  # DEBUGING, TEMPORARY!!!!
                     }
                     if flagdMWF_alternating:
                         kwargs_prev = copy.deepcopy(kwargs)
@@ -256,25 +267,26 @@ class Run:
             iSaved = None  # placeholder
 
         # Export results
-        self.export_results(W_netWide, s, n, iSaved)
+        self.export_results(W_netWide, sigStack, iSaved)
 
         print(f"\nTotal time taken for this run: {format_timespan(time.time() - tMaster)}")
 
         return 0
 
-    def export_results(self, W_netWide, s, n, iSaved):
+    def export_results(self, W_netWide, sigStack, iSaved):
         """Export results to a file."""
         c = self.cfg
         if c.scmEstimation == 'online' and c.desSigType == 'speech' and c.singleLine is None:
             # Wideband speech enhancement simulation: don't compute MSE_W and
             # don't export W_netWide. Instead, export the estimated desired
             # signal, the filtered s and filtered n, all in the time-domain.
+            # Export the filtered signals _per source_ for metrics computation.
             shatk = [
-                dict([(alg, None) for alg in c.algos])
+                dict([(alg, [None for _ in range(c.Qd)]) for alg in c.algos])
                 for _ in range(c.K)
             ]
             nhatk = [
-                dict([(alg, None) for alg in c.algos])
+                dict([(alg, [None for _ in range(c.Qn)]) for alg in c.algos])
                 for _ in range(c.K)
             ]
             for alg in c.algos:
@@ -285,10 +297,20 @@ class Run:
                         w[alg][k][0] if isinstance(w[alg][k], list) else w[alg][k]
                         for w in W_netWide
                     ])
-                    shatkSTFT = np.einsum('ijkl,kji->lji', wCurr.conj(), s)
-                    nhatkSTFT = np.einsum('ijkl,kji->lji', wCurr.conj(), n)
-                    shatk[k][alg] = c.get_istft(shatkSTFT)
-                    nhatk[k][alg] = c.get_istft(nhatkSTFT)
+                    for ii in range(c.Qd):
+                        shatkSTFT = np.einsum(
+                            'ijkl,kji->lji',
+                            wCurr.conj(),
+                            sigStack['sIndiv'][ii, ...]
+                        )
+                        shatk[k][alg][ii] = c.get_istft(shatkSTFT)
+                    for ii in range(c.Qn):
+                        nhatkSTFT = np.einsum(
+                            'ijkl,kji->lji',
+                            wCurr.conj(),
+                            sigStack['nIndiv'][ii, ...]
+                        )
+                        nhatk[k][alg][ii] = c.get_istft(nhatkSTFT)
 
             if 0:
                 import simpleaudio as sa
@@ -299,7 +321,13 @@ class Run:
                 sa.play_buffer(audio_array,1,2,c.fs)
 
             results = {
-                'd': c.get_istft(np.array([s[c.Mkc[k]:c.Mkc[k] + c.D, ...] for k in range(c.K)])),
+                'd': [
+                    c.get_istft(np.array([
+                        sigStack['sIndiv'][ii, c.Mkc[k]:c.Mkc[k] + c.D, ...]
+                        for k in range(c.K)
+                    ]))
+                    for ii in range(c.Qd)
+                ],
                 'shatk': shatk,
                 'nhatk': nhatk,
                 'cfg': c,
@@ -307,8 +335,8 @@ class Run:
         else:
             results = {
                 'W_netWide': W_netWide,
-                's': s,
-                'n': n,
+                's': sigStack['s'],
+                'n': sigStack['n'],
                 'cfg': c,
             }
         # Saving iter index
@@ -742,7 +770,7 @@ class Run:
             Qmat = np.linalg.inv(Xfull.conj().transpose(0, 2, 1))
             # GEVLs tensor - low-rank approximation is done here
             Dmat = np.zeros_like(Ryy, dtype=complex)
-            for r in range(gevdRank):
+            for r in range(np.amin((gevdRank, sigFull.shape[1]))):
                 Dmat[:, r, r] = np.squeeze(1 - 1 / sigFull[:, r])
             # Compute filters
             w = Xfull @ Dmat @ Qmat.conj().transpose(0, 2, 1)

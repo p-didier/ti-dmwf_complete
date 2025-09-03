@@ -1,6 +1,6 @@
 # ==== File and Directory Parameters ====
 baseResultsDir: './out'  # Base directory for results
-# resultsDir: './out/res_20250902_1304_saa_wolaMixtures_viaTD_static'  # Results subdirectory
+# resultsDir: './out/res_20250902_1351_saa_wolaMixtures_viaTD'  # Results subdirectory
 resultsDir: 'latest'  # Results subdirectory
 
 # ==== Export and Recompute Flags ====
@@ -28,7 +28,9 @@ computeMetricsEveryNFrames: 10  # Compute metrics every N frames (for online pro
 metricsMethod: 'entire_signal'  # Method for metrics computation
 
 # ==== Node Selection Parameters ====
-whichNodes: 'all'  # 'all' or a list of node indices to process
+# whichNodes: 'all'  # 'all' or a list of node indices to process
+whichNodes:
+- 0
 
 # ==== Plotting Parameters ====
 forcedYlim:  # If not None, force y-axis limits for msew
@@ -39,6 +41,10 @@ stairsPlot: False  # If True, plot a metrics stairs plot for each static segment
 stoiRef: null  # Will be set in __post_init__
 n_per_col: 2  # Number of figures per column after plt.show()
 margin: 100  # Margin between figures in pixels
+intelligibilityMetrics:
+- stoi
+- pesq
+- dnsmos
 
 # ==== Debug Parameters ====
 plotWaveforms: true  # If True, plot waveforms for debugging

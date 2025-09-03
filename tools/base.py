@@ -133,11 +133,13 @@ class Parameters:
     wolaMixtures_viaTD: bool = False  # if True, build WOLA mixtures (final mic signals) via time-domain processing, then STFT. Otherwise, build directly in the WOLA domain via STFT of latent signals.
     noCrossCorrelation: bool = False  # if True, build Ryy as Rss + Rnn exactly, i.e., mimick zero correlation between desired and noise sources
     nodeSpecificDANSEsourceEnum: bool = False  # if True, use a node-specific enumeration for DANSE desired sources (dimension of fused signals = Q_{d,k})
-    scmHeadStart: bool = False  # head start for SCM estimation
-    #  ^^^ If False: no head start, initialize SCMs randomly
-    #  ^^^ If True: head start, initialize SCMs as batch-mode SCMs
+    scmHeadStart: str = None  # head start for SCM estimation
+    #  ^^^ If None: no head start, initialize SCMs randomly
+    #  ^^^ If 'oracle': oracle SCM head start, initialize SCMs as oracle-mode SCMs
+    #  ^^^ If 'batch': batch SCM head start, initialize SCMs as batch-mode SCMs
     scmHeadStartNoiseAmount: float = 0  # noise amount added to head start SCMs
     gevdJustForDANSE: bool = False  # if True, use GEVD for DANSE algorithms
+    upRyyEveryFrame: bool = True  # if True, update the Ryy SCM every frame, even if VAD says no speech activity
 
     def __post_init__(self):
         np.random.seed(self.seed)

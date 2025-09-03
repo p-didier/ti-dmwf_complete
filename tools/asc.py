@@ -268,8 +268,8 @@ class AcousticScenario:
             out = self.setup_time_domain()
         print(f">>> Acoustic scenario setup done in {time.time() - t0:.2f} s.")
         
-        for s in self.scenarios:
-            s.get_Qdims(c)
+        for asc in self.scenarios:
+            asc.get_Qdims(c)
 
         # Print SNR at each node
         for k, node in enumerate(self.nodes):
@@ -694,9 +694,18 @@ class AcousticScenario:
 
         # Compute centralized signals STFT
         stack = dict()
-        for st in ['y', 's', 'n', 'sn']:
+        for st in self.nodes[0].td.keys():
             if c.wolaMixtures_viaTD:
-                tmp = np.vstack([self.nodes[k].td[st] for k in range(c.K)])
+                if self.nodes[0].td[st].ndim == 3:
+                    # Individual source contributions
+                    tmp = []
+                    for ii in range(self.nodes[0].td[st].shape[0]):
+                        tmp.append(
+                            np.vstack([self.nodes[k].td[st][ii, ...] for k in range(c.K)])
+                        )
+                    tmp = np.array(tmp)
+                else:
+                    tmp = np.vstack([self.nodes[k].td[st] for k in range(c.K)])
                 stack[st] = c.get_stft(tmp)
             else:
                 stack[st] = np.vstack([self.nodes[k].wd[st] for k in range(c.K)])
@@ -752,7 +761,7 @@ class AcousticScenario:
         else:
             raise ValueError(f"Unknown SCM estimation method: {scmEstType}")
 
-        return Ryy, Rss, Rnn, stack['s'], stack['n']
+        return Ryy, Rss, Rnn, stack
 
     def compute_vad(self, signal):
         c = self.cfg
@@ -1781,7 +1790,7 @@ def get_upstream_nodes(G: nx.Graph, root):
 
 # import numpy as np
 
-def single_update_scm(Rss, Rnn, *, ssH, nnH, beta, vad=None, inplace=True):
+def single_update_scm(Rss, Rnn, *, ssH, nnH, beta, vad=None, inplace=True, forceRyyUp=False):
     """
     Online SCM update:
       Rss <- beta * Rss + (1 - beta) * ssH
@@ -1812,8 +1821,8 @@ def single_update_scm(Rss, Rnn, *, ssH, nnH, beta, vad=None, inplace=True):
     Rnn_out = Rnn if (inplace and Rnn is not None) else (None if Rnn is None else (None if Rnn is None else Rnn.copy()))
 
     # --- Rss update ---
-    update_rss = (Rss_out is not None) and (np.any(vad))
-    # update_rss = (Rss_out is not None) # and (np.any(vad))
+    update_rss = ((Rss_out is not None) and (np.any(vad))) or forceRyyUp
+    # update_rss = (Rss_out is not None)
     if update_rss:
         # In-place axpby: Rss = beta*Rss + alpha*ssH
         Rss_out *= beta

@@ -13,7 +13,9 @@ import time
 import pickle
 import matplotlib
 import numpy as np
+from pesq import pesq
 from pathlib import Path
+from speechmos import dnsmos
 from tools.algos import herm
 import matplotlib.pyplot as plt
 from mypystoi import stoi_any_fs
@@ -95,7 +97,7 @@ def main():
                     metricsToCompute = ['msew', 'msed', 'snr', 'ser']
                     if not p.bypassStoi and c.domain == 'wola' and\
                         c.singleLine is None and c.desSigType == 'speech':  # speech enhancement scenario
-                        metricsToCompute += [p.stoiRef]
+                        metricsToCompute += p.intelligibilityMetrics
                     if c.scmEstimation == 'online':
                         metricsToCompute.remove('msed')  # msed is not computed in online mode
                         metricsToCompute.remove('msew')  # msew is not computed in online mode
@@ -356,7 +358,7 @@ class PostProcessor:
                         metrics[m][alg][k].append(metrics_curr[m])
         
         # Compute STOI
-        if p.stoiRef in metricsToCompute:
+        if np.any(m in metricsToCompute for m in p.intelligibilityMetrics):
             if isinstance(p.stoiInterval, list):
                 idxBeg = int(p.stoiInterval[0] * c.fs)
                 idxEnd = int(p.stoiInterval[1] * c.fs) if p.stoiInterval[1] != -1 else -1
@@ -366,23 +368,27 @@ class PostProcessor:
             for k in self.nodesToProcess:
                 for alg in c.algos:
                     print(f"Computing STOI for {alg}, node {k + 1}/{len(self.nodesToProcess)}...", end='\r')
-                    metrics[p.stoiRef][alg][k] = stoi_any_fs(
-                        d[k, 0, idxBeg:idxEnd],
-                        dhatk[k][alg][0, idxBeg:idxEnd],
-                        fs_sig=c.fs,
-                        extended=p.extendedStoi
-                        # extended=True
-                    )
+                    # Compute VAD
+                    target = d[k, 0, idxBeg:idxEnd]
+                    estimate = dhatk[k][alg][0, idxBeg:idxEnd]
+                    vad = self.compute_vad(target)
+                    for m in p.intelligibilityMetrics:
+                        if 'stoi' in m:
+                            metrics[m][alg][k] = stoi_any_fs(
+                                target[vad],
+                                estimate[vad],
+                                fs_sig=c.fs,
+                                extended=p.extendedStoi
+                                # extended=True
+                            )
+                        elif m == 'pesq':
+                            metrics[m][alg][k] = pesq(c.fs, target[vad], estimate[vad], 'wb')
+                        elif m == 'dnsmos':
+                            metrics[m][alg][k] = dnsmos.run(
+                                estimate[vad] / np.amax(np.abs(estimate)),
+                                c.fs, model_type='dnsmos', return_df=False
+                            )['ovrl_mos']
                     pass
-                if 0:
-                    fig, axes = plt.subplots(1, 1)
-                    fig.set_size_inches(8.5, 3.5)
-                    axes.plot(dhatk[k][alg][0, idxBeg:idxEnd], label=f'estimate ({alg})')
-                    axes.plot(d[k, 0, idxBeg:idxEnd], label='true target')
-                    axes.legend()
-                    axes.set_title(f'{p.stoiRef}: {metrics[p.stoiRef][alg][k]:.3f}')
-                    fig.tight_layout()
-                    plt.show()
         
         return metrics
 
@@ -532,10 +538,11 @@ class PostProcessor:
             dk=None, dhatk=None,
             shatk=None, nhatk=None
         ):
+        p = self.pp_cfg
         metrics_curr = dict([
             (metric, None)
             for metric in metricsToCompute
-            if metric != self.pp_cfg.stoiRef
+            if metric not in p.intelligibilityMetrics
         ])
         for m in metricsToCompute:
             if m == 'msew':
@@ -585,11 +592,11 @@ class PostProcessor:
         # Convert size from pixels to inches
         for ii, m in enumerate(metrics.keys()):
             ax = axes[ii] if len(metrics.keys()) > 1 else axes
-            if m == p.stoiRef:
+            if 'stoi' in m:
                 ax.set_ylim(0, 1)
             maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
             if c.dynamics == 'moving' and c.scmEstimation == 'online' and\
-                m != p.stoiRef:
+                m not in p.intelligibilityMetrics:
                 # Plot a vertical line every time the scenario changes
                 nChanges = int(c.T / c.movingEvery)
                 for i in range(nChanges):
@@ -597,7 +604,7 @@ class PostProcessor:
                     ax.axvline(x=x, color='0.5', linestyle='--')
             flagDelta = m in ['snr', 'ser'] and p.deltasSnrSer
             if (any('danse' in alg for alg in c.algos) or\
-                c.scmEstimation == 'online') and m != p.stoiRef:
+                c.scmEstimation == 'online') and m not in p.intelligibilityMetrics:
                 # Line plot when including iterative algorithms
                 if m in ['msew', 'msed']:
                     ax.set_yscale('log')
@@ -645,6 +652,7 @@ class PostProcessor:
                         )
                 # Format x-axis
                 xAxisStart = int(p.metricsChunkDuration // p.metricsChunkShift)
+                xAxisStart = 0  # <-- FORCE start at zero
                 ax.set_xlim(xAxisStart, maxX)
                 if c.scmEstimation == 'online':
                     ticksInterval = (maxX - xAxisStart) / 5
@@ -667,7 +675,7 @@ class PostProcessor:
                 # Ensure SNR = 0 dB is visible as a horizontal line
                 ax.axhline(y=0, color='0.75')
             # Add legend
-            if m == p.stoiRef:
+            if m == p.intelligibilityMetrics[-1]:
                 ax.legend(loc='lower center')
             if m == 'snr':
                 ax.legend(loc='upper center')
@@ -727,7 +735,7 @@ class PostProcessor:
             # Loop over metrics and algorithms to compute per-segment averages and plot as steps
             for ii, m in enumerate(metrics.keys()):
                 ax2 = axes2[ii] if len(metrics.keys()) > 1 else axes2
-                if m == p.stoiRef:
+                if 'stoi' in m:
                     ax2.set_ylim(0, 1)
                 # Vertical lines at segment boundaries
                 for s in range(len(seg_edges_idx)):
@@ -800,7 +808,7 @@ class PostProcessor:
                 ti2 = (f'$\\Delta${m.upper()}' if (m in ['snr', 'ser'] and p.deltasSnrSer) else m.upper())
                 ax2.set_title(ti2)
                 # Legend placement same as main plot
-                if m == p.stoiRef:
+                if m == p.intelligibilityMetrics[-1]:
                     ax2.legend(loc='lower center')
                 if m == 'msed':
                     ax2.legend(loc='upper center')
@@ -815,7 +823,23 @@ class PostProcessor:
             fig2.tight_layout()
         fig.tight_layout()
         return fig
+        
+    def compute_vad(self, signal):
+        c = self.cfg
+        smoothingLength = int(np.amin((c.vadSmoothingPeriod, c.noiseONOFFperiod)) * c.fs)
+        # Compute the energy of the signal
+        energy = np.mean(np.abs(signal) ** 2)
+        # Compute the threshold for VAD
+        threshold = c.vadThreshold * energy
+        # Smooth the VAD: avoid abrupt changes between 1 and 0
+        return np.convolve(
+            np.abs(signal) ** 2 > threshold,
+            np.ones(smoothingLength) / smoothingLength,
+            mode='same'
+        ) > 0.5
 
 
 if __name__ == '__main__':
     sys.exit(main())
+
+    
