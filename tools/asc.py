@@ -46,9 +46,9 @@ class StaticScenarioParameters:
             self.Qkq = np.full((c.K, c.K), c.Q)
             self.Qdk = np.full(c.K, c.Qd)
             self.oQ = c.Q
-        elif c.observability == 'gls':
-            raise NotImplementedError('TODO: implement GLS -- probably as constrained PODS -- and oQ should be possible to  compute based on the obsMat (i.e., number of sources observed by all nodes)')
-        elif c.observability == 'poss':
+        # elif c.observability == 'gls':
+        #     raise NotImplementedError('TODO: implement GLS -- probably as constrained PODS -- and oQ should be possible to  compute based on the obsMat (i.e., number of sources observed by all nodes)')
+        elif c.observability in ['poss', 'gls']:
             # Number of sources useful for fusion matrix computation for node q
             self.oQq = [0 for _ in range(c.K)]
             for k in range(c.K):
@@ -70,7 +70,7 @@ class StaticScenarioParameters:
                 self.Qdk = np.sum(self.obsMat[:, :c.Qd], axis=1)
             else:
                 self.Qdk = np.full(c.K, c.Qd)
-            self.oQ = None   # unused
+            self.oQ = len(np.where(self.obsMat.sum(axis=0) == c.K)[0])
 
         # ADJUST to number of microphones
         for k in range(c.K):
@@ -324,19 +324,20 @@ class AcousticScenario:
         pows = np.mean(np.abs(slat) ** 2, axis=1)
         pown = np.mean(np.abs(nlat) ** 2, axis=1)
         # Compute steering matrices
-        if c.observability == 'poss':
-            # Do not differentiate between global and local sources, 
+        if c.observability in ['poss', 'gls']:
+            # Do not differentiate between global and local sources,
             # randomly generate observability pattern
             self.obsMat = np.zeros((c.K, c.Q))
             
             def inadequate(om):
                 observedDesired = np.sum(om[:, :c.Qd], axis=1) > 0
                 observedNoise = np.sum(om[:, c.Qd:], axis=1) > 0
-                oneObserver = np.sum(om, axis=0) > 0
+                oneObserver = np.sum(om, axis=0) > 0 if c.observability == 'poss'\
+                    else ((np.sum(om, axis=0) == 1) | (np.sum(om, axis=0) == c.K))  # <- GLS case
                 return not np.all(observedDesired) or\
                     not np.all(observedNoise) or not np.all(oneObserver)
                     # not np.all(oneObserver)
-            # Criterion for adequacy: at least one desired source and one noise
+            # Criterion for adequacy (PODS): at least one desired source and one noise
             # source must be observed by each node, and each source must be
             # observed by at least one node.
             while inadequate(self.obsMat):

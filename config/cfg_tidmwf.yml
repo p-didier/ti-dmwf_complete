@@ -104,8 +104,8 @@ friendlyVoiceActivityCycleDuration: 3  # duration of a speech+pause cycle in sec
 
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
-# - unprocessed
-# - local
+- unprocessed
+- local
 - centralized
 # - dmwf
 # - danse
@@ -170,6 +170,6 @@ gevdJustForDANSE: False  # if True, use GEVD for DANSE algorithms
 
 # General simulation set parameters
 nMCruns: 20  # number of Monte Carlo runs
-# nMCruns: 6  # number of Monte Carlo runs
+# nMCruns: 1  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: tidmwf_200iter_GLS  # output file suffix
+suffix: full_tidmwf_200iter_GLS  # output file suffix

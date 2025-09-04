@@ -43,9 +43,7 @@ class PostProcParameters:
     whichNodes: Union[str, list] = 'all'  # 'all' or a list of node indices to process
 
     # ==== Plotting Parameters ====
-    forcedYlim: dict = field(default_factory=lambda: {
-        'msew': [1e-27, 1e6],  # If not None, force y-axis limits for msew
-    })
+    forcedYlim: dict = field(default_factory=lambda: {})
     stairsPlot: bool = False  # If True, plot a metrics stairs plot for each static segment (only used in online mode with dynamic scenarios)
     n_per_col: int = 2  # Number of figures per column after plt.show()
     margin: int = 100  # Margin between figures in pixels

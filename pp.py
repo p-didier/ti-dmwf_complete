@@ -85,6 +85,7 @@ def main():
             pp = PostProcessor(cfg=c, pp_cfg=p)
         else:
             metrics = []
+            CFs = {'danse': [], 'dmwf': []}
             for idxMC, f in enumerate(files):
                 print(f"Loading results from {f.name} ({idxMC + 1}/{len(files)})...")
                 with open(f, 'rb') as f:
@@ -96,6 +97,11 @@ def main():
                     c: Parameters = results['asc'].cfg  # Configuration parameters
                 pp = PostProcessor(cfg=c, pp_cfg=p)
                 
+                # Compute compression factors
+                asc = results['asc']
+                CFs['danse'].append(c.M / (c.K * c.Qd))
+                CFs['dmwf'].append(c.M / np.sum(asc.scenarios[0].oQq))
+
                 if p.metricsToComputeOverride is not None:
                     metricsToCompute = p.metricsToComputeOverride
                 else:
@@ -148,15 +154,20 @@ def main():
                 print(f"\nMetrics for file (MC run) {idxMC + 1}/{len(files)} computed in {time.time() - t0:.2f} seconds.")
             # At end of loop, `metrics` is [MCrun]{metric}{algo}[node][source][<value(s)>]
 
+            if 0:
+                # Quick compression factors plot
+                fig, axes = plt.subplots(1, 1)
+                fig.set_size_inches(8.5, 3.5)
+                axes.plot(CFs['dmwf'])
+                fig.tight_layout()
+                plt.show()
+
             # Rearrange metrics: place MC runs in the last dimension of the deepest level
             metrics = tree_stack(metrics, axis=-1)  # MC dimension becomes the last axis at every leaf
 
             # Export metrics to file
             with open(metricsFile, 'wb') as f:
                 pickle.dump(metrics, f)
-
-        if c.observability == 'poss' and 'CFs' in c.__dict__.keys():
-            print(c.CFs) 
 
         # Derive figure positioning parameters
         row = i // num_cols
@@ -178,10 +189,11 @@ def main():
             fig.savefig(f"{p.resultsDir}/metrics_{cfgRef}{suffixNodes}.svg", dpi=300)
             fig.savefig(f"{p.resultsDir}/metrics_{cfgRef}{suffixNodes}.png", dpi=300)
             print(f"Metrics figures exported to {p.resultsDir}/metrics_{cfgRef}{suffixNodes}.svg and .png")
+        
 
     plt.show(block=False)  # Show all figures
     print("Post-processing completed.")
-in    return 0
+    return 0
 
 
 def plot_signals(sigs, c: Parameters, kPlotIndex=0):
@@ -657,8 +669,8 @@ class PostProcessor:
                     ax.set_ylim(0, 1)
                 flagDelta = m in ['snr', 'ser'] and p.deltasSnrSer
                 nMetricValues = metrics[m][c.algos[0]].shape[-2]
-                if (any('danse' in alg for alg in c.algos) or\
-                    c.scmEstimation == 'online') and nMetricValues != 1: # and m not in p.intelligibilityMetrics:
+                if (any('danse' in alg for alg in c.algos) or c.scmEstimation == 'online') and not\
+                    (c.scmEstimation == 'online' and nMetricValues == 1): # and m not in p.intelligibilityMetrics:
                     maxX = nMetricValues if c.scmEstimation == 'online' else c.maxDANSEiter
                     # Plot a vertical line every time the scenario changes
                     if c.dynamics == 'moving' and c.scmEstimation == 'online':
@@ -748,8 +760,9 @@ class PostProcessor:
                     # Ensure SNR = 0 dB is visible as a horizontal line
                     ax.axhline(y=0, color='0.75')
                 # Add legend
-                if m == p.intelligibilityMetrics[-1]:
-                    ax.legend(loc='lower center')
+                if len(p.intelligibilityMetrics) > 0:
+                    if m == p.intelligibilityMetrics[-1]:
+                        ax.legend(loc='lower center')
                 if m == 'snr':
                     ax.legend(loc='upper center')
                 ti = m.upper()

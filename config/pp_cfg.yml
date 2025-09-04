@@ -5,6 +5,7 @@ resultsDir: 'latest'  # Results subdirectory
 
 # ==== Export and Recompute Flags ====
 export: false  # If True, export the figures to files
+export: true  # If True, export the figures to files
 forceRecomputeMetrics: true  # If True, recompute metrics even if they exist
 forceRecomputeMetrics: false  # If True, recompute metrics even if they exist
 
@@ -17,7 +18,9 @@ IMinterval: 1  # IM interval specification
 # ^^^ if float: in % of signal, starting from the end 
 extendedStoi: false  # If True, use extended STOI computation
 metricsToComputeBasis:
-- ser
+# - ser
+- msew
+- msed
 metricsToComputeOverride: null  # If not None, override the metrics to compute
 # metricsToComputeOverride:
 #   - msew
@@ -39,9 +42,9 @@ metricsMethod: 'entire_signal'  # Method for metrics computation
 multiSpeechSourceManagement: average  # 'separate' or 'average' or 'max' for multi-speech source management
 
 # ==== Node Selection Parameters ====
-# whichNodes: 'all'  # 'all' or a list of node indices to process
-whichNodes:
-- 0
+whichNodes: 'all'  # 'all' or a list of node indices to process
+# whichNodes:
+# - 0
 
 # ==== Plotting Parameters ====
 # forcedYlim:  # If not None, force y-axis limits for msew
@@ -52,9 +55,9 @@ stairsPlot: False  # If True, plot a metrics stairs plot for each static segment
 stoiRef: null  # Will be set in __post_init__
 n_per_col: 2  # Number of figures per column after plt.show()
 margin: 100  # Margin between figures in pixels
-# intelligibilityMetrics: []
-intelligibilityMetrics:
-- stoi
+intelligibilityMetrics: []
+# intelligibilityMetrics:
+# - stoi
 # - pesq
 # - dnsmos
 

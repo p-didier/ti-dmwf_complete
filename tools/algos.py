@@ -449,21 +449,21 @@ class Run:
                     _, upstreamNeighs = get_upstream_nodes(G, k)
                     Cqk = [None for _ in range(c.K)]
                     for q in range(c.K):
-                        dim = c.Mk[q] + c.Q * len(upstreamNeighs[q])
+                        dim = c.Mk[q] + scn.oQ * len(upstreamNeighs[q])
                         Cqk[q] = c.init_full((c.nPosFreqs, c.M, dim))
                         Cqk[q][..., c.Mkc[q]:c.Mkc[q + 1], :c.Mk[q]] = np.eye(c.Mk[q])
                     # Compute fusion matrices
                     Pk = [None for _ in range(c.K)]
                     for q in flatten_list(tree_levels(G, k)):
                         for ii, n in enumerate(upstreamNeighs[q]):
-                            idxBeg = c.Mk[q] + ii * c.Q
-                            idxEnd = idxBeg + c.Q
+                            idxBeg = c.Mk[q] + ii * scn.oQ
+                            idxEnd = idxBeg + scn.oQ
                             Cqk[q][..., idxBeg:idxEnd] = Cqk[n] @ Pk[n]
                         if q != k:
                             # Compute Pk
                             Rhyqhyq = herm(Cqk[q]) @ Ryy @ Cqk[q]
-                            hEq = c.init_full((c.M, c.Q), selection_matrix=True)
-                            hEq[c.Mkc[k]:c.Mkc[k] + c.Q, :] = np.eye(c.Q)
+                            hEq = c.init_full((c.M, scn.oQ), selection_matrix=True)
+                            hEq[c.Mkc[k]:c.Mkc[k] + scn.oQ, :] = np.eye(scn.oQ)
                             Rhyqyktq = herm(Cqk[q]) @ Ryy @ hEq
                             Pk[q] = self.filtup(Rhyqhyq, Rss=Rhyqyktq)
                     # Compute estimation filter
@@ -687,12 +687,12 @@ class Run:
                             # No update for this node
                             if alg.startswith("tidanse"): # and c.scmEstimation == 'online':
                                 # For TI-DANSE, apply the normalization factor
-                                Wk[k] = np.linalg.inv(Nk[k]) @ Wk[k]  # loaded from previous iteration/frame
+                                Wk[k] = np.linalg.pinv(Nk[k]) @ Wk[k]  # loaded from previous iteration/frame
                         
                         # Compute the fusion matrix Pk
                         if alg.startswith("tidanse"):
                             Pk[k] = Wk[k][..., :c.Mk[k], :c.Qd] @\
-                                np.linalg.inv(Wk[k][..., c.Mk[k]:, :c.Qd])
+                                np.linalg.pinv(Wk[k][..., c.Mk[k]:, :c.Qd])
                         else:
                             Pk[k] = Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
 
