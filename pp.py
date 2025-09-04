@@ -62,10 +62,6 @@ def main():
     fig_w, fig_h, screen_x, screen_y, num_cols = p.get_figsize(n=len(groupedFiles))
 
     for i, (cfgRef, files) in enumerate(groupedFiles.items()):
-
-        if i == 0:
-            continue
-
         # Check if metrics have already been computed
         suffixNodes = '_allnodes'
         if p.whichNodes != 'all':
@@ -103,13 +99,15 @@ def main():
                 if p.metricsToComputeOverride is not None:
                     metricsToCompute = p.metricsToComputeOverride
                 else:
-                    metricsToCompute = ['msew', 'msed', 'snr', 'ser']
+                    metricsToCompute = p.metricsToComputeBasis
                     if not p.bypassStoi and c.domain == 'wola' and\
                         c.singleLine is None and c.desSigType == 'speech':  # speech enhancement scenario
                         metricsToCompute += p.intelligibilityMetrics
                     if c.scmEstimation == 'online':
-                        metricsToCompute.remove('msed')  # msed is not computed in online mode
-                        metricsToCompute.remove('msew')  # msew is not computed in online mode
+                        if 'msed' in metricsToCompute:
+                            metricsToCompute.remove('msed')  # msed is not computed in online mode
+                        if 'msew' in metricsToCompute:
+                            metricsToCompute.remove('msew')  # msew is not computed in online mode
 
                 if p.deltasSnrSer and ('snr' in metricsToCompute or 'ser' in metricsToCompute) and \
                     'local' not in c.algos:
@@ -183,7 +181,7 @@ def main():
 
     plt.show(block=False)  # Show all figures
     print("Post-processing completed.")
-    return 0
+in    return 0
 
 
 def plot_signals(sigs, c: Parameters, kPlotIndex=0):
@@ -305,7 +303,8 @@ class PostProcessor:
                 else:
                     raise NotImplementedError("Offline-mode processing is not implemented.")
         elif 'shatk' in dataIn.keys():
-            d = np.array(dataIn['d'])
+            Nmax = int(c.fs * c.T)  # truncate potential tail
+            d = np.array(dataIn['d'])[..., :Nmax]
             shatk = dataIn['shatk']
             nhatk = [dict([(alg, None) for alg in c.algos]) for k in range(c.K)]
             dhatk = [dict([(alg, [None for _ in range(c.Qd)]) for alg in c.algos]) for k in range(c.K)]
@@ -314,7 +313,7 @@ class PostProcessor:
                     # Summing up contributions from all noise sources (no need for individual contributions)
                     nhatk[k][alg] = np.array(dataIn['nhatk'][k][alg]).sum(axis=0)
                     for ii in range(c.Qd):
-                        dhatk[k][alg][ii] = shatk[k][alg][ii] + nhatk[k][alg]
+                        dhatk[k][alg][ii] = (shatk[k][alg][ii] + nhatk[k][alg])[..., :Nmax]
         
         wolaFlag = c.domain == 'wola' and c.singleLine is not None
         if wolaFlag:
@@ -370,44 +369,67 @@ class PostProcessor:
         
         # Compute intelligibility metrics (STOI, etc.)
         if np.any([m in metricsToCompute for m in p.intelligibilityMetrics]):
-            if isinstance(p.stoiInterval, list):
-                idxBeg = int(p.stoiInterval[0] * c.fs)
-                idxEnd = int(p.stoiInterval[1] * c.fs) if p.stoiInterval[1] != -1 else -1
-            elif isinstance(p.stoiInterval, float):
-                idxBeg = int((1 - p.stoiInterval) * d.shape[-1])
-                idxEnd = -1
+
+            def _compute_ims(tar, est, vadCurr):
+                out = dict([(m, None) for m in p.intelligibilityMetrics])
+                for m in p.intelligibilityMetrics:
+                    if 'stoi' in m:
+                        out[m] = stoi_any_fs(
+                            tar[vadCurr],
+                            est[vadCurr],
+                            fs_sig=c.fs,
+                            extended=p.extendedStoi
+                        )
+                    elif m == 'pesq':
+                        out[m] = pesq(c.fs, tar[vadCurr], est[vadCurr], 'wb')
+                    elif m == 'dnsmos':
+                        out[m] = dnsmos.run(
+                            est / np.amax(np.abs(est)),
+                            c.fs, model_type='dnsmos', return_df=False
+                        )['ovrl_mos']
+                return out
+
+            if p.IMchunkType == 'single':
+                if isinstance(p.IMinterval, list):
+                    idxBeg = int(p.IMinterval[0] * c.fs)
+                    idxEnd = int(p.IMinterval[1] * c.fs) if p.IMinterval[1] != -1 else -1
+                elif isinstance(p.IMinterval, float):
+                    idxBeg = int((1 - p.IMinterval) * d.shape[-1])
+                    idxEnd = -1
+            elif p.IMchunkType == 'multi':
+                IMmultiChunkLen = int(c.fs * p.IMmultiChunkDur)
+                IMmultiShiftLen = int(c.fs * p.IMmultiChunkShiftDur)
+                nIMchunks = int(np.ceil(d.shape[-1] / IMmultiShiftLen))
+
             for k in self.nodesToProcess:
                 for alg in c.algos:
                     for idxS in range(c.Qd):
                         if dataIn['obsMat'][k, idxS] == 0:
-                            continue   # don't compute metrics if the source is not observed 
-                        print(f"Computing STOI for {alg}, node {k + 1}/{len(self.nodesToProcess)}, speech source {idxS + 1}/{c.Qd}...", end='\r')
-                        # Compute VAD
-                        target = d[idxS, k, 0, idxBeg:idxEnd]
-                        estimate = dhatk[k][alg][idxS][0, idxBeg:idxEnd]
-                        vad = self.compute_vad(target)
-                        for m in p.intelligibilityMetrics:
-                            if 'stoi' in m:
-                                try:
-                                    tmp = stoi_any_fs(
-                                        target[vad],
-                                        estimate[vad],
-                                        fs_sig=c.fs,
-                                        extended=p.extendedStoi
-                                        # extended=True
-                                    )
-                                except:
-                                    pass
-                            elif m == 'pesq':
-                                tmp = pesq(c.fs, target[vad], estimate[vad], 'wb')
-                            elif m == 'dnsmos':
-                                tmp = dnsmos.run(
-                                    estimate[vad] / np.amax(np.abs(estimate)),
-                                    c.fs, model_type='dnsmos', return_df=False
-                                )['ovrl_mos']
-                            metrics[m][alg][k][idxS] = tmp
-                        pass
-        
+                            continue   # don't compute metrics if the source is not observed
+                        if p.IMchunkType == 'single':
+                            print(f"Computing _single-chunk_ IMs for {alg}, node {k + 1}/{len(self.nodesToProcess)}, speech source {idxS + 1}/{c.Qd}...", end='\r')
+                            # Compute VAD
+                            target = d[idxS, k, 0, idxBeg:idxEnd]
+                            estimate = dhatk[k][alg][idxS][0, idxBeg:idxEnd]
+                            vad = self.compute_vad(target)
+                            IMsCurr = _compute_ims(target, estimate, vad)
+                            for m in p.intelligibilityMetrics:
+                                metrics[m][alg][k][idxS] = IMsCurr[m]
+                        elif p.IMchunkType == 'multi':
+                            for ii_c in range(nIMchunks):
+                                chunkBeg = ii_c * IMmultiShiftLen
+                                chunkEnd = chunkBeg + IMmultiChunkLen
+                                if chunkEnd > d.shape[-1]:
+                                    continue 
+                                print(f"Computing _multi-chunk_ IMs (chunk {ii_c + 1}/{nIMchunks}) for {alg}, node {k + 1}/{len(self.nodesToProcess)}, speech source {idxS + 1}/{c.Qd}...", end='\r')
+                                # Compute VAD
+                                target = d[idxS, k, 0, chunkBeg:chunkEnd]
+                                estimate = dhatk[k][alg][idxS][0, chunkBeg:chunkEnd]
+                                vad = self.compute_vad(target)
+                                IMsCurr = _compute_ims(target, estimate, vad)
+                                for m in p.intelligibilityMetrics:
+                                    metrics[m][alg][k][idxS].append(IMsCurr[m])
+
         if p.multiSpeechSourceManagement == 'separate':
             if c.observability == 'poss':
                 raise NotImplementedError("Separate multi-speech source management is not implemented for PODS scenarios.")
@@ -624,25 +646,26 @@ class PostProcessor:
         }
 
         nSources = c.Qd if metrics[list(metrics.keys())[0]][c.algos[0]].ndim == 4 else 1
+        effMetrics = [m for m in metrics.keys() if m in p.metricsToComputeBasis or m in p.intelligibilityMetrics]
 
         for idxS in range(nSources):
-            fig, axes = plt.subplots(1, len(metrics.keys()))
+            fig, axes = plt.subplots(1, len(effMetrics))
             # Convert size from pixels to inches
-            for ii, m in enumerate(metrics.keys()):
-                ax = axes[ii] if len(metrics.keys()) > 1 else axes
+            for ii, m in enumerate(effMetrics):
+                ax = axes[ii] if len(effMetrics) > 1 else axes
                 if 'stoi' in m:
                     ax.set_ylim(0, 1)
-                maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-2] if c.scmEstimation == 'online' else c.maxDANSEiter
-                if c.dynamics == 'moving' and c.scmEstimation == 'online' and\
-                    m not in p.intelligibilityMetrics:
-                    # Plot a vertical line every time the scenario changes
-                    nChanges = int(c.T / c.movingEvery)
-                    for i in range(nChanges):
-                        x = i * c.movingEvery / c.T * maxX
-                        ax.axvline(x=x, color='0.5', linestyle='--')
                 flagDelta = m in ['snr', 'ser'] and p.deltasSnrSer
+                nMetricValues = metrics[m][c.algos[0]].shape[-2]
                 if (any('danse' in alg for alg in c.algos) or\
-                    c.scmEstimation == 'online') and m not in p.intelligibilityMetrics:
+                    c.scmEstimation == 'online') and nMetricValues != 1: # and m not in p.intelligibilityMetrics:
+                    maxX = nMetricValues if c.scmEstimation == 'online' else c.maxDANSEiter
+                    # Plot a vertical line every time the scenario changes
+                    if c.dynamics == 'moving' and c.scmEstimation == 'online':
+                        nChanges = int(c.T / c.movingEvery)
+                        for i in range(nChanges):
+                            x = i * c.movingEvery / c.T * maxX
+                            ax.axvline(x=x, color='0.5', linestyle='--')
                     # Line plot when including iterative algorithms
                     if m in ['msew', 'msed']:
                         ax.set_yscale('log')
@@ -757,7 +780,6 @@ class PostProcessor:
             else:
                 print(f"Unsupported backend '{backend}' for window positioning.")
 
-
         # === Additional figure: metrics aggregated per static segment as stairs ===
         if c.scmEstimation == 'online' and\
             getattr(c, 'dynamics', None) == 'moving' and\
@@ -785,8 +807,8 @@ class PostProcessor:
             else:
                 print(f"Unsupported backend '{backend2}' for window positioning.")
             # Loop over metrics and algorithms to compute per-segment averages and plot as steps
-            for ii, m in enumerate(metrics.keys()):
-                ax2 = axes2[ii] if len(metrics.keys()) > 1 else axes2
+            for ii, m in enumerate(effMetrics):
+                ax2 = axes2[ii] if len(effMetrics) > 1 else axes2
                 if 'stoi' in m:
                     ax2.set_ylim(0, 1)
                 # Vertical lines at segment boundaries

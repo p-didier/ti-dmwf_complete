@@ -6,21 +6,27 @@ resultsDir: 'latest'  # Results subdirectory
 # ==== Export and Recompute Flags ====
 export: false  # If True, export the figures to files
 forceRecomputeMetrics: true  # If True, recompute metrics even if they exist
-# forceRecomputeMetrics: false  # If True, recompute metrics even if they exist
+forceRecomputeMetrics: false  # If True, recompute metrics even if they exist
 
 # ==== Metrics Computation Parameters ====
 metricsChunkDuration: 3  # Duration of the chunk to compute metrics over (in seconds)
 metricsChunkShift: 0.25  # Shift of the chunk to compute metrics over (in seconds)
-# stoiInterval: 0.75  # STOI interval specification
-stoiInterval: 1  # STOI interval specification
+# IMinterval: 0.75  # IM interval specification
+IMinterval: 1  # IM interval specification
 # ^^^ if list: in seconds, -1 = end of signal
 # ^^^ if float: in % of signal, starting from the end 
 extendedStoi: false  # If True, use extended STOI computation
+metricsToComputeBasis:
+- ser
 metricsToComputeOverride: null  # If not None, override the metrics to compute
 # metricsToComputeOverride:
 #   - msew
 deltasSnrSer: false  # If True, show SNR and SER as deltas from the local estimate
 bypassStoi: false  # If True, bypass STOI computation (useful for debugging)
+# IMchunkType: single  # Type of time-chunk to use for intelligibility metric (IM) computation
+IMchunkType: multi  # Type of time-chunk to use for intelligibility metric (IM) computation
+IMmultiChunkDur: 5.0  # Duration of each chunk for multi-chunk processing (in seconds)
+IMmultiChunkShiftDur: 1.0  # Duration of shift of each chunk for multi-chunk processing (in seconds)
 
 # ==== OLD Metrics Computation Parameters ====
 cumulatedAverage: false  # If True, apply a cumulative average (smoothing) to the metrics
@@ -50,7 +56,7 @@ margin: 100  # Margin between figures in pixels
 intelligibilityMetrics:
 - stoi
 # - pesq
-- dnsmos
+# - dnsmos
 
 # ==== Debug Parameters ====
 plotWaveforms: true  # If True, plot waveforms for debugging

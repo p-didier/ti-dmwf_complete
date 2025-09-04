@@ -20,6 +20,7 @@ class PostProcParameters:
     forceRecomputeMetrics: bool = True  # If True, recompute metrics even if they exist
 
     # ==== Metrics Computation Parameters ====
+    intelligibilityMetrics: list[str] = field(default_factory=lambda: ['stoi', 'pesq'])
     metricsChunkDuration: float = 2  # Duration of the chunk to compute metrics over (in seconds)
     metricsChunkShift: float = 0.5  # Shift of the chunk to compute metrics over (in seconds)
     cumulatedAverage: bool = False  # If True, apply a cumulative average (smoothing) to the metrics
@@ -28,10 +29,15 @@ class PostProcParameters:
     deltasSnrSer: bool = False  # If True, show SNR and SER as deltas from the local estimate
     metricsMethod: str = 'entire_signal'  # Method for metrics computation
     bypassStoi: bool = False  # If True, bypass STOI computation (useful for debugging)
-    stoiInterval: Union[list, float] = 0.75  # STOI interval specification
     extendedStoi: bool = False  # If True, use extended STOI computation
+    metricsToComputeBasis: list[str] = field(default_factory=lambda: ['snr', 'ser', 'msed', 'msew'])
     metricsToComputeOverride: Union[None, list] = None  # If not None, override the metrics to compute
     multiSpeechSourceManagement: str = 'separate'  # 'separate' or 'average' or 'max' for multi-speech source management
+    IMchunkType: str = 'single'  # Type of time-chunk to use for intelligibility metric (IM) computation
+    #  ^^^ 'single' (one time-chunk, based on `IMinterval`) or 'multi' (multiple chunks, based on `IMmultiChunkDur`)
+    IMinterval: Union[list, float] = 0.75  # intelligibility metric (IM) interval specification
+    IMmultiChunkDur: float = 1.0  # Duration of each chunk for multi-chunk processing (in seconds)
+    IMmultiChunkShiftDur: float = 1.0  # Duration of shift of each chunk for multi-chunk processing (in seconds)
 
     # ==== Node Selection Parameters ====
     whichNodes: Union[str, list] = 'all'  # 'all' or a list of node indices to process
@@ -41,7 +47,6 @@ class PostProcParameters:
         'msew': [1e-27, 1e6],  # If not None, force y-axis limits for msew
     })
     stairsPlot: bool = False  # If True, plot a metrics stairs plot for each static segment (only used in online mode with dynamic scenarios)
-    intelligibilityMetrics: list[str] = field(default_factory=lambda: ['stoi', 'pesq'])
     n_per_col: int = 2  # Number of figures per column after plt.show()
     margin: int = 100  # Margin between figures in pixels
 
