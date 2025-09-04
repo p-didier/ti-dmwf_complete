@@ -45,6 +45,9 @@ class StaticScenarioParameters:
             self.oQq = np.full(c.K, c.Q)
             self.Qkq = np.full((c.K, c.K), c.Q)
             self.Qdk = np.full(c.K, c.Qd)
+            self.oQ = c.Q
+        elif c.observability == 'gls':
+            raise NotImplementedError('TODO: implement GLS -- probably as constrained PODS -- and oQ should be possible to  compute based on the obsMat (i.e., number of sources observed by all nodes)')
         elif c.observability == 'poss':
             # Number of sources useful for fusion matrix computation for node q
             self.oQq = [0 for _ in range(c.K)]
@@ -67,6 +70,7 @@ class StaticScenarioParameters:
                 self.Qdk = np.sum(self.obsMat[:, :c.Qd], axis=1)
             else:
                 self.Qdk = np.full(c.K, c.Qd)
+            self.oQ = None   # unused
 
         # ADJUST to number of microphones
         for k in range(c.K):
@@ -1414,9 +1418,31 @@ class AcousticScenario:
         if c.observability == 'foss':
             # Full observability -- all nodes observe all sources
             obsMat = np.ones((c.K, c.Qd + c.Qn))
+        elif c.observability == 'gls':
+            # Global-local subspaces (GLS) scenario
+            obsMat = np.zeros((c.K, c.Q))
+            def inadequate(om):
+                observedDesired = np.sum(om[:, :c.Qd], axis=1) > 0
+                observedNoise = np.sum(om[:, c.Qd:], axis=1) > 0
+                oneOrAll = np.sum(om, axis=0) == 1 or np.sum(om, axis=0) == c.K
+                return not np.all(observedDesired) or\
+                    not np.all(observedNoise) or not np.all(oneOrAll)
+            # Criterion for adequacy: at least one desired source and one noise
+            # source must be observed by each node, and each source must be
+            # observed by either one node or all nodes. FOS/FODS scenarios
+            # are considered inadequate too, i.e., at least one desired source
+            # must be observed by only one node.
+            print("Generating observability matrix for GLS scenario...")
+            counter = 0
+            while inadequate(obsMat):
+                print(f"Trial #{counter+1}...", end='\r')
+                obsMat = np.random.randint(0, 2, (c.K, c.Q))
+                counter += 1
+            print(f"\nGenerated observability matrix for GLS scenario in {counter} trials.")
         elif c.observability == 'poss':
             # Partial observability -- nodes only observe certain sources
-            if 1 or nodesPos is None or speechPos is None or noisePos is None:
+            # if nodesPos is None or speechPos is None or noisePos is None:
+            if 1:  # <--- OVERRIDING: TODO: change that
                 # Do not differentiate between global and local sources, 
                 # randomly generate observability pattern
                 obsMat = np.zeros((c.K, c.Q))
@@ -1431,8 +1457,13 @@ class AcousticScenario:
                 # source must be observed by each node, and each source must be
                 # observed by at least one node.
                 # while inadequate(self.obsMat[:, :c.Qd]) or inadequate(self.obsMat[:, c.Qd:]):
+                print("Generating observability matrix for POS scenario...")
+                counter = 0
                 while inadequate(obsMat):
+                    print(f"Trial #{counter+1}...", end='\r')
                     obsMat = np.random.randint(0, 2, (c.K, c.Q))
+                    counter += 1
+                print(f"\nGenerated observability matrix for POS scenario in {counter} trials.")
             else:
                 # Create the distance matrix
                 distMat = np.zeros((c.K, c.Qd + c.Qn))

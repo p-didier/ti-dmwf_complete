@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Union
 from screeninfo import get_monitors
 from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
 
 @dataclass
 class PostProcParameters:
@@ -30,6 +31,7 @@ class PostProcParameters:
     stoiInterval: Union[list, float] = 0.75  # STOI interval specification
     extendedStoi: bool = False  # If True, use extended STOI computation
     metricsToComputeOverride: Union[None, list] = None  # If not None, override the metrics to compute
+    multiSpeechSourceManagement: str = 'separate'  # 'separate' or 'average' or 'max' for multi-speech source management
 
     # ==== Node Selection Parameters ====
     whichNodes: Union[str, list] = 'all'  # 'all' or a list of node indices to process
@@ -50,6 +52,9 @@ class PostProcParameters:
         if 'stoi' in self.intelligibilityMetrics and self.extendedStoi:
             # Replace 'stoi' with 'estoi'
             self.intelligibilityMetrics = ['estoi' if m == 'stoi' else m for m in self.intelligibilityMetrics]
+        if self.multiSpeechSourceManagement == 'max':
+            raise NotImplementedError("Max multi-speech source management may not be a valid approach for PODS scenarios.")
+
 
     def load_from_yaml(self, path: str):
         """Load parameters from a YAML file."""
@@ -87,3 +92,41 @@ def get_largest_screen_index():
             largest_index = i
 
     return largest_index
+
+def _all_same_shape(arrs):
+    try:
+        s0 = arrs[0].shape
+        return all(a.shape == s0 for a in arrs)
+    except AttributeError:
+        return False
+
+def tree_stack(samples, axis=-1, auto_stack_sequences=True):
+    """
+    Stack a list of identically-structured trees (dict/list/tuple/arrays) along `axis`.
+    Leaves are stacked with np.stack. Intermediate sequences can optionally be stacked
+    if they contain arrays of the same shape.
+    """
+    if not samples:
+        raise ValueError("samples must be a non-empty list")
+
+    first = samples[0]
+
+    # Mapping: stack per key
+    if isinstance(first, Mapping):
+        keys = first.keys()
+        return {k: tree_stack([s[k] for s in samples], axis=axis, auto_stack_sequences=auto_stack_sequences)
+                for k in keys}
+
+    # Sequence (but not str/bytes): stack per index
+    if isinstance(first, Sequence) and not isinstance(first, (str, bytes)):
+        # assume equal length/structure
+        elems = [tree_stack([s[i] for s in samples], axis=axis, auto_stack_sequences=auto_stack_sequences)
+                 for i in range(len(first))]
+        # Optionally collapse a list/tuple of arrays into a single array
+        if auto_stack_sequences and all(isinstance(e, np.ndarray) for e in elems) and _all_same_shape(elems):
+            return np.stack(elems, axis=0)
+        # preserve original type
+        return type(first)(elems) if isinstance(first, tuple) else elems
+
+    # Leaf: stack values
+    return np.stack(samples, axis=axis)

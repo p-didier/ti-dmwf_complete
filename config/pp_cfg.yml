@@ -1,6 +1,6 @@
 # ==== File and Directory Parameters ====
 baseResultsDir: './out'  # Base directory for results
-# resultsDir: './out/res_20250902_1351_saa_wolaMixtures_viaTD'  # Results subdirectory
+# resultsDir: './out/res_20250903_1224_full_run_1MC_indivSourceEstimatesOut'  # Results subdirectory
 resultsDir: 'latest'  # Results subdirectory
 
 # ==== Export and Recompute Flags ====
@@ -11,7 +11,8 @@ forceRecomputeMetrics: true  # If True, recompute metrics even if they exist
 # ==== Metrics Computation Parameters ====
 metricsChunkDuration: 3  # Duration of the chunk to compute metrics over (in seconds)
 metricsChunkShift: 0.25  # Shift of the chunk to compute metrics over (in seconds)
-stoiInterval: 0.75  # STOI interval specification
+# stoiInterval: 0.75  # STOI interval specification
+stoiInterval: 1  # STOI interval specification
 # ^^^ if list: in seconds, -1 = end of signal
 # ^^^ if float: in % of signal, starting from the end 
 extendedStoi: false  # If True, use extended STOI computation
@@ -26,6 +27,10 @@ cumulatedAverage: false  # If True, apply a cumulative average (smoothing) to th
 metricsOverFirstSeconds: 2  # Number of seconds to consider for waveform-based metrics computation
 computeMetricsEveryNFrames: 10  # Compute metrics every N frames (for online processing)
 metricsMethod: 'entire_signal'  # Method for metrics computation
+# metricsToComputeOverride:  # If not None, override the metrics to compute
+# - msew
+# - msed
+multiSpeechSourceManagement: average  # 'separate' or 'average' or 'max' for multi-speech source management
 
 # ==== Node Selection Parameters ====
 # whichNodes: 'all'  # 'all' or a list of node indices to process
@@ -33,17 +38,18 @@ whichNodes:
 - 0
 
 # ==== Plotting Parameters ====
-forcedYlim:  # If not None, force y-axis limits for msew
-  msew:
-    - 1e-27
-    - 1e6
+# forcedYlim:  # If not None, force y-axis limits for msew
+#   msew:
+#     - 1e-27
+#     - 1e7
 stairsPlot: False  # If True, plot a metrics stairs plot for each static segment (only used in online mode with dynamic scenarios)
 stoiRef: null  # Will be set in __post_init__
 n_per_col: 2  # Number of figures per column after plt.show()
 margin: 100  # Margin between figures in pixels
+# intelligibilityMetrics: []
 intelligibilityMetrics:
 - stoi
-- pesq
+# - pesq
 - dnsmos
 
 # ==== Debug Parameters ====

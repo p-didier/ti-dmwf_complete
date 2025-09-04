@@ -80,11 +80,11 @@ dynamicTransitionDuration: 0.1  # duration of the transition period for dynamic 
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
-T: 4.0  # duration of the signals in seconds
+# T: 5.0  # duration of the signals in seconds
 # T: 10.0  # duration of the signals in seconds
 # T: 15.0  # duration of the signals in seconds
 # T: 20.0  # duration of the signals in seconds
-# T: 30.0  # duration of the signals in seconds
+T: 30.0  # duration of the signals in seconds
 # T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
@@ -172,7 +172,7 @@ gevdJustForDANSE: True  # if True, use GEVD for DANSE algorithms
 upRyyEveryFrame: False  # if True, update the Ryy SCM every frame, even if VAD says no speech activity
 
 # General simulation set parameters
-nMCruns: 1  # number of Monte Carlo runs
-# nMCruns: 10  # number of Monte Carlo runs
+# nMCruns: 1  # number of Monte Carlo runs
+nMCruns: 10  # number of Monte Carlo runs
 seed: 43  # random number generator seed
-suffix: full_run_1MC_indivSourceEstimatesOut  # output file suffix
+suffix: dmwf_full  # output file suffix

@@ -15,13 +15,13 @@ import matplotlib
 import numpy as np
 from pesq import pesq
 from pathlib import Path
+from tools.pp_base import *
 from speechmos import dnsmos
 from tools.algos import herm
 import matplotlib.pyplot as plt
 from mypystoi import stoi_any_fs
 from tools.base import Parameters
 from dataclasses import dataclass, field
-from tools.pp_base import PostProcParameters
 
 PP_CFG_FILE = f'{Path(__file__).parent}/config/pp_cfg.yml'
 
@@ -63,6 +63,9 @@ def main():
 
     for i, (cfgRef, files) in enumerate(groupedFiles.items()):
 
+        if i == 0:
+            continue
+
         # Check if metrics have already been computed
         suffixNodes = '_allnodes'
         if p.whichNodes != 'all':
@@ -79,7 +82,10 @@ def main():
             # Set up basis for PostProcessor
             with open(files[0], 'rb') as f:
                 results = pickle.load(f)
-            c: Parameters = results['cfg']  # Configuration parameters
+            if 'cfg' in results:
+                c: Parameters = results['cfg']  # Configuration parameters
+            elif 'asc' in results:
+                c: Parameters = results['asc'].cfg  # Configuration parameters
             pp = PostProcessor(cfg=c, pp_cfg=p)
         else:
             metrics = []
@@ -88,7 +94,10 @@ def main():
                 with open(f, 'rb') as f:
                     results = pickle.load(f)
                 # Process the results
-                c: Parameters = results['cfg']  # Configuration parameters
+                if 'cfg' in results:
+                    c: Parameters = results['cfg']  # Configuration parameters
+                elif 'asc' in results:
+                    c: Parameters = results['asc'].cfg  # Configuration parameters
                 pp = PostProcessor(cfg=c, pp_cfg=p)
                 
                 if p.metricsToComputeOverride is not None:
@@ -120,14 +129,15 @@ def main():
                     dataIn = {
                         'd': results['d'],
                         'shatk': results['shatk'],
-                        'nhatk': results['nhatk']
+                        'nhatk': results['nhatk'],
+                        'obsMat': results['asc'].scenarios[0].obsMat  # /!\ ASSUMING STATIC OBSERVABILITY PATTERNS
                     }
                     if p.plotWaveforms:
                         plot_signals(dataIn, c, kPlotIndex=p.whichNodes[0] if p.whichNodes != 'all' else 0)
                 else:
                     raise ValueError("Unknown results format (no 's' or 'shat' key in results dict).")
 
-                print("\nComputing metrics...")
+                print(f"\nComputing metrics for file (MC run) {idxMC + 1}/{len(files)}...")
                 t0 = time.time()
                 if c.scmEstimation == 'online' and c.domain == 'wola':
                     fcn = pp.get_metrics_from_full_signal
@@ -140,28 +150,8 @@ def main():
                 print(f"\nMetrics for file (MC run) {idxMC + 1}/{len(files)} computed in {time.time() - t0:.2f} seconds.")
             # At end of loop, `metrics` is [MCrun]{metric}{algo}[node][source][<value(s)>]
 
-
             # Rearrange metrics: place MC runs in the last dimension of the deepest level
-            metricsRearranged = dict([
-                (m, dict([
-                    (alg, [
-                        [
-                            [] for ii in range(c.Qd)
-                        ] for k in pp.nodesToProcess
-                    ]) for alg in c.algos
-                ])) for m in metricsToCompute
-            ])
-            for m in metricsToCompute:
-                for alg in c.algos:
-                    for k in pp.nodesToProcess:
-                        for idxS in range(c.Qd):
-                            metricsRearranged[m][alg][k][idxS].append(
-                                np.squeeze(np.array([mm[m][alg][k][idxS] for mm in metrics]))
-                            )
-                    # Convert to numpy array
-                    metricsRearranged[m][alg] = np.array(metricsRearranged[m][alg])
-            metrics = metricsRearranged
-            # `metrics` is now {metric}{algo}[node][source x MCrun x <value(s)>]
+            metrics = tree_stack(metrics, axis=-1)  # MC dimension becomes the last axis at every leaf
 
             # Export metrics to file
             with open(metricsFile, 'wb') as f:
@@ -363,6 +353,10 @@ class PostProcessor:
                 for alg in c.algos:
                     nhatk_chunk = nhatk[k][alg][..., idxBeg:idxEnd]
                     for idxS in range(c.Qd):
+                        if dataIn['obsMat'][k, idxS] == 0:
+                            for m in metricsToCompute:
+                                metrics[m][alg][k][idxS] = None
+                            continue   # don't compute metrics if the source is not observed 
                         dk_chunk = d[idxS, k, ..., idxBeg:idxEnd]
                         dhatk_chunk = dhatk[k][alg][idxS][..., idxBeg:idxEnd]
                         shatk_chunk = shatk[k][alg][idxS][..., idxBeg:idxEnd]
@@ -375,7 +369,7 @@ class PostProcessor:
                             metrics[m][alg][k][idxS].append(metrics_curr[m])
         
         # Compute intelligibility metrics (STOI, etc.)
-        if np.any(m in metricsToCompute for m in p.intelligibilityMetrics):
+        if np.any([m in metricsToCompute for m in p.intelligibilityMetrics]):
             if isinstance(p.stoiInterval, list):
                 idxBeg = int(p.stoiInterval[0] * c.fs)
                 idxEnd = int(p.stoiInterval[1] * c.fs) if p.stoiInterval[1] != -1 else -1
@@ -385,6 +379,8 @@ class PostProcessor:
             for k in self.nodesToProcess:
                 for alg in c.algos:
                     for idxS in range(c.Qd):
+                        if dataIn['obsMat'][k, idxS] == 0:
+                            continue   # don't compute metrics if the source is not observed 
                         print(f"Computing STOI for {alg}, node {k + 1}/{len(self.nodesToProcess)}, speech source {idxS + 1}/{c.Qd}...", end='\r')
                         # Compute VAD
                         target = d[idxS, k, 0, idxBeg:idxEnd]
@@ -392,23 +388,43 @@ class PostProcessor:
                         vad = self.compute_vad(target)
                         for m in p.intelligibilityMetrics:
                             if 'stoi' in m:
-                                tmp = stoi_any_fs(
-                                    target[vad],
-                                    estimate[vad],
-                                    fs_sig=c.fs,
-                                    extended=p.extendedStoi
-                                    # extended=True
-                                )
+                                try:
+                                    tmp = stoi_any_fs(
+                                        target[vad],
+                                        estimate[vad],
+                                        fs_sig=c.fs,
+                                        extended=p.extendedStoi
+                                        # extended=True
+                                    )
+                                except:
+                                    pass
                             elif m == 'pesq':
                                 tmp = pesq(c.fs, target[vad], estimate[vad], 'wb')
                             elif m == 'dnsmos':
                                 tmp = dnsmos.run(
-                                    estimate / np.amax(np.abs(estimate)),
+                                    estimate[vad] / np.amax(np.abs(estimate)),
                                     c.fs, model_type='dnsmos', return_df=False
                                 )['ovrl_mos']
                             metrics[m][alg][k][idxS] = tmp
                         pass
         
+        if p.multiSpeechSourceManagement == 'separate':
+            if c.observability == 'poss':
+                raise NotImplementedError("Separate multi-speech source management is not implemented for PODS scenarios.")
+        elif p.multiSpeechSourceManagement == 'average':
+            # Compute average metrics across all observed speech sources
+            for m in metrics.keys():
+                for alg in c.algos:
+                    for k in self.nodesToProcess:
+                        obsSourcesMetric = [met for met in metrics[m][alg][k] if met is not None]
+                        metrics[m][alg][k] = np.mean(obsSourcesMetric, axis=0)
+        elif p.multiSpeechSourceManagement == 'max':
+            raise NotImplementedError("Max multi-speech source management may not be a valid approach for PODS scenarios.")
+            # Compute max metrics across all observed speech sources
+            for m in metrics.keys():
+                for alg in c.algos:
+                    for k in self.nodesToProcess:
+                        metrics[m][alg][k] = np.max(metrics[m][alg][k], axis=0)
         return metrics
 
     def get_metrics(
@@ -607,14 +623,16 @@ class PostProcessor:
             'tidmwf': 'm',
         }
 
-        for idxS in range(c.Qd):
+        nSources = c.Qd if metrics[list(metrics.keys())[0]][c.algos[0]].ndim == 4 else 1
+
+        for idxS in range(nSources):
             fig, axes = plt.subplots(1, len(metrics.keys()))
             # Convert size from pixels to inches
             for ii, m in enumerate(metrics.keys()):
                 ax = axes[ii] if len(metrics.keys()) > 1 else axes
                 if 'stoi' in m:
                     ax.set_ylim(0, 1)
-                maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-1] if c.scmEstimation == 'online' else c.maxDANSEiter
+                maxX = metrics[list(metrics.keys())[0]][c.algos[0]].shape[-2] if c.scmEstimation == 'online' else c.maxDANSEiter
                 if c.dynamics == 'moving' and c.scmEstimation == 'online' and\
                     m not in p.intelligibilityMetrics:
                     # Plot a vertical line every time the scenario changes
@@ -633,22 +651,23 @@ class PostProcessor:
                             (flagDelta and alg in ['local', 'unprocessed']):
                             continue
                         col = colors[alg] if alg in colors.keys() else f'C{jj}'
-                        if metrics[m][alg].shape[-1] > 1:
-                            # `metrics[m][alg]` is an array, [node x source x nMC x <value(s)>]
+                        if metrics[m][alg].shape[-2] > 1:  # INDEX -2 are the values
+                            # `metrics[m][alg]` is an array, [node x source x <value(s)> x nMC]
                             if p.whichNodes == 'all':
-                                data = np.mean(metrics[m][alg], axis=(0, 1))
+                                data = np.mean(metrics[m][alg], axis=(0, -1))
                                 if flagDelta:
-                                    data -= np.mean(metrics[m]['local'], axis=(0, 2))
+                                    data -= np.mean(metrics[m]['local'], axis=(0, -1))
                             else:
                                 data = np.mean([
                                     m for i, m in enumerate(metrics[m][alg]) if i in p.whichNodes
-                                ], axis=(0, 2))
+                                ], axis=(0, -1))
                                 if flagDelta:
                                     data -= np.mean([
                                         m for i, m in enumerate(metrics[m]['local']) if i in p.whichNodes
-                                    ], axis=(0, 2))
+                                    ], axis=(0, -1))
                             # FOR NOW: select source at this point
-                            data = data[idxS, :]
+                            if nSources > 1:
+                                data = data[idxS, :]
                             # FOR NOW: select source at this point
 
                             ax.plot(data, label=alg, color=col,
@@ -656,6 +675,7 @@ class PostProcessor:
                                     markerfacecolor='none', markevery=0.1)
                         else:
                             # Non-iterative algorithms in batch-mode: horizontal lines
+                            # `metrics[m][alg]` is an array, [node x source x <value(s)> x nMC]
                             if p.whichNodes == 'all':
                                 data = np.mean(metrics[m][alg])
                                 if flagDelta:
@@ -690,12 +710,17 @@ class PostProcessor:
                     else:
                         ax.set_xlabel('Iteration')
                 else:
-                    # Bar plot when in batch-mode and not including iterative algorithms
+                    # Bar plot for batch-computed metrics (e.g., STOI, PESQ, etc.)
                     for jj, alg in enumerate(metrics[m].keys()):
                         col = colors[alg] if alg in colors.keys() else f'C{jj}'
                         if m == 'msew' and alg in ['centralized', 'local','unprocessed']:
                             continue
-                        ax.bar(jj, np.mean(metrics[m][alg][:, idxS, ...]), label=alg, color=col)
+                        # `metrics[m][alg]` is an array, [node x source x <value(s)> x nMC]
+                        if nSources > 1:
+                            mToPlot = np.mean(metrics[m][alg][:, idxS, ...])
+                        else:
+                            mToPlot = np.mean(metrics[m][alg])
+                        ax.bar(jj, mToPlot, label=alg, color=col)
                 if m in ['snr', 'ser'] and ax.get_ylim()[0] < 0:
                     # Ensure SNR = 0 dB is visible as a horizontal line
                     ax.axhline(y=0, color='0.75')
@@ -717,7 +742,8 @@ class PostProcessor:
                 supti += f', {c.betaString}'
             if nMC > 1:
                 supti += f', #MCs: {nMC}'
-            supti += f', speech source {idxS + 1}/{c.Qd}'
+            if nSources > 1:
+                supti += f', speech source {idxS + 1}/{c.Qd}'
             fig.suptitle(supti)
 
             backend = matplotlib.get_backend().lower()
@@ -868,4 +894,4 @@ class PostProcessor:
 if __name__ == '__main__':
     sys.exit(main())
 
-    
+

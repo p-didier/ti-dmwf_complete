@@ -104,8 +104,8 @@ friendlyVoiceActivityCycleDuration: 3  # duration of a speech+pause cycle in sec
 
 # Algorithm(s) parameters
 algos:  # list of algorithms to run
-- unprocessed
-- local
+# - unprocessed
+# - local
 - centralized
 # - dmwf
 # - danse
@@ -116,7 +116,7 @@ scmEstimation: oracle  # type of SCM estimation to use
     # 'oracle' for perfect knowledge,
     # 'batch' for batch time-averaged,
     # 'online' for online
-maxDANSEiter: 30  # maximum number of iterations for DANSE (only >1 for batch/oracle processing)
+maxDANSEiter: 200  # maximum number of iterations for DANSE (only >1 for batch/oracle processing)
 # maxDANSEiter: 10  # maximum number of iterations for DANSE (only >1 for batch/oracle processing)
 mu: 1  # SDW-MWF factor
 # mu: 10  # SDW-MWF factor
@@ -169,7 +169,7 @@ gevdJustForDANSE: False  # if True, use GEVD for DANSE algorithms
 # gevdJustForDANSE: True  # if True, use GEVD for DANSE algorithms
 
 # General simulation set parameters
-nMCruns: 1  # number of Monte Carlo runs
+nMCruns: 20  # number of Monte Carlo runs
 # nMCruns: 6  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: tidmwf_test  # output file suffix
+suffix: tidmwf_200iter_GLS  # output file suffix

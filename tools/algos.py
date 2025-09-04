@@ -48,7 +48,7 @@ class Run:
                 's': s,
                 'n': n
             }
-        if c.useVAD:
+        if c.useVAD and c.desSigType == 'speech' and c.scmEstimation == 'online':
             vad, vadSTFT = asc.estimate_vad()
 
         # Iterative variables for DANSE-like algorithms
