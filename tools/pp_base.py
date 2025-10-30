@@ -38,6 +38,7 @@ class PostProcParameters:
     IMinterval: Union[list, float] = 0.75  # intelligibility metric (IM) interval specification
     IMmultiChunkDur: float = 1.0  # Duration of each chunk for multi-chunk processing (in seconds)
     IMmultiChunkShiftDur: float = 1.0  # Duration of shift of each chunk for multi-chunk processing (in seconds)
+    MCmeanType: str = 'arithmetic'  # Type of mean to use for Monte Carlo averaging ('arithmetic' or 'geometric')
 
     # ==== Node Selection Parameters ====
     whichNodes: Union[str, list] = 'all'  # 'all' or a list of node indices to process

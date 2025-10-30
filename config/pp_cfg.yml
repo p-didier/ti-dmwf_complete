@@ -1,7 +1,7 @@
 # ==== File and Directory Parameters ====
 baseResultsDir: './out'  # Base directory for results
 # resultsDir: './out/res_20250903_1224_full_run_1MC_indivSourceEstimatesOut'  # Results subdirectory
-resultsDir: 'latest'  # Results subdirectory
+resultsDir: 'latest'  # Results subdirecory
 
 # ==== Export and Recompute Flags ====
 export: false  # If True, export the figures to files
@@ -40,6 +40,7 @@ metricsMethod: 'entire_signal'  # Method for metrics computation
 # - msew
 # - msed
 multiSpeechSourceManagement: average  # 'separate' or 'average' or 'max' for multi-speech source management
+MCmeanType: arithmetic  # Type of mean to use for Monte Carlo averaging ('arithmetic' or 'geometric')
 
 # ==== Node Selection Parameters ====
 whichNodes: 'all'  # 'all' or a list of node indices to process

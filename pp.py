@@ -689,15 +689,15 @@ class PostProcessor:
                         if metrics[m][alg].shape[-2] > 1:  # INDEX -2 are the values
                             # `metrics[m][alg]` is an array, [node x source x <value(s)> x nMC]
                             if p.whichNodes == 'all':
-                                data = np.mean(metrics[m][alg], axis=(0, -1))
+                                data = self.my_mean(metrics[m][alg], axis=(0, -1))
                                 if flagDelta:
-                                    data -= np.mean(metrics[m]['local'], axis=(0, -1))
+                                    data -= self.my_mean(metrics[m]['local'], axis=(0, -1))
                             else:
-                                data = np.mean([
+                                data = self.my_mean([
                                     m for i, m in enumerate(metrics[m][alg]) if i in p.whichNodes
                                 ], axis=(0, -1))
                                 if flagDelta:
-                                    data -= np.mean([
+                                    data -= self.my_mean([
                                         m for i, m in enumerate(metrics[m]['local']) if i in p.whichNodes
                                     ], axis=(0, -1))
                             # FOR NOW: select source at this point
@@ -712,15 +712,15 @@ class PostProcessor:
                             # Non-iterative algorithms in batch-mode: horizontal lines
                             # `metrics[m][alg]` is an array, [node x source x <value(s)> x nMC]
                             if p.whichNodes == 'all':
-                                data = np.mean(metrics[m][alg])
+                                data = self.my_mean(metrics[m][alg])
                                 if flagDelta:
-                                    data -= np.mean(metrics[m]['local'])
+                                    data -= self.my_mean(metrics[m]['local'])
                             else:
-                                data = np.mean([
+                                data = self.my_mean([
                                     m for i, m in enumerate(metrics[m][alg]) if i in p.whichNodes
                                 ])
                                 if flagDelta:
-                                    data -= np.mean([
+                                    data -= self.my_mean([
                                         m for i, m in enumerate(metrics[m]['local']) if i in p.whichNodes
                                     ])
                             plot_h(
@@ -752,9 +752,9 @@ class PostProcessor:
                             continue
                         # `metrics[m][alg]` is an array, [node x source x <value(s)> x nMC]
                         if nSources > 1:
-                            mToPlot = np.mean(metrics[m][alg][:, idxS, ...])
+                            mToPlot = self.my_mean(metrics[m][alg][:, idxS, ...])
                         else:
-                            mToPlot = np.mean(metrics[m][alg])
+                            mToPlot = self.my_mean(metrics[m][alg])
                         ax.bar(jj, mToPlot, label=alg, color=col)
                 if m in ['snr', 'ser'] and ax.get_ylim()[0] < 0:
                     # Ensure SNR = 0 dB is visible as a horizontal line
@@ -837,29 +837,29 @@ class PostProcessor:
                     # Build the time series data first, averaged over nodes/MC like in the main plot
                     if metrics[m][alg].shape[-1] > 1:
                         if p.whichNodes == 'all':
-                            series = np.mean(metrics[m][alg], axis=(0, 1))
+                            series = self.my_mean(metrics[m][alg], axis=(0, 1))
                             if flagDelta:
-                                series -= np.mean(metrics[m]['local'], axis=(0, 1))
+                                series -= self.my_mean(metrics[m]['local'], axis=(0, 1))
                         else:
-                            series = np.mean([
+                            series = self.my_mean([
                                 mm for i, mm in enumerate(metrics[m][alg]) if i in p.whichNodes
                             ], axis=(0, 1))
                             if flagDelta:
-                                series -= np.mean([
+                                series -= self.my_mean([
                                     mm for i, mm in enumerate(metrics[m]['local']) if i in p.whichNodes
                                 ], axis=(0, 1))
                     else:
                         # Non-iterative/batch lines are plotted as constants
                         if p.whichNodes == 'all':
-                            series = np.array([np.mean(metrics[m][alg])])
+                            series = np.array([self.my_mean(metrics[m][alg])])
                             if flagDelta:
-                                series -= np.mean(metrics[m]['local'])
+                                series -= self.my_mean(metrics[m]['local'])
                         else:
-                            series = np.array([np.mean([
+                            series = np.array([self.my_mean([
                                 mm for i, mm in enumerate(metrics[m][alg]) if i in p.whichNodes
                             ])])
                             if flagDelta:
-                                series -= np.mean([
+                                series -= self.my_mean([
                                     mm for i, mm in enumerate(metrics[m]['local']) if i in p.whichNodes
                                 ])
                         # Expand constant across all segments
@@ -925,8 +925,22 @@ class PostProcessor:
             mode='same'
         ) > 0.5
 
+    def my_mean(self, x, axis=None):
+        """Custom mean function that uses geometric mean for averaging over MC runs."""
+        if axis is None:
+            return np.mean(x)
+        if self.pp_cfg.MCmeanType == 'geometric':
+            return geo_mean(np.mean(x, axis=axis[:-1]), axis=axis[-1])
+        return np.mean(x, axis=axis)
+
+def geo_mean(iterable, axis=None):
+    if isinstance(axis, int):
+        axis = (axis,)
+    a = np.array(iterable)
+    if axis is None:
+        return a.prod()**(1.0/len(a.flatten()))
+    return a.prod(axis=axis)**(1.0/np.prod(np.array(a.shape)[axis]))
 
 if __name__ == '__main__':
     sys.exit(main())
-
 

@@ -47,10 +47,11 @@ diffuseSNR: -9999.0  # SNR between the latent desired signals and the diffuse no
 # diffuseSNR: -5.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 # diffuseSNR: 0.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 commDist: 1.5  # communication distance [m] (used at ad-hoc topology initialization, but `connectivity` plays a role)
+# connectivity: 0  # amount of ad-hoc topology connectivity
 connectivity: 0.5  # amount of ad-hoc topology connectivity
 # pruningStrategy: star  # tree-pruning strategy
-pruningStrategy: mst  # tree-pruning strategy
-# pruningStrategy: mmut  # tree-pruning strategy
+# pruningStrategy: mst  # tree-pruning strategy
+pruningStrategy: mmut  # tree-pruning strategy
 # pruningStrategy: line  # tree-pruning strategy
     # 'star': star topology with updating node as root
     # 'mst': minimum spanning tree
@@ -112,6 +113,7 @@ algos:  # list of algorithms to run
 # - rsdanse
 - tidmwf
 - tidanse
+- tidanseplus
 scmEstimation: oracle  # type of SCM estimation to use
     # 'oracle' for perfect knowledge,
     # 'batch' for batch time-averaged,
@@ -169,7 +171,7 @@ gevdJustForDANSE: False  # if True, use GEVD for DANSE algorithms
 # gevdJustForDANSE: True  # if True, use GEVD for DANSE algorithms
 
 # General simulation set parameters
-nMCruns: 20  # number of Monte Carlo runs
-# nMCruns: 1  # number of Monte Carlo runs
+# nMCruns: 20  # number of Monte Carlo runs
+nMCruns: 5  # number of Monte Carlo runs
 seed: 42  # random number generator seed
-suffix: full_tidmwf_200iter_GLS  # output file suffix
+suffix: saa_conn0p5  # output file suffix

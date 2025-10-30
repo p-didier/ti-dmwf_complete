@@ -18,6 +18,9 @@ from tools.base import *
 from tools.algos import *
 from pp import main as postprocessing
 
+
+from pesq import pesq
+
 # PATH_TO_CFG = f".\\config\\cfg.yml"  # Path to the configuration file
 PATH_TO_CFG = f".\\config\\cfg_tidmwf.yml"  # Path to the configuration file
 
@@ -25,9 +28,9 @@ testParams = {
     'scmEstimation': ['oracle'],
     # 'scmEstimation': ['online'],
     # 'observability': ['foss', 'poss'],
-    # 'observability': ['foss'],
+    'observability': ['foss'],
     # 'observability': ['poss'],
-    'observability': ['gls'],
+    # 'observability': ['gls'],
 }
 
 # Build TEST_SET based on testParams

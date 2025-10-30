@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from pyinstrument import Profiler
 from dataclasses import dataclass
 from humanfriendly import format_timespan
-from .asc import AcousticScenario, single_update_scm, single_update_scm_inplace
+from .asc import AcousticScenario, single_update_scm, TreeWASN
 
 
 @dataclass
@@ -27,7 +27,7 @@ class Run:
         tMaster = time.time()
         c = self.cfg
         asc = AcousticScenario(cfg=c)
-        # Generate tree
+        # Generate tree (use for TI-dMWF old simulations)
         if c.graphDiameter is not None:
             graph = generate_tree_with_diameter(c.K, c.graphDiameter)
         else:
@@ -65,6 +65,9 @@ class Run:
             'tidanse': [
                 c.Mk[k] + c.Qd for k in range(c.K)
             ],
+            'tidanseplus': [
+                c.Mk[k] + c.Qd * len(asc.scenarios[0].trees[k].upNeighs[k]) for k in range(c.K)  # assuming MMUT pruning
+            ],
         }
         baseListDANSEscms = {
             alg: [
@@ -85,6 +88,10 @@ class Run:
             'Pk': [
                 c.init_full((c.nPosFreqs, c.Mk[k], refScn.Qdk[k]), random=True)
                 for k in range(c.K)
+            ],
+            'Tk': [
+                np.array([np.eye(refScn.Qdk[k]) for _ in range(c.nPosFreqs)]) if c.domain == 'wola' else np.eye(refScn.Qdk[k])
+                for k in range(c.K)  # for TI-DANSE+ only
             ],
             'WkkPrev_rS': [
                 c.init_full((c.nPosFreqs, c.Mk[k], refScn.Qdk[k]), random=True)
@@ -261,7 +268,7 @@ class Run:
         else:
             W_netWide = self.launch(
                 Ryy, Rss, Rnn,
-                asc, graph,
+                asc,
                 ivIn=iv
             )[0]
             iSaved = None  # placeholder
@@ -344,7 +351,7 @@ class Run:
     def launch(
             self,
             Ryy, Rss, Rnn,
-            asc: AcousticScenario, G,
+            asc: AcousticScenario,
             ivIn=None,
             silent=False,
             scenarioIdx=0,
@@ -360,7 +367,6 @@ class Run:
             Rss (np.ndarray): Desired signal covariance matrix.
             Rnn (np.ndarray): Noise signal covariance matrix.
             asc (AcousticScenario): Acoustic scenario object.
-            G (nx.Graph): Graph representing the network topology.
             ivDANSE (dict[str, dict]): Iterative variables for each DANSE algorithm.
             silent (bool): If True, suppress output messages.
             scenarioIdx (int): Index of the current scenario (for dynamic scenarios).
@@ -442,11 +448,11 @@ class Run:
                     # print(profiler.output_text(unicode=True, color=True, show_all=True))
                     pass
 
-
             elif alg == "tidmwf":
                 # NB: alternating steps not implemented yet.
                 for k in range(c.K):
-                    _, upstreamNeighs = get_upstream_nodes(G, k)
+                    currTree = scn.trees[k]
+                    upstreamNeighs = currTree.upNeighs
                     Cqk = [None for _ in range(c.K)]
                     for q in range(c.K):
                         dim = c.Mk[q] + scn.oQ * len(upstreamNeighs[q])
@@ -454,7 +460,7 @@ class Run:
                         Cqk[q][..., c.Mkc[q]:c.Mkc[q + 1], :c.Mk[q]] = np.eye(c.Mk[q])
                     # Compute fusion matrices
                     Pk = [None for _ in range(c.K)]
-                    for q in flatten_list(tree_levels(G, k)):
+                    for q in flatten_list(currTree.levels):
                         for ii, n in enumerate(upstreamNeighs[q]):
                             idxBeg = c.Mk[q] + ii * scn.oQ
                             idxEnd = idxBeg + scn.oQ
@@ -474,6 +480,7 @@ class Run:
             elif 'danse' in alg:
                 # Extract the iterative variables
                 Pk = ivIn[alg]['Pk']
+                Tk = ivIn[alg]['Tk']
                 WkkPrev_rS = ivIn[alg]['WkkPrev_rS']
                 Wk = ivIn[alg]['Wk']
                 u = ivIn[alg]['u']
@@ -496,6 +503,9 @@ class Run:
 
                 W_netWide[alg] = [[] for _ in range(c.K)]
                 for i in range(c.maxDANSEiter):
+                    # Useful for TI-DANSE+ vvvv
+                    lSet_u_p = np.where(scn.trees[u].aMat[u, :] == 1)[0]
+
                     if not silent:
                         print(f"Iteration {i + 1}/{c.maxDANSEiter} for {alg}...", end='\r')
                     if c.scmEstimation != 'online':
@@ -536,7 +546,7 @@ class Run:
                                 zs[k] = frame_s[:, c.Mkc[k]:c.Mkc[k + 1]] @ Pk[k].conj()
                                 zn[k] = frame_n[:, c.Mkc[k]:c.Mkc[k + 1]] @ Pk[k].conj()
                             
-                            if alg.startswith("tidanse"):
+                            if alg == 'tidanse':
                                 # Apply normalization factor for TI-DANSE
                                 if c.domain == 'wola':
                                     zy[k] = np.einsum('ijk,ik->ij', herm(gamma), zy[k])
@@ -549,12 +559,15 @@ class Run:
 
                     for k in range(c.K):
                         # Compute C-matrix
-                        if alg.startswith("tidanse"):
+                        if alg == 'tidanse':
                             Ck = c.init_full((c.nPosFreqs, c.M, c.Mk[k] + c.Qd))
                             Ck[..., c.Mkc[k]:c.Mkc[k + 1], :c.Mk[k]] = np.eye(c.Mk[k])
                             for q in range(c.K):
                                 if q != k:
                                     Ck[..., c.Mkc[q]:c.Mkc[q + 1], c.Mk[k]:] = Pk[q] @ gamma
+                        elif alg == 'tidanseplus':
+                            Ck = self.compute_Cmat_danseplus(k, Pk, scn.trees[k])
+                            pass
                         else:
                             Qdks = [scn.Qdk[q] for q in range(c.K) if q != k]
                             Ck = c.init_full((c.nPosFreqs, c.M, c.Mk[k] + np.sum(Qdks)))
@@ -569,7 +582,7 @@ class Run:
                         # Compute the SCMs
                         if c.scmEstimation == 'online':
                             # Build observation vector
-                            if alg.startswith("tidanse"):
+                            if alg == 'tidanse':
                                 ty = np.concatenate([
                                     frame_y[:, c.Mkc[k]:c.Mkc[k + 1]],
                                     np.sum([zy[q] for q in range(c.K) if q != k], axis=0)
@@ -582,6 +595,8 @@ class Run:
                                     frame_n[:, c.Mkc[k]:c.Mkc[k + 1]],
                                     np.sum([zn[q] for q in range(c.K) if q != k], axis=0)
                                 ], axis=1)
+                            elif alg == 'tidanseplus':
+                                raise NotImplementedError("TI-DANSE+ online SCM estimation not implemented yet.")
                             else:
                                 ty = np.concatenate(
                                     [frame_y[:, c.Mkc[k]:c.Mkc[k + 1]]] +\
@@ -604,7 +619,7 @@ class Run:
                                 ssH = ts.T @ ts.conj()
                                 nnH = tn.T @ tn.conj()
                             
-                            if alg.startswith("tidanse"):
+                            if alg == 'tidanse':
                                 tRyyPrev[k] = herm(Nk[k]) @ tRyyPrev[k] @ Nk[k]
                                 tRssPrev[k] = herm(Nk[k]) @ tRssPrev[k] @ Nk[k]
                                 tRnnPrev[k] = herm(Nk[k]) @ tRnnPrev[k] @ Nk[k]
@@ -685,22 +700,57 @@ class Run:
                                 iEff += 1  # effective iteration index for online-mode
                         else:
                             # No update for this node
-                            if alg.startswith("tidanse"): # and c.scmEstimation == 'online':
+                            if alg == 'tidanse': # and c.scmEstimation == 'online':
                                 # For TI-DANSE, apply the normalization factor
                                 Wk[k] = np.linalg.pinv(Nk[k]) @ Wk[k]  # loaded from previous iteration/frame
                         
                         # Compute the fusion matrix Pk
-                        if alg.startswith("tidanse"):
+                        if alg == 'tidanse':
                             Pk[k] = Wk[k][..., :c.Mk[k], :c.Qd] @\
                                 np.linalg.pinv(Wk[k][..., c.Mk[k]:, :c.Qd])
+                        elif alg == 'tidanseplus':
+                            if k == u:
+                                # Update fusion matrices at all nodes, once
+                                # Define H-matrices (i.e., $G_{kn^i(q)}^{i+1}$ for each `q`)
+                                for q in range(c.K):
+                                    if q == u:
+                                        pass  # no need for H-matrix at root node
+                                    else:
+                                        lq_Curr = scn.trees[u].nq[q]
+                                        idxLq = np.where(lSet_u_p == lq_Curr)[0][0]  # index of `lqCurr` in set of root children
+                                        Hmat_q = Wk[u][
+                                            ..., c.Mk[q] + idxLq * c.Qd: c.Mk[q] + (idxLq + 1) * c.Qd, :c.Qd
+                                        ]
+                                    # Update fusion matrices
+                                    Tk[q] = np.eye(c.Qd) if q == u else Tk[q] @ Hmat_q # sequential filter update
+                                    Pk[q] = Wk[q][..., :c.Mk[q], :c.Qd] @ Tk[q]
                         else:
                             Pk[k] = Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
 
                         # Store the network-wide filter for this iteration/frame
-                        W_netWide[alg][k].append(Ck @ Wk[k][..., :c.D])
+                        if alg == 'tidanseplus':
+                            pass  # handled later
+                        else:
+                            W_netWide[alg][k].append(Ck @ Wk[k][..., :c.D])
+                    
+                    if alg == 'tidanseplus':
+                        # Compute network-wide filters at the end of the iteration
+                        for k in range(c.K):
+                            t = ()  # tuple: one entry = network-wide filters for one neighbor
+                            idxNeigh = 0
+                            Tkinv = np.linalg.inv(Tk[k])
+                            for q in range(c.K):
+                                if q != k:
+                                    t += (Pk[q] @ Tkinv,)
+                                    idxNeigh += 1
+                                else:
+                                    t += (Wk[k][..., :c.Mk[k], :c.Qd],)
+                            W_netWide[alg][k].append(
+                                np.concatenate(t, axis=-2)[..., :c.D]
+                            )
                         
                     # Update the normalization factor for TI-DANSE
-                    if alg.startswith("tidanse"): # and c.scmEstimation == 'online':
+                    if alg == 'tidanse': # and c.scmEstimation == 'online':
                         # Update anyway, always, at the reference node
                         r = c.refNodeForTInorm
                         tWr = self.filtup(tRyyPrev[r], tRnnPrev[r], gevd=c.gevd, gevdRank=c.Qd)
@@ -728,6 +778,41 @@ class Run:
                 raise ValueError(f"Unknown algorithm: {alg}")
             
         return W_netWide, ivOut
+        
+    def compute_A_mat(self, k):
+        c = self.cfg
+        Amat = np.concatenate((
+            np.zeros((int(np.sum(c.Mk[:k])), c.Mk[k])),
+            np.eye(c.Mk[k]),
+            np.zeros(((c.K - k - 1) * c.Mk[k], c.Mk[k]))
+        ), axis=0)
+        return Amat
+
+    def compute_Cmat_danseplus(self, k, Pk, tree: TreeWASN):
+        """
+        Compute the C matrix for the TI-DANSE+ algorithm such that $~y = C^H y$.
+        """
+        c = self.cfg
+        if c.domain == 'wola':
+            raise NotImplementedError("TI-DANSE+ not implemented yet for WOLA domain.")
+        Ak = self.compute_A_mat(k)
+        allNodesIdx = np.arange(c.K)
+        neighbors = allNodesIdx[tree.aMat[k, :].astype(bool)]
+        Bk = np.zeros((
+            np.sum(c.Mk),
+            c.Qd * len(neighbors)
+        ), dtype=Pk[0].dtype)
+        for q in range(len(neighbors)):
+            branch = allNodesIdx[tree.nq == neighbors[q]]
+            Bkb = np.concatenate([
+                np.zeros((c.Mk[q], c.Qd), dtype=Pk[0].dtype)
+                if n == k or n not in branch
+                else Pk[n]
+                for n in range(c.K)
+            ], axis=0)
+            Bk[:, q * c.Qd:(q + 1) * c.Qd] = Bkb
+        Ck = np.concatenate((Ak, Bk), axis=-1)
+        return Ck
 
     def filtup(self, Ryy, Rnn=None, Rss=None, gevd=False, gevdRank=1):
         """Filter up the SCMs."""

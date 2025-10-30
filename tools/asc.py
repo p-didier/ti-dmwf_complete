@@ -308,12 +308,17 @@ class AcousticScenario:
         c = self.cfg
         # Initialize matrices randomly
         if c.TDsteeringMats == 'random':
+            # raise NotImplementedError('Random steering matrices not functioning with time-domain (trees needed for TI-DANSE+).')
             Amat = c.randmat((c.M, c.Qd))
             Bmat = c.randmat((c.M, c.Qn))
+            nodesPos = c.randmat((c.K, 3))
+            sensorsPos = c.randmat((c.M, 3))
+            desSourcesPos = c.randmat((c.Qd, 3))
+            noiSourcesPos = c.randmat((c.Qn, 3))
         elif c.TDsteeringMats == 'anechoic':
             # Define an anechoic scenario
-            _, sensorsPos, desSourcePos, noiSourcesPos = self.define_layout()
-            Amat = self.steermat_green_anechoic(sensorsPos, desSourcePos)
+            nodesPos, sensorsPos, desSourcesPos, noiSourcesPos = self.define_layout()
+            Amat = self.steermat_green_anechoic(sensorsPos, desSourcesPos)
             Bmat = self.steermat_green_anechoic(sensorsPos, noiSourcesPos)
             if c.domain == 'time':
                 Amat = np.abs(Amat)
@@ -468,7 +473,63 @@ class AcousticScenario:
             oQq=self.oQq
         )]
 
+
+        # Non-fully connected network
+        aMat, commDist = get_adjacency_matrix(c, nodesPos)
+        # Ensure target degree of connectivity
+        aMat = self.set_target_connectivity(aMat, c.connectivity)
+        obsMat = self.get_observability_matrix(
+            nodesPos, desSourcesPos, noiSourcesPos
+        )  # node x source
+        self.scenarios[0].trees = [
+            self.tree_pruning(
+                k, sensorsPos,
+                aMat, obsMat,
+                method=c.pruningStrategy
+            )
+            for k in range(c.K)
+        ]
+
+
         return Ryy, Rss, Rnn, s, n
+    
+    def set_target_connectivity(self, aMat, targetConn=None, rng=np.random.RandomState()):
+        """Ensure target degree of connectivity in non-fully connected network."""
+        c = self.cfg  # alias for convenience
+        n1s_fc = c.K * (c.K - 1)  # number of 1's in adjacency matrix for full connectivity
+        n1s_mc = 2 * c.K  # number of 1's in adjacency matrix for minimum connectivity
+        currConn = compute_connectivity(c, aMat)
+        flagPrint = True
+        if targetConn is not None:
+            rngConn = np.random.RandomState(rng.randint(0, 1000))  # for reproducibility
+            while currConn > targetConn and currConn - 2 / (n1s_fc - n1s_mc) >= targetConn:
+                if flagPrint:
+                    flagPrint = False
+                # Remove two connections to make the graph less connected
+                # (ensuring that the graph remains connected)
+                k1, k2 = rngConn.choice(c.K, 2, replace=False)
+                if aMat[k1, k2] == 1:
+                    aMat[k1, k2] = 0
+                    aMat[k2, k1] = 0
+                # Check if the graph is still connected
+                while not np.linalg.matrix_power(aMat, c.K).all():
+                    aMat[k1, k2] = 1
+                    aMat[k2, k1] = 1
+                    k1, k2 = rngConn.choice(c.K, 2, replace=False)
+                    if aMat[k1, k2] == 1:
+                        aMat[k1, k2] = 0
+                        aMat[k2, k1] = 0
+                currConn = compute_connectivity(c, aMat)
+            while currConn < targetConn:
+                if flagPrint:
+                    flagPrint = False
+                # Add two connections to make the graph more connected
+                k1, k2 = rngConn.choice(c.K, 2, replace=False)
+                if aMat[k1, k2] == 0:
+                    aMat[k1, k2] = 1
+                    aMat[k2, k1] = 1
+                currConn = compute_connectivity(c, aMat)
+        return aMat
     
     def setup_wola_domain(self):
         c = self.cfg
@@ -1380,9 +1441,6 @@ class AcousticScenario:
         if flagTI:
             # Non-fully connected network
             aMat, commDist = get_adjacency_matrix(c, nodesPos)
-            # Ensure target degree of connectivity
-            # self.set_target_connectivity()
-            print(f"Generated WASN with connectivity {c.connectivity} with comm. distance: {commDist:.2f} m")
             # Get pruned trees and corresponding useful variables, for each
             # possible root node index
             trees = [
@@ -1425,7 +1483,7 @@ class AcousticScenario:
             def inadequate(om):
                 observedDesired = np.sum(om[:, :c.Qd], axis=1) > 0
                 observedNoise = np.sum(om[:, c.Qd:], axis=1) > 0
-                oneOrAll = np.sum(om, axis=0) == 1 or np.sum(om, axis=0) == c.K
+                oneOrAll = (np.sum(om, axis=0) == 1) | (np.sum(om, axis=0) == c.K)
                 return not np.all(observedDesired) or\
                     not np.all(observedNoise) or not np.all(oneOrAll)
             # Criterion for adequacy: at least one desired source and one noise
@@ -1903,3 +1961,11 @@ def single_update_scm_inplace(Rss, Rnn, ssH, nnH, beta, vad=None):
             np.multiply(Rnn, beta, out=Rnn)
             np.add(Rnn, (1.0 - beta) * nnH, out=Rnn)
     # return Rss, Rnn
+
+
+def compute_connectivity(cfg: Parameters, aMat):
+    """Compute connectivity as defined for DANSE+.""" 
+    n1s = np.sum(aMat)
+    n1s_fc = cfg.K * (cfg.K - 1)  # number of 1's in adjacency matrix for full connectivity
+    n1s_mc = 2 * cfg.K  # number of 1's in adjacency matrix for minimum connectivity
+    return (n1s - n1s_mc) / (n1s_fc - n1s_mc)
