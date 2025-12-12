@@ -370,42 +370,6 @@ class AcousticScenario:
         v = c.randmat((c.M, c.N)) * np.mean(pows) * c.selfNoiseFactor  # small self-noise
         n += v  # add self-noise to noise signal
 
-        if 0:
-            self.latentDesired = slat
-            self.latentNoise = nlat
-            rd = [c.roomLength, c.roomWidth, c.roomHeight]
-            if c.t60 == 0:
-                maxOrd = 0
-                eAbs = 0.5  # <-- arbitrary
-            else:
-                eAbs, maxOrd = pra.inverse_sabine(c.t60, rd)
-            room = pra.ShoeBox(
-                rd,
-                fs=c.fs,
-                max_order=maxOrd,
-                air_absorption=True if c.t60 > 0 else False,
-                materials=pra.Material(eAbs),
-                use_rand_ism=False
-            )
-            # Generate the WASN parameters
-            p: StaticScenarioParameters = self.define_static_scenario(room)
-            ## MANUALLY apply static scenario
-            fLineIdx = c.singleLine
-            Cmat = np.zeros((c.M, c.Q), dtype=complex)
-            for ii in range(c.Q):
-                rirs = np.array([p.rirs[m][ii] for m in range(c.M)])
-                tmp = np.fft.rfft(rirs, n=c.nfft, axis=-1)   # RIRs FFT => transfer functions
-                # Only use one frequency line
-                tmp = tmp[:, fLineIdx]
-                # Set the steering vectors of nodes that do not observe source ii to zero
-                for q in np.where(p.obsMat[:, ii] == 0)[0]:
-                    tmp[c.Mkc[q]:c.Mkc[q + 1]] = 0
-                Cmat[..., ii] = tmp
-            s = Cmat[..., :c.Qd] @ c.get_stft(slat)[..., 0, :]
-            n = Cmat[..., c.Qd:] @ c.get_stft(nlat)[..., 0, :]
-            v = c.get_stft(np.real(v))[..., 0, :]
-            n += v  # add self-noise to noise signal
-
         # Compute the SCMs
         if c.scmEstimation == 'oracle':
             # For oracle SCM estimation, we assume perfect knowledge of the
@@ -729,29 +693,85 @@ class AcousticScenario:
     def setup_wola_domain_static(self, idxStart=0, idxEnd=-1, omFixed=None):
         """Setup a static acoustic scenario in the WOLA domain."""
         c = self.cfg
-        # Compute material absorption coefficients from T60
-        # using the Sabine formula
-        rd = [c.roomLength, c.roomWidth, c.roomHeight]
-        if c.t60 == 0:
-            maxOrd = 0
-            eAbs = 0.5  # <-- arbitrary
-        else:
-            eAbs, maxOrd = pra.inverse_sabine(c.t60, rd)
-
-        room = pra.ShoeBox(
-            rd,
-            fs=c.fs,
-            max_order=maxOrd,
-            air_absorption=True if c.t60 > 0 else False,
-            materials=pra.Material(eAbs),
-            use_rand_ism=False
-        )
-
+        # Setup the room
+        room = self.setup_room()
         # Generate the WASN parameters
         p: StaticScenarioParameters = self.define_static_scenario(room, omFixed=omFixed)
         self.apply_static_scenario(p, smIdx=[idxStart, idxEnd])
         # Store the parameters for later use
         self.scenarios.append(p)
+        return room
+
+    def setup_room(self):
+        """Setup the room for the acoustic scenario."""
+        c = self.cfg
+        if not c.middlePartition:
+            print(f"Setting up a single-room scenario with T60 = {c.t60} s.")
+            # Compute material absorption coefficients from T60
+            # using the Sabine formula
+            rd = [c.roomLength, c.roomWidth, c.roomHeight]
+            if c.t60 == 0:
+                maxOrd = 0
+                eAbs = 0.5  # <-- arbitrary
+            else:
+                eAbs, maxOrd = pra.inverse_sabine(c.t60, rd)
+
+            room = pra.ShoeBox(
+                rd,
+                fs=c.fs,
+                max_order=maxOrd,
+                air_absorption=True if c.t60 > 0 else False,
+                materials=pra.Material(eAbs),
+                use_rand_ism=False
+            )
+        else:
+            # Internal partition in top view: vertical segment at x = x_part, from y=c.roomLength down to y=y_bot
+            x_part = c.roomWidth / 2
+            y_top  = c.roomLength
+            y_bot  = c.roomLength / 2
+            # Reflection -> absorption
+            alpha_external = 1.0 - c.externalWallReflectionCoeff**2
+            alpha_internal = 1.0 - c.internalWallReflectionCoeff**2
+            # Define materials
+            mat_external = pra.Material(energy_absorption=alpha_external, scattering=0.0)
+            mat_internal = pra.Material(energy_absorption=alpha_internal, scattering=0.0)
+
+            # -----------------------------
+            # Create outer 3D room
+            # -----------------------------
+            room = pra.ShoeBox(
+                [c.roomWidth, c.roomLength, c.roomHeight],
+                fs=c.fs,
+                materials=mat_external,   # applies to all 6 boundary surfaces
+                max_order=10
+            )
+            # -----------------------------
+            # Add internal partition wall (floor-to-ceiling rectangle)
+            # -----------------------------
+            # Helper: convert Material coeffs to the (m,1) float32 arrays expected by libroom.Wall
+            def wall_coeffs_from_material(mat: pra.Material):
+                a = np.asarray(mat.absorption_coeffs, dtype=np.float32).reshape(-1, 1)
+                # scattering may be None in some cases; default to zeros with matching shape
+                if getattr(mat, "scattering_coeffs", None) is None:
+                    s = np.zeros_like(a, dtype=np.float32)
+                else:
+                    s = np.asarray(mat.scattering_coeffs, dtype=np.float32).reshape(-1, 1)
+                return a, s
+
+            abs_red, sca_red = wall_coeffs_from_material(mat_internal)
+
+            # Internal partition as a 3D rectangle (3 x 4), floor-to-ceiling
+            partition = np.array([
+                [x_part, x_part, x_part, x_part],
+                [y_top,  y_bot,  y_bot,  y_top ],
+                [0.0,    0.0, c.roomHeight, c.roomHeight],
+            ], dtype=np.float32)
+
+            # Append wall (no add_wall() method)
+            room.walls.append(
+                pra.Wall(partition, absorption=abs_red, scattering=sca_red, name="partition")
+            )
+
         return room
 
     def compute_scms(self, force=None):
@@ -1200,7 +1220,8 @@ class AcousticScenario:
                     tmp = sig.fftconvolve(
                         self.latentDesired[ii, smIdxEff[0]:smIdxEff[1]],
                         p.rirs[m][ii],
-                    )[:-(c.nfft - 1)] * fullSmoothWin
+                    )[:-(c.nfft - 1)]
+                    tmp = tmp[:len(fullSmoothWin)] * fullSmoothWin
                     self.nodes[k].td['sIndiv'][ii, jj, smIdxEff[0]:smIdxEff[1]] += tmp
             for ii in range(c.Qn):
                 # ---------------------------------------
@@ -1211,7 +1232,8 @@ class AcousticScenario:
                     tmp = sig.fftconvolve(
                         self.latentNoise[ii, smIdxEff[0]:smIdxEff[1]],
                         p.rirs[m][c.Qd + ii]
-                    )[:-(c.nfft - 1)] * fullSmoothWin
+                    )[:-(c.nfft - 1)]
+                    tmp = tmp[:len(fullSmoothWin)] * fullSmoothWin
                     self.nodes[k].td['nIndiv'][ii, jj, smIdxEff[0]:smIdxEff[1]] += tmp
             self.nodes[k].td['s'] = np.sum(self.nodes[k].td['sIndiv'], axis=0)
             self.nodes[k].td['n'] = np.sum(self.nodes[k].td['nIndiv'], axis=0)
@@ -1267,7 +1289,7 @@ class AcousticScenario:
             self.nodes[k].wd['s'][..., idxFrameBeg:idxFrameEnd] = s[c.Mkc[k]:c.Mkc[k + 1], ...]
             self.nodes[k].wd['n'][..., idxFrameBeg:idxFrameEnd] = n[c.Mkc[k]:c.Mkc[k + 1], ...]
 
-    def define_layout(self):
+    def define_layout(self, walls: list[pra.libroom.Wall]=None):
         """Define the layout of the acoustic scenario."""
         c = self.cfg
         rd = [c.roomLength, c.roomWidth, c.roomHeight]
@@ -1285,12 +1307,14 @@ class AcousticScenario:
                 speechSourcesPos[:, 2] = zPlane
                 noiseSourcesPos[:, 2] = zPlane
             return nodePos, sensorsPos, speechSourcesPos, noiseSourcesPos
-        
+
         # Generate node positions
         nodesPos = np.zeros((c.K, 3))
         for k in range(c.K):
-            tmp = np.random.rand(3) *\
-                (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
+            tmp = sample_position_from_room(
+                walls=walls,
+                min_dist=c.minDistFromWall,
+            )
             if c.onPlane:
                 tmp[2] = zPlane
             while np.any(
@@ -1298,8 +1322,10 @@ class AcousticScenario:
             ):
                 print(f"Node {k + 1}/{c.K} too close to another node, generating a new position...", end='\r')
                 # If the node is too close to another node, generate a new position
-                tmp = np.random.rand(3) *\
-                    (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
+                tmp = sample_position_from_room(
+                    walls=walls,
+                    min_dist=c.minDistFromWall,
+                )
                 if c.onPlane:
                     tmp[2] = zPlane
             # Store the position of the node
@@ -1338,16 +1364,20 @@ class AcousticScenario:
         # Generate source positions
         speechSourcesPos = np.zeros((c.Qd, 3))
         for ii in range(c.Qd):
-            attempt = np.random.rand(3) *\
-                (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
+            attempt = sample_position_from_room(
+                walls=walls,
+                min_dist=c.minDistFromWall,
+            )
             if c.onPlane:
                 attempt[2] = zPlane
             counter = 0
             while np.linalg.norm(attempt - nodesPos, axis=1).min() < c.minDistNodeSource:
                 print(f"Desired source {ii + 1}/{c.Qd} too close to a node, generating a new position (trial #{counter+1})...", end='\r')
                 # If the source is too close to a node, generate a new position
-                attempt = np.random.rand(3) *\
-                    (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
+                attempt = sample_position_from_room(
+                    walls=walls,
+                    min_dist=c.minDistFromWall,
+                )
                 if c.onPlane:
                     attempt[2] = zPlane
                 counter += 1
@@ -1357,8 +1387,10 @@ class AcousticScenario:
         # Generate noise source positions
         noiseSourcesPos = np.zeros((c.Qn, 3))
         for ii in range(c.Qn):
-            attempt = np.random.rand(3) *\
-                (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
+            attempt = sample_position_from_room(
+                walls=walls,
+                min_dist=c.minDistFromWall,
+            )
             if c.onPlane:
                 attempt[2] = zPlane
             counter = 0
@@ -1366,8 +1398,10 @@ class AcousticScenario:
                 np.linalg.norm(attempt - speechSourcesPos, axis=1).min() < c.minDistNodeSource:
                 print(f"Noise source {ii + 1}/{c.Qn} too close to a node or a desired source, generating a new position (trial #{counter+1})...", end='\r')
                 # If the source is too close to a node, generate a new position
-                attempt = np.random.rand(3) *\
-                    (np.array(rd) - 2 * c.minDistFromWall) + c.minDistFromWall
+                attempt = sample_position_from_room(
+                    walls=walls,
+                    min_dist=c.minDistFromWall,
+                )
                 if c.onPlane:
                     attempt[2] = zPlane
                 counter += 1
@@ -1397,19 +1431,20 @@ class AcousticScenario:
         room.compute_rir()
         print("Room impulse responses computed in {:.2f} s".format(time.time() - t0))
 
-        # Truncate RIRs to ensure respect of narrowband assumption
-        for ii in range(len(room.rir)):
-            for jj in range(len(room.rir[ii])):
-                # Truncate the RIRs to the first c.nfft samples
-                if len(room.rir[ii][jj]) > c.nfft:
-                    room.rir[ii][jj] = room.rir[ii][jj][:c.nfft]
-                elif len(room.rir[ii][jj]) < c.nfft:
-                    # Pad the RIRs with zeros to the first c.nfft samples
-                    room.rir[ii][jj] = np.pad(
-                        room.rir[ii][jj],
-                        (0, c.nfft - len(room.rir[ii][jj])),
-                        mode='constant'
-                    )
+        if c.truncateRIRsNarrowbandAssumption:
+            # Truncate RIRs to ensure respect of narrowband assumption
+            for ii in range(len(room.rir)):
+                for jj in range(len(room.rir[ii])):
+                    # Truncate the RIRs to the first c.nfft samples
+                    if len(room.rir[ii][jj]) > c.nfft:
+                        room.rir[ii][jj] = room.rir[ii][jj][:c.nfft]
+                    elif len(room.rir[ii][jj]) < c.nfft:
+                        # Pad the RIRs with zeros to the first c.nfft samples
+                        room.rir[ii][jj] = np.pad(
+                            room.rir[ii][jj],
+                            (0, c.nfft - len(room.rir[ii][jj])),
+                            mode='constant'
+                        )
         return room.rir
 
     def define_static_scenario(self, room: pra.ShoeBox, omFixed=None) -> StaticScenarioParameters:
@@ -1417,7 +1452,7 @@ class AcousticScenario:
 
         # Define the layout of the acoustic scenario
         nodesPos, sensorsPos, speechSourcesPos, noiseSourcesPos =\
-            self.define_layout()
+            self.define_layout(room.walls)
         
         if omFixed is None:
             # Create observability matrix based on the node and source positions
@@ -1471,7 +1506,12 @@ class AcousticScenario:
             trees=trees if flagTI else None,
         )
 
-    def get_observability_matrix(self, nodesPos=None, speechPos=None, noisePos=None) -> np.ndarray:
+    def get_observability_matrix(
+            self,
+            nodesPos=None,
+            speechPos=None,
+            noisePos=None
+        ) -> np.ndarray:
         """Compute the observability matrix."""
         c = self.cfg
         if c.observability == 'foss':
@@ -1969,3 +2009,96 @@ def compute_connectivity(cfg: Parameters, aMat):
     n1s_fc = cfg.K * (cfg.K - 1)  # number of 1's in adjacency matrix for full connectivity
     n1s_mc = 2 * cfg.K  # number of 1's in adjacency matrix for minimum connectivity
     return (n1s - n1s_mc) / (n1s_fc - n1s_mc)
+
+# ----------------------------
+# Geometry helpers
+# ----------------------------
+def point_to_plane_distance(p, p0, n):
+    """Distance from point p to plane (p0, n)."""
+    return abs(np.dot(p - p0, n))
+
+def project_point_to_plane(p, p0, n):
+    """Orthogonal projection of p onto plane (p0, n)."""
+    return p - np.dot(p - p0, n) * n
+
+def point_in_polygon_3d(p, poly, n):
+    """
+    Check if point p lies inside a convex 3D polygon poly.
+    Uses half-space tests.
+    """
+    m = poly.shape[1]
+    for i in range(m):
+        a = poly[:, i]
+        b = poly[:, (i + 1) % m]
+        edge = b - a
+        outward = np.cross(edge, n)
+        if np.dot(p - a, outward) > 1e-9:
+            return False
+    return True
+
+def point_to_segment_distance(p, a, b):
+    """Distance from point p to segment a-b."""
+    ab = b - a
+    t = np.dot(p - a, ab) / np.dot(ab, ab)
+    t = np.clip(t, 0.0, 1.0)
+    proj = a + t * ab
+    return np.linalg.norm(p - proj)
+
+def point_to_polygon_distance(p, poly):
+    """
+    Minimum Euclidean distance from point p to a convex polygon poly (3 x N).
+    """
+    # Plane normal
+    n = np.cross(poly[:, 1] - poly[:, 0], poly[:, 2] - poly[:, 0])
+    n = n / np.linalg.norm(n)
+
+    # Plane distance
+    d_plane = point_to_plane_distance(p, poly[:, 0], n)
+    p_proj = project_point_to_plane(p, poly[:, 0], n)
+
+    # If projection lies inside polygon, plane distance is the answer
+    if point_in_polygon_3d(p_proj, poly, n):
+        return d_plane
+
+    # Otherwise, distance to closest edge
+    d_edges = [
+        point_to_segment_distance(p, poly[:, i], poly[:, (i + 1) % poly.shape[1]])
+        for i in range(poly.shape[1])
+    ]
+    return min(d_edges)
+
+def sample_position_from_room(
+    walls: list[pra.libroom.Wall],
+    min_dist,
+    rng=None,
+    max_tries=100_000,
+):
+    """
+    Sample a random position inside a pyroomacoustics room
+    with minimum distance min_dist to ALL walls.
+    """
+    rng = np.random.default_rng() if rng is None else rng
+
+    # Conservative bounding box from wall vertices
+    all_pts = np.hstack([w.corners for w in walls])
+    mins = all_pts.min(axis=1) + min_dist
+    maxs = all_pts.max(axis=1) - min_dist
+
+    if np.any(mins >= maxs):
+        raise ValueError("No feasible region for this min_dist.")
+
+    for _ in range(max_tries):
+        p = rng.uniform(mins, maxs)
+
+        ok = True
+        for w in walls:
+            if point_to_polygon_distance(p, w.corners) < min_dist:
+                ok = False
+                break
+
+        if ok:
+            return p
+
+    raise RuntimeError(
+        f"Could not sample a valid position in {max_tries} attempts."
+    )

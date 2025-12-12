@@ -39,6 +39,9 @@ class Parameters:
     roomLength: float = 10.0  # length of the room in meters
     roomWidth: float = 10.0   # width of the room in meters
     roomHeight: float = 3.0   # height of the room in meters
+    middlePartition: bool = False  # if True, add a middle partition in the room
+    externalWallReflectionCoeff: float = 0.9  # reflection coefficient of the external walls (only used if `middlePartition` is True)
+    internalWallReflectionCoeff: float = 0.0  # reflection coefficient of the internal wall (only used if `middlePartition` is True)
     t60: float = 0.0          # reverberation time in seconds
     minDistFromWall: float = 0.25  # minimum distance from the wall in meters
     minDistNodeSource: float = 0.25  # minimum distance from any node to a source in meters
@@ -106,6 +109,10 @@ class Parameters:
     ignoreVAD_DANSEiterEveryXframes: bool = False  # if True, ignoring VAD for DANSEiterEveryXframes
     refNodeForTInorm: int = 0  # reference node for TI normalization
     dMWFalternating: bool = False  # if True, use alternating discovery/estimation steps in dMWF
+    useDANSEexternalFilters: bool = False  # if True, use external filters for DANSE
+    alphaExtFilters: Union[float, str] = 0.5  # forgetting factor for external filters in DANSE
+    # ^^^ if float, use this fixed value.
+    # ^^^ if 'log_i', use alpha = log10(10 + i), as in DANSE paper
 
     # VAD parameters
     useVAD: bool = False  # if True, update the SCMs based on a VAD decision
@@ -141,6 +148,7 @@ class Parameters:
     scmHeadStartNoiseAmount: float = 0  # noise amount added to head start SCMs
     gevdJustForDANSE: bool = False  # if True, use GEVD for DANSE algorithms
     upRyyEveryFrame: bool = True  # if True, update the Ryy SCM every frame, even if VAD says no speech activity
+    truncateRIRsNarrowbandAssumption: bool = True  # if True, truncate all RIRs to the first nfft samples to respect narrowband assumption in WOLA domain
 
     def __post_init__(self):
         np.random.seed(self.seed)

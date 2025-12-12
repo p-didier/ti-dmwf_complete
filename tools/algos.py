@@ -67,7 +67,7 @@ class Run:
             ],
             'tidanseplus': [
                 c.Mk[k] + c.Qd * len(asc.scenarios[0].trees[k].upNeighs[k]) for k in range(c.K)  # assuming MMUT pruning
-            ],
+            ] if 'tidanseplus' in c.algos else [],
         }
         baseListDANSEscms = {
             alg: [
@@ -98,6 +98,10 @@ class Run:
                 for k in range(c.K)
             ],
             'Wk': [
+                c.init_full((c.nPosFreqs, algDims[alg][k], algDims[alg][k]), random=True)
+                for k in range(c.K)
+            ],
+            'WkINT': [
                 c.init_full((c.nPosFreqs, algDims[alg][k], algDims[alg][k]), random=True)
                 for k in range(c.K)
             ],
@@ -247,7 +251,7 @@ class Run:
                 # profile.start()
                 tmp, ivOut = self.launch(
                     Ryy, Rss, Rnn,
-                    asc, graph,
+                    asc,
                     ivIn=iv,
                     silent=True,
                     scenarioIdx=scenarioIdx,
@@ -483,6 +487,7 @@ class Run:
                 Tk = ivIn[alg]['Tk']
                 WkkPrev_rS = ivIn[alg]['WkkPrev_rS']
                 Wk = ivIn[alg]['Wk']
+                WkINT = ivIn[alg]['WkINT']
                 u = ivIn[alg]['u']
                 tRyyPrev = ivIn[alg]['tRyy']
                 tRssPrev = ivIn[alg]['tRss']
@@ -504,7 +509,8 @@ class Run:
                 W_netWide[alg] = [[] for _ in range(c.K)]
                 for i in range(c.maxDANSEiter):
                     # Useful for TI-DANSE+ vvvv
-                    lSet_u_p = np.where(scn.trees[u].aMat[u, :] == 1)[0]
+                    if alg == 'tidanseplus':
+                        lSet_u_p = np.where(scn.trees[u].aMat[u, :] == 1)[0]
 
                     if not silent:
                         print(f"Iteration {i + 1}/{c.maxDANSEiter} for {alg}...", end='\r')
@@ -651,14 +657,14 @@ class Run:
                                 tRss, tRnn = single_update_scm(
                                     tRssPrev[k], tRnnPrev[k],
                                     ssH=ssH, nnH=nnH, beta=c.beta,
-                                    vad=ivIn['vad']
+                                    vad=ivIn['vad'] if c.useVAD else None
                                 )
                                 tRyy = tRss + tRnn
                             else:
                                 tRyy, tRnn = single_update_scm(
                                     tRyyPrev[k], tRnnPrev[k],
                                     ssH=yyH, nnH=nnH, beta=c.beta,
-                                    vad=ivIn['vad']
+                                    vad=ivIn['vad'] if c.useVAD else None
                                 )
                                 tRss = None
                         else:
@@ -674,14 +680,28 @@ class Run:
                         tRssPrev[k] = tRss
                         tRnnPrev[k] = tRnn
 
-                        # Update the filters
-                        if (k == u or alg.startswith("rsdanse")) and onlineModeCriterion:
-                            # ========== Compute the filter ==========
-                            Wk[k] = self.filtup(
+                        if c.useDANSEexternalFilters:
+                            # Update internal filters at every iteration/frame
+                            WkINT[k] = self.filtup(
                                 tRyy, tRnn,
                                 gevd=c.gevd if not c.gevdJustForDANSE else True,
                                 gevdRank=scn.Qdk[k]
                             )
+
+                        # Update the filters
+                        if (k == u or alg.startswith("rsdanse")) and onlineModeCriterion:
+                            # ========== Compute the filter ==========
+                            if not c.useDANSEexternalFilters:
+                                # pdate as usual
+                                Wk[k] = self.filtup(
+                                    tRyy, tRnn,
+                                    gevd=c.gevd if not c.gevdJustForDANSE else True,
+                                    gevdRank=scn.Qdk[k]
+                                )
+                            else:
+                                # Update external filters with a smoothing factor
+                                Wk[k] = c.alphaExtFilters * Wk[k] +\
+                                    (1 - c.alphaExtFilters) * WkINT[k]
 
                             if alg.startswith("rsdanse"):
                                 # For rS-DANSE, we apply a relaxation
@@ -727,11 +747,16 @@ class Run:
                         else:
                             Pk[k] = Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
 
-                        # Store the network-wide filter for this iteration/frame
+                        # Store the network-wide filter (used for the target
+                        # signal estimation) for this iteration/frame
                         if alg == 'tidanseplus':
                             pass  # handled later
                         else:
-                            W_netWide[alg][k].append(Ck @ Wk[k][..., :c.D])
+                            if c.useDANSEexternalFilters:
+                                # Network-wide filters are based on the internal filters
+                                W_netWide[alg][k].append(Ck @ WkINT[k][..., :c.D])
+                            else:
+                                W_netWide[alg][k].append(Ck @ Wk[k][..., :c.D])
                     
                     if alg == 'tidanseplus':
                         # Compute network-wide filters at the end of the iteration
@@ -764,7 +789,8 @@ class Run:
                 ivOut[alg] = {
                     'Pk': Pk,
                     'WkkPrev_rS': WkkPrev_rS,
-                    'Wk': Wk,  # Last filter for each node
+                    'Wk': Wk,  # Last (external) filter for each node
+                    'WkINT': WkINT,  # Last internal filter for each node
                     'u': u,
                     'i': iEff,  # effective iteration index
                     'tRyy': tRyyPrev,

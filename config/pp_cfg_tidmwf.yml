@@ -1,13 +1,13 @@
 # ==== File and Directory Parameters ====
 baseResultsDir: './out'  # Base directory for results
-resultsDir: './out/res_20251205_0811_allalgos_fods_1MC_withRIRsTrunc'  # Results subdirectory
-# resultsDir: 'latest'  # Results subdirecory
+# resultsDir: './out/_archive/res_20250902_2309_saa_4MCs_allAlgos'  # Results subdirectory
+resultsDir: 'latest'  # Results subdirecory
 
 # ==== Export and Recompute Flags ====
 export: false  # If True, export the figures to files
-# export: true  # If True, export the figures to files
+export: true  # If True, export the figures to files
 forceRecomputeMetrics: true  # If True, recompute metrics even if they exist
-# forceRecomputeMetrics: false  # If True, recompute metrics even if they exist
+forceRecomputeMetrics: false  # If True, recompute metrics even if they exist
 
 # ==== Metrics Computation Parameters ====
 metricsChunkDuration: 3  # Duration of the chunk to compute metrics over (in seconds)
@@ -18,7 +18,7 @@ IMinterval: 1  # IM interval specification
 # ^^^ if float: in % of signal, starting from the end 
 extendedStoi: false  # If True, use extended STOI computation
 metricsToComputeBasis:
-- ser
+# - ser
 - msew
 - msed
 metricsToComputeOverride: null  # If not None, override the metrics to compute
@@ -36,7 +36,6 @@ cumulatedAverage: false  # If True, apply a cumulative average (smoothing) to th
 metricsOverFirstSeconds: 2  # Number of seconds to consider for waveform-based metrics computation
 computeMetricsEveryNFrames: 10  # Compute metrics every N frames (for online processing)
 metricsMethod: 'entire_signal'  # Method for metrics computation
-# metricsMethod: 'recent_seconds'  # Method for metrics computation
 # metricsToComputeOverride:  # If not None, override the metrics to compute
 # - msew
 # - msed
@@ -44,9 +43,9 @@ multiSpeechSourceManagement: average  # 'separate' or 'average' or 'max' for mul
 MCmeanType: arithmetic  # Type of mean to use for Monte Carlo averaging ('arithmetic' or 'geometric')
 
 # ==== Node Selection Parameters ====
-# whichNodes: 'all'  # 'all' or a list of node indices to process
-whichNodes:
-- 0
+whichNodes: 'all'  # 'all' or a list of node indices to process
+# whichNodes:
+# - 0
 
 # ==== Plotting Parameters ====
 # forcedYlim:  # If not None, force y-axis limits for msew
@@ -59,8 +58,8 @@ n_per_col: 2  # Number of figures per column after plt.show()
 margin: 100  # Margin between figures in pixels
 # intelligibilityMetrics: []
 intelligibilityMetrics:
-- stoi
-- pesq
+# - stoi
+# - pesq
 # - dnsmos
 
 # ==== Debug Parameters ====

@@ -102,6 +102,26 @@ def main():
                 CFs['danse'].append(c.M / (c.K * c.Qd))
                 CFs['dmwf'].append(c.M / np.sum(asc.scenarios[0].oQq))
 
+                if 0:
+                    nDesSources = len(results['d'])
+                    algosss = list(results['shatk'][0].keys())
+                    nodeToFocusOn = 0
+                    fig, axes = plt.subplots(len(algosss), nDesSources, sharex=True, sharey=True)
+                    fig.set_size_inches(8.5, 3.5)
+                    for i in range(nDesSources):
+                        for j in range(len(algosss)):
+                            shatk = results['shatk'][nodeToFocusOn][algosss[j]][i][0, :]
+                            nhatk = results['nhatk'][nodeToFocusOn][algosss[j]][i][0, :]
+                            if len(algosss) == 1:
+                                ax = axes[i]
+                            else:
+                                ax = axes[j, i]
+                            ax.plot(shatk + nhatk)
+                            ax.plot(results['d'][i][nodeToFocusOn, 0, :], 'k', alpha=0.5)
+                            ax.set_ylabel(f"{algosss[j]}")
+                    fig.tight_layout()
+                    plt.show()
+
                 if p.metricsToComputeOverride is not None:
                     metricsToCompute = p.metricsToComputeOverride
                 else:

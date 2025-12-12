@@ -4,7 +4,8 @@ K: 6  # number of nodes
 Mk:  # number of sensors per node
 - 1
 - 2
-- '10--'
+- '5--'
+# - '10--'
 graphDiameter: null  # diameter of the graph corresponding to the network
 
 # Acoustic scenario parameters
@@ -21,7 +22,10 @@ TDsteeringMats: random  # type of steering matrices in time domain
 roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
-nodeRadius: 0.03  # radius of the node in meters
+# middlePartition: False  # if True, add a middle partition in the room
+middlePartition: True  # if True, add a middle partition in the room
+externalWallReflectionCoeff: 0.9  # reflection coefficient of the external walls (only used if `middlePartition` is True)
+nodeRadius: 0.05  # radius of the node in meters
 # onPlane: True  # if True, all elements are on the same plane
 onPlane: False  # if True, all elements are on the same plane
 # t60: 0.          # reverberation time in seconds
@@ -128,10 +132,14 @@ DANSEiterEveryXframes: 10  # DANSE iteration every X frames
 # DANSEiterEveryXframes: 30  # DANSE iteration every X frames
 #   ^^^ if useVAD is True, new DANSE iteration as soon as both Ryy and Rnn have both been updated at least X times.
 #   ^^^ if -1, new DANSE iteration every frame, regardless of useVAD 
-# ignoreVAD_DANSEiterEveryXframes: False  # if True, ignoring VAD for DANSEiterEveryXframes
-ignoreVAD_DANSEiterEveryXframes: True  # if True, ignoring VAD for DANSEiterEveryXframes
+ignoreVAD_DANSEiterEveryXframes: False  # if True, ignoring VAD for DANSEiterEveryXframes
+# ignoreVAD_DANSEiterEveryXframes: True  # if True, ignoring VAD for DANSEiterEveryXframes
 dMWFalternating: True  # if True, use alternating discovery/estimation steps in dMWF
 # dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
+# useDANSEexternalFilters: False  # if True, use external filters for DANSE
+useDANSEexternalFilters: True  # if True, use external filters for DANSE
+# alphaExtFilters: 0.5  # forgetting factor for external filters in DANSE
+alphaExtFilters: 0  # forgetting factor for external filters in DANSE
 
 # VAD parameters
 useVAD: True  # if True, update the SCMs based on a VAD decision
@@ -144,7 +152,8 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 # beta: 0.98  # forgetting factor for online processing
 beta: 0.975  # forgetting factor for online processing
-# beta: 0.85  # forgetting factor for online processing
+# beta: 0.978  # forgetting factor for online processing
+# beta: 0.875  # forgetting factor for online processing
 # beta: 1  # forgetting factor for online processing
 scmInitScaling: 0.1  # initial scaling for online SCM estimation
 
@@ -166,13 +175,15 @@ scmHeadStart: batch  # head start for SCM estimation
 #  ^^^ If True: head start, initialize SCMs as batch-mode SCMs
 scmHeadStartNoiseAmount: 0  # noise amount added to head start SCMs 
 # scmHeadStartNoiseAmount: 0.01  # noise amount added to head start SCMs 
-# gevdJustForDANSE: False  # if True, use GEVD for DANSE algorithms
-gevdJustForDANSE: True  # if True, use GEVD for DANSE algorithms
+gevdJustForDANSE: False  # if True, use GEVD for DANSE algorithms
+# gevdJustForDANSE: True  # if True, use GEVD for DANSE algorithms
 # upRyyEveryFrame: True  # if True, update the Ryy SCM every frame, even if VAD says no speech activity
 upRyyEveryFrame: False  # if True, update the Ryy SCM every frame, even if VAD says no speech activity
+# truncateRIRsNarrowbandAssumption: True  # if True, truncate all RIRs to the first nfft samples to respect narrowband assumption in WOLA domain
+truncateRIRsNarrowbandAssumption: False  # if True, truncate all RIRs to the first nfft samples to respect narrowband assumption in WOLA domain
 
 # General simulation set parameters
-# nMCruns: 1  # number of Monte Carlo runs
-nMCruns: 10  # number of Monte Carlo runs
-seed: 43  # random number generator seed
-suffix: dmwf_full  # output file suffix
+nMCruns: 1  # number of Monte Carlo runs
+# nMCruns: 10  # number of Monte Carlo runs
+seed: 41  # random number generator seed
+suffix: fixingRIRapplication   # output file suffix
