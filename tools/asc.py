@@ -522,6 +522,8 @@ class AcousticScenario:
             print(f"Defining base acoustic scenario...")
             room = self.setup_wola_domain_static()
             print("Base acoustic scenario defined.")
+            if 1:
+                self.plot()
         elif c.dynamics == 'moving' and c.scmEstimation == 'online':
             # Dynamic scenario with always-active sources and random source movements
             nScenarios = np.floor(c.T / c.movingEvery).astype(int)
@@ -620,6 +622,15 @@ class AcousticScenario:
                     sigPows[c.Mkc[k]:c.Mkc[k + 1], c.Qd + q] = np.mean(np.abs(sig) ** 2, axis=1)
         # Make relative to max
         sigPows /= np.max(sigPows)
+        # Only keep reference sensor of each node
+        sigPows = sigPows[c.Mkc[:-1], :]
+        # Compute self-noise power at each sensor
+        P_self = np.ones(c.K) * np.mean(pows) * c.selfNoiseFactor
+
+        obsMat = compute_observability_matrix(
+            P_ms=sigPows,
+            P_self=P_self,
+        )
 
         print("Acoustic environment generated successfully, computing SCMs...")
         # Compute SCMs (from steering matrices if oracle, from signals if batch)
@@ -987,20 +998,19 @@ class AcousticScenario:
             figObs.set_size_inches(5.5, 5.5)
             ax = figObs.add_subplot(111, projection='3d')
             # Plot the room
-            if 1:
-                ax.plot([0, c.roomLength], [0, 0], [0, 0], 'k-', alpha=0.5)
-                ax.plot([0, 0], [0, c.roomWidth], [0, 0], 'k-', alpha=0.5)
-                ax.plot([c.roomLength, c.roomLength], [0, c.roomWidth], [0, 0], 'k-', alpha=0.5)
-                ax.plot([0, c.roomLength], [c.roomWidth, c.roomWidth], [0, 0], 'k-', alpha=0.5)
-                ax.plot([0, 0], [0, 0], [0, c.roomHeight], 'k-', alpha=0.5)
-                ax.plot([0, 0], [c.roomWidth, c.roomWidth], [0, c.roomHeight], 'k-', alpha=0.5)
-                ax.plot([c.roomLength, c.roomLength], [0, 0], [0, c.roomHeight], 'k-', alpha=0.5)
-                ax.plot([c.roomLength, c.roomLength], [c.roomWidth, c.roomWidth], [0, c.roomHeight], 'k-', alpha=0.5)
-                ax.plot([0, c.roomLength], [0, 0], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
-                ax.plot([0, 0], [0, c.roomWidth], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
-                ax.plot([c.roomLength, c.roomLength], [0, 0], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
-                ax.plot([0, c.roomLength], [c.roomWidth, c.roomWidth], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
-                ax.plot([c.roomLength, c.roomLength], [0, c.roomWidth], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+            ax.plot([0, c.roomLength], [0, 0], [0, 0], 'k-', alpha=0.5)
+            ax.plot([0, 0], [0, c.roomWidth], [0, 0], 'k-', alpha=0.5)
+            ax.plot([c.roomLength, c.roomLength], [0, c.roomWidth], [0, 0], 'k-', alpha=0.5)
+            ax.plot([0, c.roomLength], [c.roomWidth, c.roomWidth], [0, 0], 'k-', alpha=0.5)
+            ax.plot([0, 0], [0, 0], [0, c.roomHeight], 'k-', alpha=0.5)
+            ax.plot([0, 0], [c.roomWidth, c.roomWidth], [0, c.roomHeight], 'k-', alpha=0.5)
+            ax.plot([c.roomLength, c.roomLength], [0, 0], [0, c.roomHeight], 'k-', alpha=0.5)
+            ax.plot([c.roomLength, c.roomLength], [c.roomWidth, c.roomWidth], [0, c.roomHeight], 'k-', alpha=0.5)
+            ax.plot([0, c.roomLength], [0, 0], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+            ax.plot([0, 0], [0, c.roomWidth], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+            ax.plot([c.roomLength, c.roomLength], [0, 0], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+            ax.plot([0, c.roomLength], [c.roomWidth, c.roomWidth], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
+            ax.plot([c.roomLength, c.roomLength], [0, c.roomWidth], [c.roomHeight, c.roomHeight], 'k-', alpha=0.5)
             # Plot the nodes
             for k in range(c.K):
                 ax.plot(
@@ -1042,6 +1052,24 @@ class AcousticScenario:
                     scn.noiseSourcesPos[ii, 0],
                     scn.noiseSourcesPos[ii, 1],
                     scn.noiseSourcesPos[ii, 2], f'N{ii+1}')
+            # Add parition (if any), as transparent area
+            if c.customScenarioPartition:
+                x_part = c.roomWidth / 2
+                y_top  = c.roomLength
+                y_bot  = c.roomLength / 2
+                z_bot  = 0.0
+                z_top  = c.roomHeight
+                xx, zz = np.meshgrid(
+                    np.array([x_part, x_part]),
+                    np.array([z_bot, z_top])
+                )
+                yy = np.array([[y_bot, y_bot], [y_top, y_top]])
+                ax.plot_surface(
+                    xx, yy, zz.T,
+                    color='gray',
+                    alpha=0.3,
+                    edgecolor='k'
+                )
             ax.set_xlabel('Length [m]')
             ax.set_ylabel('Width [m]')
             ax.set_zlabel('Height [m]')
@@ -2123,3 +2151,92 @@ def sample_position_from_room(
     raise RuntimeError(
         f"Could not sample a valid position in {max_tries} attempts."
     )
+
+def compute_observability_matrix(
+    P_ms,
+    P_self,
+    T_sir_db=-10.0,
+    T_snr_db=0.0,
+    use_network_gate=False,
+    delta_db=30.0,
+    eps=1e-12,
+):
+    """
+    Compute an M x S observability matrix.
+
+    Parameters
+    ----------
+    P_ms : ndarray, shape (M, S)
+        Oracle power of each source s at microphone m (speech + noise sources).
+        Must be linear power (not dB).
+
+    P_self : ndarray, shape (M,)
+        Microphone self-noise power at each microphone (linear scale).
+
+    T_sir_db : float, optional
+        SIR threshold in dB.
+        Default: -10 dB.
+
+    T_snr_db : float, optional
+        Self-noise SNR threshold in dB.
+        Default: 0 dB.
+
+    use_network_gate : bool, optional
+        Whether to apply the network-relative exposure gate.
+        Default: False.
+
+    delta_db : float, optional
+        Network-relative threshold Δ in dB.
+        A source must be within Δ dB of its strongest microphone.
+        Only used if use_network_gate=True.
+        Default: 30 dB.
+
+    eps : float, optional
+        Small constant to avoid division by zero.
+        Default: 1e-12.
+
+    Returns
+    -------
+    observable : ndarray, shape (M, S), dtype=bool
+        Boolean observability matrix.
+        observable[m, s] == True iff source s is observable at mic m.
+    """
+
+    P_ms = np.asarray(P_ms, dtype=float)
+    P_self = np.asarray(P_self, dtype=float)
+
+    M, S = P_ms.shape
+
+    # Total source power at each mic
+    P_sources_total = np.sum(P_ms, axis=1)  # shape (M,)
+
+    # Interference + self-noise power for each (m, s)
+    # P_{m,¬s} = sum_{s'≠s} P_{m,s'} + P_self[m]
+    P_interf = (
+        P_sources_total[:, None]
+        - P_ms
+        + P_self[:, None]
+    )
+
+    # --- SIR gate ---
+    SIR_db = 10.0 * np.log10((P_ms + eps) / (P_interf + eps))
+    sir_ok = SIR_db >= T_sir_db
+
+    # --- Self-noise SNR gate ---
+    SNR_db = 10.0 * np.log10((P_ms + eps) / (P_self[:, None] + eps))
+    snr_ok = SNR_db >= T_snr_db
+
+    # Combine mandatory gates
+    observable = sir_ok & snr_ok
+
+    # --- Optional network-relative gate ---
+    if use_network_gate:
+        # Max power per source across microphones
+        P_max_per_source = np.max(P_ms, axis=0)  # shape (S,)
+
+        rel_db = 10.0 * np.log10((P_ms + eps) / (P_max_per_source[None, :] + eps))
+        net_ok = rel_db >= -delta_db
+
+        observable &= net_ok
+
+    return observable
