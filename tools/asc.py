@@ -600,7 +600,27 @@ class AcousticScenario:
                 self.nodes[k].wd['sn'] = snSTFT
                 self.nodes[k].wd['n'] += self.nodes[k].wd['sn']
                 self.nodes[k].wd['y'] = self.nodes[k].wd['n'] + self.nodes[k].wd['s']
-        
+
+        # Compute per sensor per source signal powers
+        sigPows = np.zeros((c.M, c.Q))
+        for k in range(c.K):
+            for q in range(c.Qd):
+                if self.scenarios[0].obsMat[k, q] == 1:
+                    if c.wolaMixtures_viaTD:
+                        sig = self.nodes[k].td['sIndiv'][q, :, :]
+                    else:
+                        sig = self.nodes[k].wd['sIndiv'][q, :, :]
+                    sigPows[c.Mkc[k]:c.Mkc[k + 1], q] = np.mean(np.abs(sig) ** 2, axis=1)
+            for q in range(c.Qn):
+                if self.scenarios[0].obsMat[k, c.Qd + q] == 1:
+                    if c.wolaMixtures_viaTD:
+                        sig = self.nodes[k].td['nIndiv'][q, :, :]
+                    else:
+                        sig = self.nodes[k].wd['nIndiv'][q, :, :]
+                    sigPows[c.Mkc[k]:c.Mkc[k + 1], c.Qd + q] = np.mean(np.abs(sig) ** 2, axis=1)
+        # Make relative to max
+        sigPows /= np.max(sigPows)
+
         print("Acoustic environment generated successfully, computing SCMs...")
         # Compute SCMs (from steering matrices if oracle, from signals if batch)
         return self.compute_scms()
@@ -705,7 +725,7 @@ class AcousticScenario:
     def setup_room(self):
         """Setup the room for the acoustic scenario."""
         c = self.cfg
-        if not c.middlePartition:
+        if not c.customScenarioPartition:
             print(f"Setting up a single-room scenario with T60 = {c.t60} s.")
             # Compute material absorption coefficients from T60
             # using the Sabine formula
@@ -1213,7 +1233,7 @@ class AcousticScenario:
             # Apply the room impulse responses to the latent signals
             for ii in range(c.Qd):
                 # ---------------------------------------
-                if p.obsMat[k, ii] == 0:
+                if p.obsMat[k, ii] == 0 and not c.customScenarioPartition:
                     continue  # Skip if the node does not observe the source
                 # ---------------------------------------
                 for jj, m in enumerate(micIdx):
@@ -1225,7 +1245,7 @@ class AcousticScenario:
                     self.nodes[k].td['sIndiv'][ii, jj, smIdxEff[0]:smIdxEff[1]] += tmp
             for ii in range(c.Qn):
                 # ---------------------------------------
-                if p.obsMat[k, c.Qd + ii] == 0:
+                if p.obsMat[k, c.Qd + ii] == 0 and not c.customScenarioPartition:
                     continue  # Skip if the node does not observe the source
                 # ---------------------------------------
                 for jj, m in enumerate(micIdx):
@@ -1264,8 +1284,9 @@ class AcousticScenario:
                 # Only use one frequency line
                 tmp = tmp[:, [c.singleLine]]
             # Set the steering vectors of nodes that do not observe source ii to zero
-            for q in np.where(p.obsMat[:, ii] == 0)[0]:
-                tmp[c.Mkc[q]:c.Mkc[q + 1], :] = 0
+            if not c.customScenarioPartition:
+                for q in np.where(p.obsMat[:, ii] == 0)[0]:
+                    tmp[c.Mkc[q]:c.Mkc[q + 1], :] = 0
             Cmat[..., ii] = tmp.T
         slatSTFT = c.get_stft(self.latentDesired)
         nlatSTFT = c.get_stft(self.latentNoise)

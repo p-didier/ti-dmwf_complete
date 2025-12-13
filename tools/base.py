@@ -39,9 +39,9 @@ class Parameters:
     roomLength: float = 10.0  # length of the room in meters
     roomWidth: float = 10.0   # width of the room in meters
     roomHeight: float = 3.0   # height of the room in meters
-    middlePartition: bool = False  # if True, add a middle partition in the room
-    externalWallReflectionCoeff: float = 0.9  # reflection coefficient of the external walls (only used if `middlePartition` is True)
-    internalWallReflectionCoeff: float = 0.0  # reflection coefficient of the internal wall (only used if `middlePartition` is True)
+    customScenarioPartition: bool = False  # if True, add a middle partition in the room, no observability matrices, only thresholds on the algorithms
+    externalWallReflectionCoeff: float = 0.9  # reflection coefficient of the external walls (only used if `customScenarioPartition` is True)
+    internalWallReflectionCoeff: float = 0.0  # reflection coefficient of the internal wall (only used if `customScenarioPartition` is True)
     t60: float = 0.0          # reverberation time in seconds
     minDistFromWall: float = 0.25  # minimum distance from the wall in meters
     minDistNodeSource: float = 0.25  # minimum distance from any node to a source in meters

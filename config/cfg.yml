@@ -22,9 +22,9 @@ TDsteeringMats: random  # type of steering matrices in time domain
 roomLength: 5.0  # length of the room in meters
 roomWidth: 5.0   # width of the room in meters
 roomHeight: 3.0   # height of the room in meters
-# middlePartition: False  # if True, add a middle partition in the room
-middlePartition: True  # if True, add a middle partition in the room
-externalWallReflectionCoeff: 0.9  # reflection coefficient of the external walls (only used if `middlePartition` is True)
+# customScenarioPartition: False  # if True, add a middle partition in the room
+customScenarioPartition: True  # if True, add a middle partition in the room
+externalWallReflectionCoeff: 0.7  # reflection coefficient of the external walls (only used if `middlePartition` is True)
 nodeRadius: 0.05  # radius of the node in meters
 # onPlane: True  # if True, all elements are on the same plane
 onPlane: False  # if True, all elements are on the same plane
@@ -66,8 +66,8 @@ nhop: 512  # number of samples in FFT hop
 # nhop: 256  # number of samples in FFT hop
 win: hann  # STFT window type
 # win: rect  # STFT window type
-# dynamics: static  # type of acoustic scenario dynamics
-dynamics: moving  # type of acoustic scenario dynamics
+dynamics: static  # type of acoustic scenario dynamics
+# dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
