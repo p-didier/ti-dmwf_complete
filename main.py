@@ -27,11 +27,16 @@ PATH_TO_CFG = f".\\config\\cfg.yml"  # Path to the configuration file
 testParams = {
     # 'scmEstimation': ['oracle'],
     'scmEstimation': ['online'],
+    # 'scmEstimation': ['batch'],
     # 'observability': ['foss', 'poss'],
-    'observability': ['foss'],
-    # 'observability': ['poss'],
+    # 'observability': ['foss'],
+    'observability': ['poss'],
     # 'observability': ['gls'],
     # 'truncateRIRsNarrowbandAssumption': [True, False],
+    'thresholdObsRelDetectability': [-12, -10, -8],  # [dB]
+    # 'thresholdObsRelDetectability': [-12, -8],  # [dB]
+    # 'diffuseSNR': [-9999, -5],  # [dB]
+    # 'beta': [0.879, 0.938, 0.967],  # [dB]
 }
 
 # Build TEST_SET based on testParams

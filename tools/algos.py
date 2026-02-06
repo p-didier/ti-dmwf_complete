@@ -110,7 +110,6 @@ class Run:
             'gamma': np.array([np.eye(c.Qd) for _ in range(c.nPosFreqs)]) if c.domain == 'wola' else np.eye(c.Qd),  # normalization factor for TI-DANSE
         }) for alg in c.algos if 'danse' in alg])  # iteration variable for DANSE algorithms
 
-
         if c.scmEstimation == 'online':
             # Saving iteration index per frame per DANSE-like algo, for post-processing
             iSaved = dict([(alg, np.zeros(c.nFrames)) for alg in c.algos if 'danse' in alg])
@@ -195,10 +194,10 @@ class Run:
                         # using the even frames only, and update the dMWF
                         # discovery SCMs using the previous chunk of data.
                         if c.noCrossCorrelation:
-                            Rss_est, Rnn_est = single_update_scm(Rss_est, Rnn_est, **kwargs)
+                            # Rss_est, Rnn_est = single_update_scm(Rss_est, Rnn_est, **kwargs)
                             Rss_dis, Rnn_dis = single_update_scm(Rss_dis, Rnn_dis, **kwargs_prev)
                         else:
-                            Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs)
+                            # Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs)
                             Ryy_dis, Rnn_dis = single_update_scm(Ryy_dis, Rnn_dis, **kwargs_prev)
                     
                     elif l % 2 == 1 and flagdMWF_alternating:
@@ -207,10 +206,15 @@ class Run:
                         # estimation SCMs using the previous chunk of data.
                         if c.noCrossCorrelation:
                             Rss_dis, Rnn_dis = single_update_scm(Rss_dis, Rnn_dis, **kwargs)
-                            Rss_est, Rnn_est = single_update_scm(Rss_est, Rnn_est, **kwargs_prev)
+                            # Rss_est, Rnn_est = single_update_scm(Rss_est, Rnn_est, **kwargs_prev)
                         else:
                             Ryy_dis, Rnn_dis = single_update_scm(Ryy_dis, Rnn_dis, **kwargs)
-                            Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs_prev)
+                            # Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs_prev)
+
+                    if c.noCrossCorrelation:
+                        Rss_est, Rnn_est = single_update_scm(Rss_est, Rnn_est, **kwargs)
+                    else:
+                        Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs)
 
                     # Complete signal SCM
                     if c.noCrossCorrelation:
@@ -269,11 +273,16 @@ class Run:
                     iSaved[alg][l] = ivOut[alg]['i']  # save iteration index at current frame
                     for key, value in ivOut[alg].items():
                         iv[alg][key] = value
+        elif c.scmEstimation == 'batch':
+            # Batch SCM estimation (Ryy, Rss, Rnn already computed as batch
+            # estimates in `asc.setup()` via `AcousticScenario.compute_scms()`).
+            W_netWide = self.launch(
+                Ryy, Rss, Rnn, asc, ivIn=iv
+            )[0]
+            iSaved = None  # TODO: replace
         else:
             W_netWide = self.launch(
-                Ryy, Rss, Rnn,
-                asc,
-                ivIn=iv
+                Ryy, Rss, Rnn, asc, ivIn=iv
             )[0]
             iSaved = None  # placeholder
 
@@ -692,7 +701,7 @@ class Run:
                         if (k == u or alg.startswith("rsdanse")) and onlineModeCriterion:
                             # ========== Compute the filter ==========
                             if not c.useDANSEexternalFilters:
-                                # pdate as usual
+                                # Update as usual
                                 Wk[k] = self.filtup(
                                     tRyy, tRnn,
                                     gevd=c.gevd if not c.gevdJustForDANSE else True,
@@ -706,11 +715,22 @@ class Run:
                             if alg.startswith("rsdanse"):
                                 # For rS-DANSE, we apply a relaxation
                                 if c.scmEstimation == 'online':
-                                    alpha = 1 / np.log10(iEff + 10)
+                                    if isinstance(c.alphaSimUpFilters, float):
+                                        alpha_rS = c.alphaSimUpFilters
+                                    elif c.alphaSimUpFilters == '1/i':
+                                        alpha_rS = 1 / (iEff + 1)
+                                    elif c.alphaSimUpFilters == 'log_i':
+                                        alpha_rS = 1 / np.log10(iEff + 10)
                                 else:
-                                    alpha = 1 / np.log10(i + 10)
-                                Wk[k][..., :c.Mk[k], :scn.Qdk[k]] = (1 - alpha) * WkkPrev_rS[k] +\
-                                    alpha * Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
+                                    if isinstance(c.alphaSimUpFilters, float):
+                                        alpha_rS = c.alphaSimUpFilters
+                                    elif c.alphaSimUpFilters == '1/i':
+                                        alpha_rS = 1 / (i + 1)
+                                    elif c.alphaSimUpFilters == 'log_i':
+                                        alpha_rS = 1 / np.log10(i + 10)
+                                Wk[k][..., :c.Mk[k], :scn.Qdk[k]] = (1 - alpha_rS) *\
+                                    WkkPrev_rS[k] +\
+                                    alpha_rS * Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
                                 WkkPrev_rS[k] = Wk[k][..., :c.Mk[k], :scn.Qdk[k]]
 
                                 if k == 0:
@@ -773,7 +793,7 @@ class Run:
                             W_netWide[alg][k].append(
                                 np.concatenate(t, axis=-2)[..., :c.D]
                             )
-                        
+                    
                     # Update the normalization factor for TI-DANSE
                     if alg == 'tidanse': # and c.scmEstimation == 'online':
                         # Update anyway, always, at the reference node

@@ -33,21 +33,27 @@ t60: 0.2          # reverberation time in seconds
 minDistFromWall: 0.25  # minimum distance from the wall in meters
 minDistNodeSource: 1  # minimum distance from any node to a source in meters
 # observabilityCriterion: raw_distance  # criterion for computing observability
-observabilityCriterion: hierarchical  # criterion for computing observability
+# observabilityCriterion: hierarchical  # criterion for computing observability
+observabilityCriterion: threshold  # criterion for computing observability
     # 'raw_distance': based on the distance between nodes and sources
     # 'hierarchical': starting from full observability, then removing observability connections starting from the largest node-source distance
+    # 'threshold': based on power thresholding at the reference sensor. Overrides `observability`.
 # hierarchicalObsPruningThrs: 0.5  # for 'hierarchical' `observabilityCriterion`, threshold for pruning observability connections
 hierarchicalObsPruningThrs: 1  # for 'hierarchical' `observabilityCriterion`, threshold for pruning observability connections
     # if 0, no pruning is done
     # if 1, all possible observability connections are pruned, down to minimum criterion (observabilityCriterion = 'raw_distance')
     # intermediate values stop the pruning between 0 and 1.
+thresholdObsRelDetectability: -10.0  # Controls whether a source is distinguishable from competing sources at a node.
+    # "Is this source masked by the others at this microphone?"
+# thresholdObsAbsDetectability: 0.0  # Controls whether a source is above the microphone’s self-noise floor.
+    # "Is this source physically measurable at this microphone?"
 # maxDistForObservability: 0.05  # minimum distance for observability in meters
 maxDistForObservability: null  # minimum distance for observability in meters
 # latentSNR: 3.0  # SNR between the latent desired signals and the latent noise signals in dB
 latentSNR: 0.0  # SNR between the latent desired signals and the latent noise signals in dB
 # latentSNR: -5.0  # SNR between the latent desired signals and the latent noise signals in dB
-diffuseSNR: -9999.0  # SNR between the latent desired signals and the diffuse noise signals in dB
-# diffuseSNR: -10.0  # SNR between the latent desired signals and the diffuse noise signals in dB
+# diffuseSNR: -9999.0  # SNR between the latent desired signals and the diffuse noise signals in dB
+diffuseSNR: -10.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 # diffuseSNR: -5.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 # diffuseSNR: 0.0  # SNR between the latent desired signals and the diffuse noise signals in dB
 commDist: 1.5  # communication distance [m] (used at ad-hoc topology initialization, but `connectivity` plays a role)
@@ -66,18 +72,19 @@ nhop: 512  # number of samples in FFT hop
 # nhop: 256  # number of samples in FFT hop
 win: hann  # STFT window type
 # win: rect  # STFT window type
-dynamics: static  # type of acoustic scenario dynamics
-# dynamics: moving  # type of acoustic scenario dynamics
+# dynamics: static  # type of acoustic scenario dynamics
+dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
 # movingEvery: 10.0  # time in seconds after which sources move in `moving` scenarios
-# movingEvery: 5.0  # time in seconds after which sources move in `moving` scenarios
-movingEvery: 2.0  # time in seconds after which sources move in `moving` scenarios
+movingEvery: 5.0  # time in seconds after which sources move in `moving` scenarios
+# movingEvery: 2.0  # time in seconds after which sources move in `moving` scenarios
 fixedObservabilities: True  # if True, the observabilities are fixed
 dynamicWiggleSize: 0.2  # deviations to be applied to the nodes and sources positions if dynamics == 'moving', in meters
 # dynamicWiggleSize: 0.05  # deviations to be applied to the nodes and sources positions if dynamics == 'moving', in meters
-dynamicTransitionDuration: 0.1  # duration of the transition period for dynamic scenarios (smoothing)
+# dynamicTransitionDuration: 0.1  # duration of the transition period for dynamic scenarios (smoothing)
+dynamicTransitionDuration: 0.25  # duration of the transition period for dynamic scenarios (smoothing)
 
 # Signals parameters
 # fs: 41000  # sampling frequency
@@ -88,8 +95,9 @@ fs: 16000  # sampling frequency
 # T: 10.0  # duration of the signals in seconds
 # T: 15.0  # duration of the signals in seconds
 # T: 20.0  # duration of the signals in seconds
-T: 30.0  # duration of the signals in seconds
-# T: 60.0  # duration of the signals in seconds
+# T: 30.0  # duration of the signals in seconds
+# T: 40.0  # duration of the signals in seconds
+T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
@@ -127,8 +135,8 @@ mu: 1  # SDW-MWF factor
 gevd: True  # if True, use GEV decomposition instead of regular MWF in estimation filters
 # gevd: False  # if True, use GEV decomposition instead of regular MWF in estimation filters
 # DANSEiterEveryXframes: -1  # DANSE iteration every X frames
-DANSEiterEveryXframes: 10  # DANSE iteration every X frames
-# DANSEiterEveryXframes: 20  # DANSE iteration every X frames
+# DANSEiterEveryXframes: 10  # DANSE iteration every X frames
+DANSEiterEveryXframes: 20  # DANSE iteration every X frames
 # DANSEiterEveryXframes: 30  # DANSE iteration every X frames
 #   ^^^ if useVAD is True, new DANSE iteration as soon as both Ryy and Rnn have both been updated at least X times.
 #   ^^^ if -1, new DANSE iteration every frame, regardless of useVAD 
@@ -138,8 +146,12 @@ dMWFalternating: True  # if True, use alternating discovery/estimation steps in 
 # dMWFalternating: False  # if True, use alternating discovery/estimation steps in dMWF
 # useDANSEexternalFilters: False  # if True, use external filters for DANSE
 useDANSEexternalFilters: True  # if True, use external filters for DANSE
-# alphaExtFilters: 0.5  # forgetting factor for external filters in DANSE
-alphaExtFilters: 0  # forgetting factor for external filters in DANSE
+alphaExtFilters: 0.5  # forgetting factor for external filters in DANSE
+# alphaExtFilters: 0  # forgetting factor for external filters in DANSE
+alphaSimUpFilters: 1/i  # forgetting factor for simultaneous updating relaxation in rS-DANSE
+# ^^^ if float, use this fixed value.
+# ^^^ if '1/i', use alpha = 1 / i as in rS-DANSE paper.
+# ^^^ if 'log_i', use alpha = log10(10 + i), as in rS-DANSE paper
 
 # VAD parameters
 useVAD: True  # if True, update the SCMs based on a VAD decision
@@ -151,8 +163,9 @@ vadSmoothingPeriod: 0.2  # smoothing period for VAD decision [s]
 # Online mode parameters
 # frameDuration: 0.5  # length of the frame in seconds (for time-domain processing, otherwise using WOLA frames)
 # beta: 0.98  # forgetting factor for online processing
-beta: 0.975  # forgetting factor for online processing
+# beta: 0.975  # forgetting factor for online processing
 # beta: 0.978  # forgetting factor for online processing
+beta: 0.967  # forgetting factor for online processing
 # beta: 0.875  # forgetting factor for online processing
 # beta: 1  # forgetting factor for online processing
 scmInitScaling: 0.1  # initial scaling for online SCM estimation
@@ -183,7 +196,7 @@ upRyyEveryFrame: False  # if True, update the Ryy SCM every frame, even if VAD s
 truncateRIRsNarrowbandAssumption: False  # if True, truncate all RIRs to the first nfft samples to respect narrowband assumption in WOLA domain
 
 # General simulation set parameters
-nMCruns: 1  # number of Monte Carlo runs
-# nMCruns: 10  # number of Monte Carlo runs
+# nMCruns: 1  # number of Monte Carlo runs
+nMCruns: 10  # number of Monte Carlo runs
 seed: 41  # random number generator seed
-suffix: fixingRIRapplication   # output file suffix
+suffix: 10MCruns_   # output file suffix

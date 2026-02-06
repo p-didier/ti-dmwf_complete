@@ -1,13 +1,13 @@
 # ==== File and Directory Parameters ====
 baseResultsDir: './out'  # Base directory for results
-resultsDir: './out/res_20251205_0811_allalgos_fods_1MC_withRIRsTrunc'  # Results subdirectory
-# resultsDir: 'latest'  # Results subdirecory
+# resultsDir: './out/res_20251216_1434_test_threshold'  # Results subdirectory
+resultsDir: 'latest'  # Results subdirecory
 
 # ==== Export and Recompute Flags ====
 export: false  # If True, export the figures to files
 # export: true  # If True, export the figures to files
-forceRecomputeMetrics: true  # If True, recompute metrics even if they exist
-# forceRecomputeMetrics: false  # If True, recompute metrics even if they exist
+# forceRecomputeMetrics: true  # If True, recompute metrics even if they exist
+forceRecomputeMetrics: false  # If True, recompute metrics even if they exist
 
 # ==== Metrics Computation Parameters ====
 metricsChunkDuration: 3  # Duration of the chunk to compute metrics over (in seconds)

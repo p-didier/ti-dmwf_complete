@@ -58,6 +58,12 @@ def main():
         groupedFiles.setdefault(cfgRef, []).append(file)
     print(f"Grouped files by CFG number.")
 
+    if 0:  # HARD DEBUG for `res_20260123_1210_10MCruns_`
+        if p.resultsDir.stem == 'res_20260123_1210_10MCruns_':
+            for k, files in groupedFiles.items():
+                if 'cfg3' in k:
+                    groupedFiles[k] = files[:-1]  # Take all but the last file (the last MC run)
+
     # Derive appropriate figure size and position based on screen resolution
     fig_w, fig_h, screen_x, screen_y, num_cols = p.get_figsize(n=len(groupedFiles))
 
@@ -158,6 +164,12 @@ def main():
                     }
                     if p.plotWaveforms:
                         plot_signals(dataIn, c, kPlotIndex=p.whichNodes[0] if p.whichNodes != 'all' else 0)
+                
+                    # Special case: if the nodes of interest do not observe any speech source, skip metrics computation
+                    if not np.any(dataIn['obsMat'][p.whichNodes, :c.Qd]):
+                        print(f"Skipping metrics computation for CFG {cfgRef}, MC {idxMC+1} as none of the selected nodes observe any speech source.")
+                        continue
+                
                 else:
                     raise ValueError("Unknown results format (no 's' or 'shat' key in results dict).")
 
@@ -667,13 +679,13 @@ class PostProcessor:
 
         markers = ['o', 's', 'D', '^', 'v', 'x', '+']
         colors = {
-            'centralized': 'r',
+            'centralized': 'k',
             'local': '0.5',
             'unprocessed': '0.7',
             'danse': 'b',
             'tidanse': 'y',
             'rsdanse': 'g',
-            'dmwf': 'k',
+            'dmwf': 'r',
             'tidmwf': 'm',
         }
 

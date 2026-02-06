@@ -50,10 +50,15 @@ class Parameters:
     observabilityCriterion: str = 'raw_distance'  # criterion for computing observability
         # 'raw_distance': based on the distance between nodes and sources
         # 'hierarchical': starting from full observability, then removing observability connections starting from the largest node-source distance
+        # 'threshold': based on power thresholding at the reference sensor. Overrides `observability`.
     hierarchicalObsPruningThrs: float = 0.5  # for 'hierarchical' `observabilityCriterion`, threshold for pruning observability connections
         # if 0, no pruning is done
         # if 1, all possible observability connections are pruned, down to minimum criterion (observabilityCriterion = 'raw_distance')
         # intermediate values stop the pruning between 0 and 1.
+    thresholdObsRelDetectability: float = -10.0  # [dB] Controls whether a source is distinguishable from competing sources at a node.
+        # "Is this source masked by the others at this microphone?"
+    thresholdObsAbsDetectability: float = 0.0  # [dB] Controls whether a source is above the microphone’s self-noise floor.
+        # "Is this source physically measurable at this microphone?"
     maxDistForObservability: float = 0.5  # minimum distance for observability in meters
     latentSNR: float = 0.0  # SNR between the latent desired signals and the latent noise signals in dB
     diffuseSNR: float = -9999.0  # SNR between the latent desired signals and the diffuse noise signals in dB
@@ -113,6 +118,10 @@ class Parameters:
     alphaExtFilters: Union[float, str] = 0.5  # forgetting factor for external filters in DANSE
     # ^^^ if float, use this fixed value.
     # ^^^ if 'log_i', use alpha = log10(10 + i), as in DANSE paper
+    alphaSimUpFilters: Union[float, str] = 0.5  # forgetting factor for simultaneous updating relaxation in rS-DANSE
+    # ^^^ if float, use this fixed value.
+    # ^^^ if '1/i', use alpha = 1 / i as in rS-DANSE paper.
+    # ^^^ if 'log_i', use alpha = log10(10 + i), as in rS-DANSE paper
 
     # VAD parameters
     useVAD: bool = False  # if True, update the SCMs based on a VAD decision

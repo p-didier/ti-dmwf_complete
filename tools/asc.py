@@ -603,34 +603,68 @@ class AcousticScenario:
                 self.nodes[k].wd['n'] += self.nodes[k].wd['sn']
                 self.nodes[k].wd['y'] = self.nodes[k].wd['n'] + self.nodes[k].wd['s']
 
-        # Compute per sensor per source signal powers
-        sigPows = np.zeros((c.M, c.Q))
-        for k in range(c.K):
-            for q in range(c.Qd):
-                if self.scenarios[0].obsMat[k, q] == 1:
-                    if c.wolaMixtures_viaTD:
-                        sig = self.nodes[k].td['sIndiv'][q, :, :]
-                    else:
-                        sig = self.nodes[k].wd['sIndiv'][q, :, :]
-                    sigPows[c.Mkc[k]:c.Mkc[k + 1], q] = np.mean(np.abs(sig) ** 2, axis=1)
-            for q in range(c.Qn):
-                if self.scenarios[0].obsMat[k, c.Qd + q] == 1:
-                    if c.wolaMixtures_viaTD:
-                        sig = self.nodes[k].td['nIndiv'][q, :, :]
-                    else:
-                        sig = self.nodes[k].wd['nIndiv'][q, :, :]
-                    sigPows[c.Mkc[k]:c.Mkc[k + 1], c.Qd + q] = np.mean(np.abs(sig) ** 2, axis=1)
-        # Make relative to max
-        sigPows /= np.max(sigPows)
-        # Only keep reference sensor of each node
-        sigPows = sigPows[c.Mkc[:-1], :]
-        # Compute self-noise power at each sensor
-        P_self = np.ones(c.K) * np.mean(pows) * c.selfNoiseFactor
-
-        obsMat = compute_observability_matrix(
-            P_ms=sigPows,
-            P_self=P_self,
-        )
+        if c.observabilityCriterion == 'threshold':
+            # Compute per sensor per source signal powers
+            sigPows = np.zeros((c.M, c.Q))
+            for k in range(c.K):
+                for q in range(c.Qd):
+                    if self.scenarios[0].obsMat[k, q] == 1:
+                        if c.wolaMixtures_viaTD:
+                            sig = self.nodes[k].td['sIndiv'][q, :, :]
+                        else:
+                            sig = self.nodes[k].wd['sIndiv'][q, :, :]
+                        sigPows[c.Mkc[k]:c.Mkc[k + 1], q] = np.mean(np.abs(sig) ** 2, axis=1)
+                for q in range(c.Qn):
+                    if self.scenarios[0].obsMat[k, c.Qd + q] == 1:
+                        if c.wolaMixtures_viaTD:
+                            sig = self.nodes[k].td['nIndiv'][q, :, :]
+                        else:
+                            sig = self.nodes[k].wd['nIndiv'][q, :, :]
+                        sigPows[c.Mkc[k]:c.Mkc[k + 1], c.Qd + q] = np.mean(np.abs(sig) ** 2, axis=1)
+            # Only keep reference sensor of each node
+            sigPows = sigPows[c.Mkc[:-1], :]
+            # Compute self-noise power at each sensor
+            P_self = np.ones(c.K) * np.mean(pows) * c.selfNoiseFactor
+            # Compute observability matrix based on threshold
+            obsMat = obsmat_threshold(
+                P_ms=sigPows,
+                P_self=P_self,
+                T_sir_db=c.thresholdObsRelDetectability,
+                T_snr_db=c.thresholdObsAbsDetectability
+            )
+            self.obsmat = obsMat
+            for s in self.scenarios:
+                s.obsMat = obsMat
+            if 0:
+                # thrsRel = np.linspace(-10, -5, 5)
+                thrsRel = np.array([-12,-11,-10,-9,-8])
+                # thrsAbs = np.linspace(-20, 20, 5)
+                thrsAbs = np.array([0])
+                fig, axes = plt.subplots(len(thrsRel), len(thrsAbs), figsize=(8, 8), sharex=True, sharey=True)
+                for i, thrRel in enumerate(thrsRel):
+                    for j, thrAbs in enumerate(thrsAbs):
+                        if len(thrsRel) == 1:
+                            if len(thrsAbs) == 1:
+                                axesToUse = axes
+                            else:
+                                axesToUse = axes[j]
+                        elif len(thrsAbs) == 1:
+                            axesToUse = axes[i]
+                        else:
+                            axesToUse = axes[i, j]
+                        obsMatTest = obsmat_threshold(
+                            P_ms=sigPows,
+                            P_self=P_self,
+                            T_sir_db=thrRel,
+                            T_snr_db=thrAbs
+                        )
+                        axesToUse.imshow(obsMatTest, aspect='auto', cmap='gray_r')
+                        if i == 0:
+                            axesToUse.set_title(f'$T_{{snr}}$={thrAbs} dB')
+                        if j == 0:
+                            axesToUse.set_ylabel(f'$T_{{sir}}$={thrRel} dB')
+                fig.tight_layout()
+                plt.show()
 
         print("Acoustic environment generated successfully, computing SCMs...")
         # Compute SCMs (from steering matrices if oracle, from signals if batch)
@@ -1074,6 +1108,7 @@ class AcousticScenario:
             ax.set_ylabel('Width [m]')
             ax.set_zlabel('Height [m]')
             ax.set_title(f"Acoustic environment (scenario {scenarioIdx+1}/{len(self.scenarios)})")
+            fig = figObs
         return fig, figObs
 
     def plot_dynamic(self):
@@ -1668,6 +1703,9 @@ class AcousticScenario:
                         obsMat = obsMats[nToRemove]
                     else:
                         obsMat = obsMats[0]
+                elif c.observabilityCriterion == 'threshold':
+                    obsMat = np.ones((c.K, c.Qd + c.Qn))  # placeholder, will be
+                        # overriden by `compute_observability_matrix`
         return obsMat  # node x source
 
     def tree_pruning(
@@ -1792,7 +1830,7 @@ class AcousticScenario:
             # Resample the signal to the desired sampling frequency
             soundData = resample(soundData, fsRead, c.fs)
         # Apply high-pass filter (get rid of potential low-frequency hum from low-quality dataset)
-        # soundData = butter_highpass_filter(soundData, 0.01, 5)
+        soundData = butter_highpass_filter(soundData, 0.01, 5)
         # Normalize the signal
         soundData /= np.amax(np.abs(soundData))  # Normalize
         soundData -= np.mean(soundData)  # Remove DC offset
@@ -1959,28 +1997,6 @@ def get_upstream_nodes(G: nx.Graph, root):
     
     return upstreamNodes, upstreamNeighbors
 
-
-# def single_update_scm(RssPrev, RnnPrev, ssH, nnH, beta, vad=None):
-#     """Update the SCMs using the online estimation formula."""
-#     Rss = copy.deepcopy(RssPrev)  # by default, copy the previous SCM
-#     Rnn = copy.deepcopy(RnnPrev)  # by default, copy the previous SCM
-#     if vad is not None:
-#         if any(vad):  # <-- VOICE ACTIVITY ON
-#             Rss = beta * RssPrev + (1 - beta) * ssH
-#             # no update for noise SCM if VAD is False
-#         else:  # <-- VOICE ACTIVITY OFF
-#             Rss = beta * RssPrev + (1 - beta) * ssH
-#             # no update for speech+noise/speech-only SCM if VAD is False
-#             if RnnPrev is not None:
-#                 # Rnn = beta * RnnPrev + (1 - beta) * yyH
-#                 Rnn = beta * RnnPrev + (1 - beta) * nnH
-#     else:
-#         Rss = beta * RssPrev + (1 - beta) * ssH
-#         if RnnPrev is not None:
-#             Rnn = beta * RnnPrev + (1 - beta) * nnH
-#     return Rss, Rnn
-
-# import numpy as np
 
 def single_update_scm(Rss, Rnn, *, ssH, nnH, beta, vad=None, inplace=True, forceRyyUp=False):
     """
@@ -2152,7 +2168,7 @@ def sample_position_from_room(
         f"Could not sample a valid position in {max_tries} attempts."
     )
 
-def compute_observability_matrix(
+def obsmat_threshold(
     P_ms,
     P_self,
     T_sir_db=-10.0,
