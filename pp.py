@@ -58,11 +58,33 @@ def main():
         groupedFiles.setdefault(cfgRef, []).append(file)
     print(f"Grouped files by CFG number.")
 
-    if 0:  # HARD DEBUG for `res_20260123_1210_10MCruns_`
-        if p.resultsDir.stem == 'res_20260123_1210_10MCruns_':
-            for k, files in groupedFiles.items():
-                if 'cfg3' in k:
-                    groupedFiles[k] = files[:-1]  # Take all but the last file (the last MC run)
+    # Computing the compression factors
+    if 0:
+        CFs = {}
+        for i, (cfgRef, files) in enumerate(groupedFiles.items()):
+            CFs[cfgRef] = {'danse': [], 'dmwf': []}
+            for idxMC, f in enumerate(files):
+                with open(f, 'rb') as f:
+                    results = pickle.load(f)
+                if 'cfg' in results:
+                    c: Parameters = results['cfg']  # Configuration parameters
+                elif 'asc' in results:
+                    c: Parameters = results['asc'].cfg  # Configuration parameters
+                
+                asc = results['asc'].scenarios[0] # Take the first scenario
+                Mbar = c.M * (c.K - 1)
+                Nest = np.sum([
+                    np.sum([asc.oQq[q] for q in range(c.K) if q != k])
+                    for k in range(c.K)
+                ])
+                Ndis = np.sum([
+                    np.sum([asc.Qkq[k][q] for q in range(c.K) if q != k])
+                    for k in range(c.K)
+                ])
+                Nds = 2
+                Ndanse = c.K * (c.K - 1) * c.Qd
+                CFs[cfgRef]['danse'] = Mbar / Ndanse
+                CFs[cfgRef]['dmwf'] = Mbar / (Nest + Ndis / Nds)
 
     # Derive appropriate figure size and position based on screen resolution
     fig_w, fig_h, screen_x, screen_y, num_cols = p.get_figsize(n=len(groupedFiles))
@@ -106,7 +128,9 @@ def main():
                 # Compute compression factors
                 asc = results['asc']
                 CFs['danse'].append(c.M / (c.K * c.Qd))
-                CFs['dmwf'].append(c.M / np.sum(asc.scenarios[0].oQq))
+                CFs['dmwf'].append(c.M / np.sum(
+                    asc.scenarios[0].oQq
+                ))
 
                 if 0:
                     nDesSources = len(results['d'])
