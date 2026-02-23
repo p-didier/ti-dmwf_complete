@@ -4,8 +4,8 @@ baseResultsDir: './out'  # Base directory for results
 resultsDir: 'latest'  # Results subdirecory
 
 # ==== Export and Recompute Flags ====
-export: false  # If True, export the figures to files
-# export: true  # If True, export the figures to files
+# export: false  # If True, export the figures to files
+export: true  # If True, export the figures to files
 # forceRecomputeMetrics: true  # If True, recompute metrics even if they exist
 forceRecomputeMetrics: false  # If True, recompute metrics even if they exist
 

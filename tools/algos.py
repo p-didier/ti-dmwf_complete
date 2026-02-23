@@ -13,6 +13,7 @@ from .tree_utils import *
 import scipy.linalg as sla
 import matplotlib.pyplot as plt
 from pyinstrument import Profiler
+from pathlib import Path
 from dataclasses import dataclass
 from humanfriendly import format_timespan
 from .asc import AcousticScenario, single_update_scm, TreeWASN
@@ -27,6 +28,7 @@ class Run:
         tMaster = time.time()
         c = self.cfg
         asc = AcousticScenario(cfg=c)
+        
         # Generate tree (use for TI-dMWF old simulations)
         if c.graphDiameter is not None:
             graph = generate_tree_with_diameter(c.K, c.graphDiameter)
@@ -36,8 +38,38 @@ class Run:
                 graph.edges[u, v]['weight'] = np.random.random()
             graph = nx.minimum_spanning_tree(graph)
 
-        # Launch algorithms
+        # Set up the acoustic scenario (generate signals, compute SCMs, etc.)
         out = asc.setup()
+        
+        # Compute the compression factors
+        if 'dmwf' in c.algos:
+            CFs = {}
+            Mbar = c.M * (c.K - 1)
+            Nest = np.sum([
+                np.sum([asc.scenarios[0].oQq[q] for q in range(c.K) if q != k])
+                for k in range(c.K)
+            ])
+            Ndis = np.sum([
+                np.sum([asc.scenarios[0].Qkq[k][q] for q in range(c.K) if q != k])
+                for k in range(c.K)
+            ])
+            Ndanse = c.K * (c.K - 1) * c.Qd
+            CFs['danse'] = Mbar / Ndanse
+            CFs['dmwf'] = Mbar / (Nest + Ndis / c.Nds)
+            # Export to .TXT file c.cfsTxtFile
+            if c.cfsTxtFile != '':
+                ref = Path(c.outputFilePath).stem
+                with open(f'{Path(c.cfsTxtFile).parent}\\{Path(c.cfsTxtFile).stem}_{ref}.txt', 'w') as f:
+                    f.write(f"----------------------------\n")
+                    f.write(f"REFERENCE: {ref}\n")
+                    for alg in CFs.keys():
+                        f.write(f"{alg}: {CFs[alg]:.2f}\n")
+                print(f"Compression factors exported to {c.cfsTxtFile}")
+
+        if c.justCompressionFactors:
+            print(f"Compression factors: {CFs}")
+            return 0
+        
         Ryy, Rss, Rnn = out[0], out[1], out[2]
         if c.domain == 'wola':
             sigStack = out[3]
@@ -189,7 +221,7 @@ class Run:
                     else:
                         Ryy, Rnn = single_update_scm(Ryy, Rnn, **kwargs)
                     
-                    if l % 2 == 0 and flagdMWF_alternating:
+                    if l % c.Nds == 0 and flagdMWF_alternating:
                         # If alternating dMWF, update the dMWF estimation SCMs
                         # using the even frames only, and update the dMWF
                         # discovery SCMs using the previous chunk of data.
@@ -200,7 +232,7 @@ class Run:
                             # Ryy_est, Rnn_est = single_update_scm(Ryy_est, Rnn_est, **kwargs)
                             Ryy_dis, Rnn_dis = single_update_scm(Ryy_dis, Rnn_dis, **kwargs_prev)
                     
-                    elif l % 2 == 1 and flagdMWF_alternating:
+                    elif l % c.Nds == 1 and flagdMWF_alternating:
                         # If alternating dMWF, update the dMWF discovery SCMs
                         # using the odd frames only, and update the dMWF
                         # estimation SCMs using the previous chunk of data.

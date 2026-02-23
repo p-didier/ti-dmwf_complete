@@ -236,6 +236,7 @@ def main():
             placement=[pos_x, pos_y, fig_w, fig_h],
             nMC=len(files)
         )
+        fig.suptitle(cfgRef)
         if p.export:
             # Prompt user: are you sure?
             confirm = input(f"☝️ Are you sure you want to export metrics figures to {Path(c.outputDir).stem}? (y/n) ")
@@ -248,6 +249,16 @@ def main():
         
 
     plt.show(block=False)  # Show all figures
+
+    if 0:
+        # Make all figures full-screen (after they have been created and positioned, to avoid issues with some backends when creating figures directly in full-screen mode)
+        for i, manager in enumerate(matplotlib._pylab_helpers.Gcf.get_all_fig_managers()):
+            manager.full_screen_toggle()
+        # Save all figures as PNG, SVG
+        for i in plt.get_fignums():
+            plt.figure(i)
+            plt.savefig(f"{p.resultsDir}/metrics_{list(groupedFiles.keys())[i]}{suffixNodes}.svg", dpi=300)
+            plt.savefig(f"{p.resultsDir}/metrics_{list(groupedFiles.keys())[i]}{suffixNodes}.png", dpi=300)
     print("Post-processing completed.")
     return 0
 

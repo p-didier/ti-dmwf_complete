@@ -72,8 +72,8 @@ nhop: 512  # number of samples in FFT hop
 # nhop: 256  # number of samples in FFT hop
 win: hann  # STFT window type
 # win: rect  # STFT window type
-# dynamics: static  # type of acoustic scenario dynamics
-dynamics: moving  # type of acoustic scenario dynamics
+dynamics: static  # type of acoustic scenario dynamics
+# dynamics: moving  # type of acoustic scenario dynamics
     # 'static' for static scenario,
     # 'moving' for dynamic scenario with always-active sources and random source movements
     # 'switching' for dynamic scenario with sources that can appear and disappear
@@ -91,13 +91,13 @@ dynamicTransitionDuration: 0.25  # duration of the transition period for dynamic
 fs: 16000  # sampling frequency
 # fs: 8000  # sampling frequency
 # T: 0.05  # duration of the signals in seconds
-# T: 5.0  # duration of the signals in seconds
+T: 5.0  # duration of the signals in seconds
 # T: 10.0  # duration of the signals in seconds
 # T: 15.0  # duration of the signals in seconds
 # T: 20.0  # duration of the signals in seconds
 # T: 30.0  # duration of the signals in seconds
 # T: 40.0  # duration of the signals in seconds
-T: 60.0  # duration of the signals in seconds
+# T: 60.0  # duration of the signals in seconds
 # T: 120.0  # duration of the signals in seconds
 # T: 200.0  # duration of the signals in seconds
 # selfNoiseFactor: 0.000001  # self-noise factor, used to scale the noise covariance
@@ -152,6 +152,8 @@ alphaSimUpFilters: 1/i  # forgetting factor for simultaneous updating relaxation
 # ^^^ if float, use this fixed value.
 # ^^^ if '1/i', use alpha = 1 / i as in rS-DANSE paper.
 # ^^^ if 'log_i', use alpha = log10(10 + i), as in rS-DANSE paper
+# Nds: 1  # number of time-frames between consecutive (TI-)dMWF discovery steps
+Nds: 2  # number of time-frames between consecutive (TI-)dMWF discovery steps
 
 # VAD parameters
 useVAD: True  # if True, update the SCMs based on a VAD decision
@@ -194,9 +196,12 @@ gevdJustForDANSE: False  # if True, use GEVD for DANSE algorithms
 upRyyEveryFrame: False  # if True, update the Ryy SCM every frame, even if VAD says no speech activity
 # truncateRIRsNarrowbandAssumption: True  # if True, truncate all RIRs to the first nfft samples to respect narrowband assumption in WOLA domain
 truncateRIRsNarrowbandAssumption: False  # if True, truncate all RIRs to the first nfft samples to respect narrowband assumption in WOLA domain
+# justCompressionFactors: False  # if True, only compute the compression factors (based on the 1st static scenario), exporting them to a TXT file, and skip the actual desired signal estimation
+justCompressionFactors: True  # if True, only compute the compression factors (based on the 1st static scenario), exporting them to a TXT file, and skip the actual desired signal estimation
+cfsTxtFile: ''  # path to compression factors TXT file
 
 # General simulation set parameters
 # nMCruns: 1  # number of Monte Carlo runs
-nMCruns: 10  # number of Monte Carlo runs
+nMCruns: 6  # number of Monte Carlo runs
 seed: 41  # random number generator seed
-suffix: 10MCruns_   # output file suffix
+suffix: saa_justCFs_export   # output file suffix

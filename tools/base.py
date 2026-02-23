@@ -122,6 +122,7 @@ class Parameters:
     # ^^^ if float, use this fixed value.
     # ^^^ if '1/i', use alpha = 1 / i as in rS-DANSE paper.
     # ^^^ if 'log_i', use alpha = log10(10 + i), as in rS-DANSE paper
+    Nds: int = 1  # number of time-frames between consecutive (TI-)dMWF discovery steps
 
     # VAD parameters
     useVAD: bool = False  # if True, update the SCMs based on a VAD decision
@@ -158,12 +159,15 @@ class Parameters:
     gevdJustForDANSE: bool = False  # if True, use GEVD for DANSE algorithms
     upRyyEveryFrame: bool = True  # if True, update the Ryy SCM every frame, even if VAD says no speech activity
     truncateRIRsNarrowbandAssumption: bool = True  # if True, truncate all RIRs to the first nfft samples to respect narrowband assumption in WOLA domain
+    justCompressionFactors: bool = False  # if True, only compute the compression factors (based on the 1st static scenario), exporting them to a TXT file, and skip the actual desired signal estimation
+    cfsTxtFile: str = ''  # path to compression factors TXT file
 
     def __post_init__(self):
         np.random.seed(self.seed)
         self.N = int(self.fs * self.T)
 
         self.dynTransLen = int(self.dynamicTransitionDuration * self.fs)
+        self.cfsTxtFile = f'{self.outputDir}/compression_factors.txt'
 
         # Datatype
         if self.domain == 'wola':

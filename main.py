@@ -17,8 +17,6 @@ from pathlib import Path
 from tools.base import *
 from tools.algos import *
 from pp import main as postprocessing
-
-
 from pesq import pesq
 
 PATH_TO_CFG = f".\\config\\cfg.yml"  # Path to the configuration file
@@ -33,10 +31,11 @@ testParams = {
     'observability': ['poss'],
     # 'observability': ['gls'],
     # 'truncateRIRsNarrowbandAssumption': [True, False],
-    'thresholdObsRelDetectability': [-12, -10, -8],  # [dB]
+    'thresholdObsRelDetectability': [-10, -8, -6],  # [dB]
     # 'thresholdObsRelDetectability': [-12, -8],  # [dB]
     # 'diffuseSNR': [-9999, -5],  # [dB]
     # 'beta': [0.879, 0.938, 0.967],  # [dB]
+    'Nds': [2, 4, 8],  # [time-frames]
 }
 
 # Build TEST_SET based on testParams
