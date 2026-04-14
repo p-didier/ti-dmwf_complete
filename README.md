@@ -59,9 +59,13 @@ It is related to a Short Paper submitted to the IEEE Open Journal of Signal Proc
 ## References
 
 [1] P. Didier, T. van Waterschoot, S. Doclo, J. Bitzer, P. Behmandpoor, H. Gode, and M. Moonen, “Distributed Multichannel Wiener Filtering for Wireless Acoustic Sensor Networks,” 2025, submitted for publication in IEEE/ACM Trans. Audio, Speech, Language Process.
+
 [2] A. Bertrand and M. Moonen, “Distributed Adaptive Node-Specific Signal Estimation in Fully Connected Sensor Networks—Part I: Sequential Node Updating,” IEEE Trans. Signal Process., vol. 58, no. 10, pp. 5277–5291, 2010.
+
 [3] A. Bertrand and M. Moonen, “Distributed adaptive node-specific signal estimation in fully connected sensor networks—Part II: Simultaneous and asynchronous node updating,” IEEE Trans. Signal Process., vol. 58, no. 10, pp. 5292–5306, 2010.
+
 [4] J. Szurley, A. Bertrand, and M. Moonen, “Topology-Independent Distributed Adaptive Node-Specific Signal Estimation in Wireless Sensor Networks,” IEEE Trans. Signal Inf. Process. Netw., vol. 3, no. 1, pp. 130–144, 2017.
+
 [5] P. Didier, T. van Waterschoot, S. Doclo, J. Bitzer, and M. Moonen, “Fast-Converging Distributed Signal Estimation in Topology-Unconstrained Wireless Acoustic Sensor Networks,” 2025, accepted for publication in IEEE Trans. Signal Inf. Process. Netw.
 
 ## License
