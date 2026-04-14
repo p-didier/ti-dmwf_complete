@@ -1,10 +1,12 @@
-# TI-DMWF Repository
+# Topology-independent distributed multichannel Wiener filter (TI-dMWF)
 
 This repository contains the complete parametrizable simulation framework to:
 1. Simulate topology-unconstrained wireless acoustic sensor networks (WASNs) in a reverberant acoustic environment.
 2. Perform noise reduction (signal estimation) using basic multichannel Wiener filters - either in a centralized fashion at a hypothetical central processing unit, or at the node level.
-3. Perform distributed noise reduction (distributed signal estimation) using the dMWF, DANSE, or rS-DANSE for fully connected WASNs, or TI-dMWF or TI-DANSE for non-fully connected WASNs.
+3. Perform distributed noise reduction (distributed signal estimation) using the dMWF [[1]](https://arxiv.org/abs/2603.09735), DANSE [[2]](https://ieeexplore.ieee.org/abstract/document/5483076), or rS-DANSE [[3]](https://ieeexplore.ieee.org/abstract/document/5483092) for fully connected WASNs, or TI-dMWF [manuscript submitted to IEEE Open Journal of Signal Processing] or TI-DANSE [[4]](https://ieeexplore.ieee.org/document/7725559) for non-fully connected WASNs.
 4. Post-process simulations results, compute and visualize signal enhancement / noise reduction objective metrics.
+
+It is related to a Short Paper submitted to the IEEE Open Journal of Signal Processing.
 
 ## Project Structure
 
