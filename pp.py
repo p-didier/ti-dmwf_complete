@@ -236,6 +236,8 @@ def main():
             placement=[pos_x, pos_y, fig_w, fig_h],
             nMC=len(files)
         )
+        if not p.fitScreen:
+            fig.set_size_inches(8, 4)  # Set figure size in inches based on desired pixel size and actual DPI of the figure
         fig.suptitle(cfgRef)
         if p.export:
             # Prompt user: are you sure?
@@ -852,13 +854,14 @@ class PostProcessor:
             backend = matplotlib.get_backend().lower()
             manager = fig.canvas.manager
             # Set position
-            fig_w, fig_h = placement[2], placement[3]
-            if 'tkagg' in backend:
-                manager.window.wm_geometry(f"{int(fig_w)}x{int(fig_h)}+{int(placement[0])}+{int(placement[1])}")
-            elif 'qt' in backend:
-                manager.window.setGeometry(placement[0], placement[1], fig_w, fig_h)
-            else:
-                print(f"Unsupported backend '{backend}' for window positioning.")
+            if p.fitScreen:
+                fig_w, fig_h = placement[2], placement[3]
+                if 'tkagg' in backend:
+                    manager.window.wm_geometry(f"{int(fig_w)}x{int(fig_h)}+{int(placement[0])}+{int(placement[1])}")
+                elif 'qt' in backend:
+                    manager.window.setGeometry(placement[0], placement[1], fig_w, fig_h)
+                else:
+                    print(f"Unsupported backend '{backend}' for window positioning.")
 
         # === Additional figure: metrics aggregated per static segment as stairs ===
         if c.scmEstimation == 'online' and\

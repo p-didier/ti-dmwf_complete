@@ -48,6 +48,7 @@ class PostProcParameters:
     stairsPlot: bool = False  # If True, plot a metrics stairs plot for each static segment (only used in online mode with dynamic scenarios)
     n_per_col: int = 2  # Number of figures per column after plt.show()
     margin: int = 100  # Margin between figures in pixels
+    fitScreen: bool = True  # If True, fit the figures to the screen resolution
 
     # ==== Debug Parameters ====
     plotWaveforms: bool = False  # If True, plot waveforms for debugging
