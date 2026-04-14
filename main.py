@@ -21,6 +21,8 @@ from pp import main as postprocessing
 PATH_TO_CFG = f".\\config\\cfg.yml"  # Path to the configuration file for dMWF runs
 # PATH_TO_CFG = f".\\config\\cfg_tidmwf.yml"  # Path to the configuration file for TI-dMWF runs
 
+# Define the test parameters and their values for the test set
+# -- <param name>: [list of values to test]
 testParams = {
     'scmEstimation': ['online'],
     'observability': ['poss'],
