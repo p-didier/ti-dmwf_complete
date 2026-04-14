@@ -41,10 +41,18 @@ This repository contains the complete parametrizable simulation framework to:
 
 1. Configure simulation parameters in the appropriate YAML file under `config/`. Remember to modify the **file paths** for the sound file databases.
 2. Set the `PATH_TO_CFG` variable to your config file path.
+3. If you want to run batch experiments, adjust `testParams` in `main.py`.
 3. Run the main script:
         ```sh
         python main.py
         ```
+
+<p align="center">
+  <img src="figures/schematic_results_snippet.png" width="600">
+</p>
+<p align="center">
+  <b>Figure 1:</b> Snippet from manuscript submitted to IEEE Open Journal of Signal Processing in March 2026. The misalignment metric is the mean squared error between estimated and true desired signal. The simulation is conducted in batch mode.
+</p>
 
 ## License
 
